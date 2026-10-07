@@ -1,5 +1,5 @@
 'use strict';
-const VERSION='0.1.1';
+const VERSION='0.1.2';
 const $=s=>document.querySelector(s), esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function info(key){return `<button class="info" type="button" aria-label="${esc(key)} ${t('Help')}" data-help="${key}">i</button>`;}
 const defaults=()=>({auto:true,threshold:128,invert:false,min:0,fill:false,smooth:false});
@@ -22,7 +22,7 @@ function renderControls(){
  document.querySelectorAll('[data-step]').forEach(b=>b.classList.toggle('active',b.dataset.step===step));
  const c=$('#controls');
  if(step==='data'){
- c.innerHTML=`<h2>${t("Data")} ${info('unit')}</h2><label class="field">${t("View")}<select id="view"><option value="top">${t("Top View")}</option><option value="cross">${t("Cross Section")}</option></select></label><label class="field">${t("Additive")}<select id="material">${['TiO2','ZrO2','MnO2','Al2O3','LFP','Other'].map(x=>`<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(channelNames).map(([key,name])=>`<div class="drop" data-drop="${key}"><strong>${t(name)} ${key==='secondary'?info('secondary'):info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="filename">${esc(state.channels[key]?.name||'—')}</div>${state.channels[key]?`<button data-remove="${key}" class="compact">${t("Remove")}</button>`:''}</div>`).join('')}<div class="row"><button id="loadSession">${t("Load Session")}</button><button id="demo">${t("Synthetic")}</button></div>`;
+ c.innerHTML=`<h2>${t("Data")} ${info('unit')}</h2><label class="field">${t("View")}<select id="view"><option value="top">${t("Top View")}</option><option value="cross">${t("Cross Section")}</option></select></label><label class="field">${t("Additive")}<select id="material">${['TiO2','ZrO2','MnO2','Al2O3','LFP','Other'].map(x=>`<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(channelNames).map(([key,name])=>`<div class="drop" data-drop="${key}"><strong>${t(name)} ${key==='secondary'?info('secondary'):info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="filename">${esc(state.channels[key]?state.channels[key].name+' · '+state.channels[key].w+'×'+state.channels[key].h:'—')}</div>${state.channels[key]?`<button data-remove="${key}" class="compact">${t("Remove")}</button>`:''}</div>`).join('')}<div class="row"><button id="loadSession">${t("Load Session")}</button><button id="demo">${t("Synthetic")}</button></div>`;
  $('#view').value=state.view;$('#material').value=state.material;
  $('#view').onchange=e=>{state.view=e.target.value;dirty();renderControls();};$('#material').onchange=e=>{state.material=e.target.value;dirty();renderControls();};
  const mw=$('#materialWarning');if(state.material==='MnO2')mw.innerHTML=`<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>`;if(state.material==='Al2O3'&&state.view==='cross')mw.innerHTML=`<div class="warning">${t('Exclude Al current collector')} ${info('al')}</div>`;
@@ -47,16 +47,22 @@ function renderControls(){
 }
 function segIntensity(key){const ch=state.channels[key];if(key==='secondary'&&state.settings.ratio&&state.channels.nmc)return Float64Array.from(ch.data,(v,i)=>v/(state.channels.nmc.data[i]+state.settings.epsilon));return ch.data;}
 function setCalibration(value){state.settings.calibration=value>0&&Number.isFinite(value)?value:null;state.settings.binderRadius=state.settings.calibration?.5:3;dirty();renderControls();draw();}
+async function decodeLocalImage(file){
+ try{if(typeof createImageBitmap==='function')return await createImageBitmap(file);}catch(_){}
+ const url=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('File could not be read'));reader.readAsDataURL(file);});
+ return await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Image could not be decoded'));img.src=url;});
+}
+function sizeErrorMessage(){const sizes=Object.entries(state.channels).map(([k,c])=>`${t(channelNames[k])}: ${c.w}×${c.h}`).join(' · ');return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}`;}
 async function loadFile(file,key){if(!file)return;try{let ch;
  if(/\.csv$/i.test(file.name)){ch=Core.parseCSV(await file.text());ch.format='csv';}
- else if(/\.(png|jpe?g)$/i.test(file.name)){const img=await createImageBitmap(file),canvas=document.createElement('canvas');canvas.width=img.width;canvas.height=img.height;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const rgba=ctx.getImageData(0,0,img.width,img.height).data;ch={w:img.width,h:img.height,data:Float64Array.from({length:img.width*img.height},(_,i)=>Math.max(rgba[i*4],rgba[i*4+1],rgba[i*4+2])),image:canvas.toDataURL('image/png'),rgba:new Uint8ClampedArray(rgba),format:'image'};img.close();}
+ else if(/\.(png|jpe?g)$/i.test(file.name)){const img=await decodeLocalImage(file),canvas=document.createElement('canvas');canvas.width=img.naturalWidth||img.width;canvas.height=img.naturalHeight||img.height;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const rgba=ctx.getImageData(0,0,canvas.width,canvas.height).data;ch={w:canvas.width,h:canvas.height,data:Float64Array.from({length:canvas.width*canvas.height},(_,i)=>Math.max(rgba[i*4],rgba[i*4+1],rgba[i*4+2])),image:canvas.toDataURL('image/png'),rgba:new Uint8ClampedArray(rgba),format:'image'};img.close?.();}
  else throw Error('僅支援 PNG / JPG / CSV。');
- if(ch.w*ch.h>16e6)throw Error('Map 超過 1600 萬像素，請先縮小。');ch.name=file.name;if(crypto.subtle){const digest=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());ch.sha256=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');}const previous=dimensions();state.channels[key]=ch;channelVersion++;if(previous&&(previous.w!==ch.w||previous.h!==ch.h)){state.rois=[];state.roiInvert=false;}state.seg[key]&& (state.seg[key].auto=true);dirty();renderControls();renderChannels();draw();if(sizeError()){masks={};effectiveROI=null;status('Channel 尺寸不一致，請重新匯入相同尺寸 map。',true);}else{status(()=>`${t('Imported')} ${file.name}`);await preview();fit();}
- }catch(e){status(e.message,true);}}
+ if(ch.w*ch.h>16e6)throw Error('Map 超過 1600 萬像素，請先縮小。');ch.name=file.name;if(crypto.subtle){const digest=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());ch.sha256=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');}const previous=dimensions();state.channels[key]=ch;channelVersion++;if(previous&&(previous.w!==ch.w||previous.h!==ch.h)){state.rois=[];state.roiInvert=false;}state.seg[key]&& (state.seg[key].auto=true);dirty();renderControls();renderChannels();draw();if(sizeError()){masks={};effectiveROI=null;status(sizeErrorMessage,true);}else{status(()=>`${t('Imported')} ${file.name}`);await preview();fit();}
+ }catch(e){const reason=e.message;status(()=>`${t('Import failed')}: ${file.name} · ${messageText(reason)}`,true);}}
 function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(preview,80);}
 async function preview(){if(!dimensions()||sizeError())return;return compute(false);}
 async function compute(analyze=false){
- if(sizeError()){status('Channel 尺寸不一致，無法分析。',true);return;}if(!dimensions())return;
+ if(sizeError()){status(sizeErrorMessage,true);return;}if(!dimensions())return;
  if(analyze&&(!state.channels.nmc||!state.channels.secondary)){status('請載入 NMC 與 Secondary map。',true);return;}
  if(state.settings.ratio&&(!state.channels.nmc||!state.channels.secondary)){status('Ratio 需要 Ni 與 Mn map。',true);return;}
  if(analyze&&state.material==='Al2O3'&&state.view==='cross'&&!state.rois.length){status('Al₂O₃ 截面請先設定極層 ROI／排除集流體。',true);return;}
