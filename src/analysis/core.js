@@ -68,7 +68,7 @@ const Core = (() => {
   }
   function process(p) {
     const {w,h,channels,settings}=p,roi=roiMask(w,h,p.rois,p.roiInvert),masks={},thresholds={},intensities={};
-    for(const [key,ch] of Object.entries(channels))if(key!=='sem'&&key!=='other'){let a=ch.data;if(key==='secondary'&&settings.ratio){const ni=channels.nmc.data;a=Float64Array.from(a,(x,i)=>x/(ni[i]+settings.epsilon));}intensities[key]=a;const s=segment(a,w,h,roi,p.seg[key]);masks[key]=s.mask;thresholds[key]=s.threshold;}
+    for(const [key,ch] of Object.entries(channels))if(key!=='sem'&&key!=='other'){let a=ch.data;if(key==='secondary'&&settings.ratio){const ni=channels.nmc.data;a=Float64Array.from(a,(x,i)=>x/(ni[i]+settings.epsilon));}intensities[key]=ch.data;const s=segment(a,w,h,roi,p.seg[key]);masks[key]=s.mask;thresholds[key]=s.threshold;}
     const results=p.analyze ? analyze({w,h,roi,nmc:masks.nmc,secondary:masks.secondary,f:masks.f,secondaryIntensity:intensities.secondary,fIntensity:intensities.f,...settings}) : null;
     return {roi,masks,thresholds,results};
   }
