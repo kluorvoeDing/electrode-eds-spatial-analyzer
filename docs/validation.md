@@ -59,3 +59,7 @@ Intentional deviations：使用可追溯合成影像與真实計算 KPI，未使
 ## Remaining environment validation
 
 已驗證 Chromium 核心。Windows/macOS 官方 Chrome／Edge 實機、公司 EDS 真實 maps 與儀器 LUT 解讀，尚需目標環境驗證。未以此宣稱 PRD DoD 14 的實機驗收已完成。v0.1.0 為可操作的初始版本；完整 MVP 驗收仍保留這項環境確認。
+
+## v0.1.1 語言切換驗證
+
+2026-10-07：15 項數值／語言單元測試通過；原離線 workflow、PNG/JPG/CSV 匯入測試通過。專用語言流程涵蓋四個工作步驟的雙向切換、分析途中切換、state／ROI／遮罩／比較備註保持一致、繁中與英文 Session 還原、舊版 Session 相容、提示與錯誤訊息，以及 1440／1100／390 px 版面無水平溢出。離線 Chromium 153 無外部請求或 page error。既有目標平台實機驗證限制仍適用。

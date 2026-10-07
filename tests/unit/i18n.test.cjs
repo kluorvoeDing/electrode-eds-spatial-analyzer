@@ -1,0 +1,3 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {t,messageText,help,setUILanguage,getLanguage}=require('../../src/ui/i18n.js');
+test('Traditional Chinese default, English messages and help, invalid language rejection',()=>{assert.equal(getLanguage(),'zh-Hant');assert.equal(t('Import'),'匯入');const zhHelp=help.scope;assert.ok(zhHelp.includes('2D'));assert.equal(setUILanguage('en'),true);assert.equal(t('Import'),'Import');assert.equal(messageText('ROI 為空。'),'ROI is empty.');assert.ok(help.scope.includes('spatial'));assert.notEqual(help.scope,zhHelp);assert.equal(setUILanguage('bad'),false);assert.equal(getLanguage(),'en');setUILanguage('zh-Hant');assert.equal(messageText('ROI 為空。'),'分析區域為空。');assert.equal(t('unmapped'),'unmapped');});
