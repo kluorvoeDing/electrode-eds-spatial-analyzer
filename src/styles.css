@@ -503,6 +503,24 @@ main.collapsed .right {
   width: 100%;
   min-width: 0;
 }
+.crop-nudge {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.crop-nudge button[data-nudge] {
+  min-width: 32px;
+  padding-left: 0;
+  padding-right: 0;
+}
+.crop-fit {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+#cropSource:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .crop-confirm {
   display: block;
   margin: 16px 0;

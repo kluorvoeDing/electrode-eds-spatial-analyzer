@@ -322,6 +322,38 @@ HELP_ZH.pasteCrop =
   '在 VDI 複製影像或截圖，點選通道的貼上按鈕，再按 Ctrl+V。拖曳只框選有效元素圖，移除標題與比例尺。套用參考圖尺寸只改變裁切框的寬高，不會拉伸影像；各圖應以相同顯示倍率截圖並保留同一掃描範圍。尺寸相同不代表已對位，須以混合預覽人工確認。更換或重新裁切既有的分析通道（Ni／次要相／F），或影像尺寸改變時，會清除 ROI 與校正，截圖距離須重新校正；SEM 與其他元素僅供顯示，尺寸不變時保留。';
 HELP_EN.pasteCrop =
   'Copy an image or screenshot in VDI, select a channel, then press Ctrl+V. Crop only the map region. Reference dimensions change the crop rectangle without resizing pixels. Capture each map at the same display scale and retain the same field of view. Equal dimensions do not prove registration: inspect the blend preview. Replacing or recropping an analysis channel (Ni, secondary phase or F), or changing the image size, clears ROI and calibration; recalibrate screenshot distances. SEM and other-element maps are display-only and keep them when the size is unchanged.';
+Object.assign(UI_ZH, {
+  'Nudge (px)': '微調（像素）',
+  'Move left': '左移',
+  'Move right': '右移',
+  'Move up': '上移',
+  'Move down': '下移',
+  'Shift = 10 px': 'Shift＝10 px',
+  'Scale selection to reference size (SEM only)': '將框選區縮放為參考圖尺寸（僅限 SEM）',
+  'Lock reference aspect ratio': '鎖定參考圖長寬比',
+  'Preview mode': '預覽模式',
+  Blend: '混合',
+  Difference: '差異',
+  'Hold to show reference': '按住顯示參考圖',
+  Scale: '縮放',
+  'Horizontal and vertical scale differ by more than 2%; check the selected region.':
+    '水平與垂直縮放比例相差超過 2%；請檢查框選範圍。',
+  'SEM is display-only; resampled pixels never enter the metrics.':
+    'SEM 僅供顯示；重採樣後的像素不參與任何指標。',
+  'Display only, resampled': '僅供顯示，已重採樣',
+  'Only the SEM display channel can be resampled': '只有 SEM 顯示通道可以重採樣。',
+  'Invalid target size': '目標尺寸不合法。',
+  'Use Crop / review on SEM to scale it to the map grid.':
+    '請在 SEM 通道按「裁切／確認」，將 SEM 縮放到元素圖格點。',
+});
+HELP_ZH.nudge =
+  '以整數像素移動裁切框，寬高不變、不重採樣。也可點選左側影像後使用方向鍵；按住 Shift 一次移動 10 px。用混合、差異或按住顯示參考圖來檢查對位。';
+HELP_EN.nudge =
+  'Moves the crop by whole pixels; size is unchanged and nothing is resampled. Arrow keys work after clicking the source image; hold Shift for 10 px. Check alignment with the blend, difference or hold-to-show-reference views.';
+HELP_ZH.semFit =
+  'SEM 只作為顯示底圖，不進入任何指標，因此可以縮放。在 SEM 上框出元素圖實際掃描的區域（例如標示 Map Data 的白框），工具會把該區重採樣為參考通道的尺寸；縮小採面積平均、放大採雙線性內插。縮放比例與方式會記錄在 trace。Ni、次要相與 F 等分析通道永遠不重採樣。';
+HELP_EN.semFit =
+  'SEM is a display backdrop and never enters the metrics, so it may be scaled. Select the area the element maps actually scanned (for example the white Map Data box); it is resampled to the reference channel size using area averaging when shrinking and bilinear interpolation when enlarging. Scale and method are recorded in the trace. Analysis channels (Ni, secondary phase, F) are never resampled.';
 function t(key) {
   return language === 'zh-Hant' ? (UI_ZH[key] ?? key) : (UI_EN[key] ?? key);
 }

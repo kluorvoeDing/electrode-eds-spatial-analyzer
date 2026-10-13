@@ -93,7 +93,7 @@ async function decodeSessionImages(channels) {
 }
 
 const PNG_DATA_URL = /^data:image\/png;base64,/,
-  RESAMPLING_MODES = ['none', 'area-average', 'bilinear'];
+  RESAMPLING_MODES = ['none', 'area-average', 'bilinear', 'area-average+bilinear'];
 const isRecord = x => !!x && typeof x === 'object' && !Array.isArray(x),
   isBool = x => typeof x === 'boolean',
   isText = x => typeof x === 'string';

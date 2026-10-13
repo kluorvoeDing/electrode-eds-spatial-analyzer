@@ -20,16 +20,32 @@ function sizeErrorMessage() {
   const sizes = Object.entries(state.channels)
     .map(([k, c]) => `${t(channelNames[k])}: ${c.w}×${c.h}`)
     .join(' · ');
-  return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}`;
+  // An SEM image at its own magnification is expected; point at the tool that fits it.
+  const grid = gridChannel(),
+    sem = state.channels.sem,
+    semHint =
+      sem?.image && grid !== sem && (sem.w !== grid.w || sem.h !== grid.h)
+        ? ` · ${t('Use Crop / review on SEM to scale it to the map grid.')}`
+        : '';
+  return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}${semHint}`;
+}
+/* The analysis grid is set by the analysis channels; display-only channels define it only while
+   no analysis channel is loaded. */
+function gridChannel() {
+  return (
+    ANALYSIS_KEYS.map(k => state.channels[k]).find(Boolean) || Object.values(state.channels)[0]
+  );
 }
 /* Single entry point for putting a channel into the workspace. ROI and calibration describe the
    analysis grid, so both are cleared when an analysis channel is replaced or the grid size
-   changes. Adding a channel, or swapping a display-only one on the same grid, keeps them.
-   Returns whether anything was cleared. */
+   changes. Adding a channel, or changing a display-only one while analysis channels are loaded,
+   keeps them. Returns whether anything was cleared. */
 function replaceChannel(key, ch) {
-  const previous = dimensions(),
-    gridChanged = !!previous && (previous.w !== ch.w || previous.h !== ch.h),
-    reset = gridChanged || (!!state.channels[key] && ANALYSIS_KEYS.includes(key)),
+  const grid = gridChannel(),
+    isAnalysis = ANALYSIS_KEYS.includes(key),
+    definesGrid = isAnalysis || !ANALYSIS_KEYS.some(k => state.channels[k]),
+    gridChanged = !!grid && (grid.w !== ch.w || grid.h !== ch.h),
+    reset = definesGrid && (gridChanged || (isAnalysis && !!state.channels[key])),
     cleared =
       reset && !!(state.rois.length || state.roiInvert || state.settings.calibration !== null);
   state.channels[key] = ch;

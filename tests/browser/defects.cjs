@@ -114,11 +114,24 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(await gridState(), { rois: 1, calibration: 0.5 });
   await importCSV('nmc', 240, 240, 9); // replaced analysis channel
   assert.deepEqual(await gridState(), { rois: 0, calibration: null });
+  // A display channel of another size blocks analysis but does not move the analysis grid.
   await demo();
   await setROIAndCalibration();
-  await importCSV('sem', 120, 240); // grid size changed
-  assert.deepEqual(await gridState(), { rois: 0, calibration: null });
+  await importCSV('sem', 120, 240);
+  assert.deepEqual(await gridState(), { rois: 1, calibration: 0.5 });
   assert.match(await statusText(), /Channel dimensions differ/);
+  await importCSV('nmc', 120, 240); // analysis grid size changed
+  assert.deepEqual(await gridState(), { rois: 0, calibration: null });
+  // With display channels only, they define the grid.
+  await p.evaluate(() => {
+    for (const key of ['nmc', 'secondary', 'f', 'other']) delete state.channels[key];
+  });
+  await importCSV('sem', 120, 240);
+  await setROIAndCalibration();
+  await importCSV('other', 120, 240);
+  assert.deepEqual(await gridState(), { rois: 1, calibration: 0.5 });
+  await importCSV('sem', 60, 60);
+  assert.deepEqual(await gridState(), { rois: 0, calibration: null });
 
   // Calibration changes keep a user-chosen binder neighbourhood.
   await demo();
