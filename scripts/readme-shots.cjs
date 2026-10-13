@@ -149,6 +149,7 @@ fs.mkdirSync(TMP, { recursive: true });
   const shot = async (name, target = p, options = {}) => {
     await p.evaluate(() => {
       document.activeElement?.blur();
+      document.querySelector('#controls').scrollTop = 0;
       return new Promise(resolve => requestAnimationFrame(() => resolve()));
     });
     await target.screenshot({ path: path.join(OUT, name), ...options });
@@ -202,7 +203,9 @@ fs.mkdirSync(TMP, { recursive: true });
   await p.locator('#calibration').fill('0.2');
   await p.locator('#calibration').press('Tab');
   await p.waitForFunction(() => !busy);
+  await p.setViewportSize({ ...VIEW, height: 860 });
   await shot('06-roi.png');
+  await p.setViewportSize(VIEW);
 
   await p.locator('#nextStep').click();
   await p.locator('#segChannel').selectOption('secondary');
