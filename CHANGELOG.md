@@ -24,7 +24,7 @@
 - Worker 的快取與分割流程移入 `Core.createPipeline()`，與單元測試共用同一實作。
 - 版本號只定義於 `package.json`，建置時注入。
 - Playwright、Prettier 列為 devDependencies 並附 lockfile；`npm test` 一次執行單元與瀏覽器測試。
-- 測試：單元 16 → 34 項；瀏覽器 5 → 7 支（新增 `defects`、`alignment`）。
+- 測試：單元 16 → 34 項；瀏覽器 5 → 8 支（新增 `defects`、`alignment`、`legacy-session`）。
 
 ### Known limitations
 
