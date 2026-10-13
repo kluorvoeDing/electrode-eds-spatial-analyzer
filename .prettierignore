@@ -1,0 +1,6 @@
+dist/
+qa/
+node_modules/
+package-lock.json
+src/index.html
+*.md
