@@ -7,10 +7,11 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "format": "prettier --write src tests build.mjs",
+    "format": "prettier --write src tests scripts build.mjs",
     "test": "npm run test:unit && npm run test:browser",
     "test:unit": "node --test tests/unit/*.test.cjs",
-    "test:browser": "node build.mjs && node tests/browser/run-all.cjs"
+    "test:browser": "node build.mjs && node tests/browser/run-all.cjs",
+    "docs:shots": "node build.mjs && node scripts/readme-shots.cjs"
   },
   "devDependencies": {
     "playwright": "^1.64.0",
