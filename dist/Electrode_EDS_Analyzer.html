@@ -1731,7 +1731,7 @@ if (typeof document !== 'undefined') {
 }
 if (typeof module !== 'undefined') module.exports = { cropRectValid, cropRGBA };
 
-'use strict';
+/* Shared application state, defaults and constants. */
 const VERSION = '0.1.3';
 const $ = s => document.querySelector(s),
   esc = s =>
@@ -1790,6 +1790,17 @@ let step = 'data',
   previewTimer = null,
   channelVersion = 0,
   workerSentVersion = -1;
+const channelNames = {
+  sem: 'SEM / BSE',
+  nmc: 'NMC / Ni',
+  secondary: 'Secondary phase / Additive',
+  f: 'PVDF / F',
+  other: 'Other element',
+};
+let lastStatus = 'Ready',
+  lastStatusError = false;
+
+/* Worker bootstrap and the segment / analyze request cycle. */
 const worker = new Worker(
   URL.createObjectURL(new Blob(["/* Deterministic numerical core, shared by the browser Worker and Node tests. */\nconst Core = (() => {\n  const sum = a => a.reduce((s, x) => s + x, 0);\n  const fraction = (a, b) => (b ? a / b : null);\n  function cv(a) {\n    const m = sum(a) / a.length;\n    return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;\n  }\n  function parseCSV(text) {\n    const rows = text\n      .replace(/^\\uFEFF/, '')\n      .trim()\n      .split(/\\r?\\n/)\n      .map(x =>\n        x\n          .trim()\n          .split(',')\n          .map(v => {\n            if (!v.trim() || !Number.isFinite(Number(v))) throw Error('CSV 含空值或非數值。');\n            return Number(v);\n          }),\n      );\n    if (!rows.length || !rows[0].length || rows.some(r => r.length !== rows[0].length))\n      throw Error('CSV 各列欄數不一致。');\n    return { w: rows[0].length, h: rows.length, data: new Float64Array(rows.flat()) };\n  }\n  function range(a) {\n    let min = Infinity,\n      max = -Infinity;\n    for (const x of a) {\n      if (!Number.isFinite(x)) throw Error('Map 含非有限數值。');\n      min = Math.min(min, x);\n      max = Math.max(max, x);\n    }\n    return { min, max };\n  }\n  function otsu(a, roi) {\n    const { min, max } = range(a);\n    if (max === min) return min;\n    const hist = new Float64Array(256);\n    let n = 0;\n    for (let i = 0; i < a.length; i++)\n      if (!roi || roi[i]) {\n        hist[Math.min(255, Math.floor(((a[i] - min) / (max - min)) * 255))]++;\n        n++;\n      }\n    let total = 0;\n    for (let i = 0; i < 256; i++) total += i * hist[i];\n    let wb = 0,\n      sb = 0,\n      best = -1,\n      t = 0;\n    for (let i = 0; i < 255; i++) {\n      wb += hist[i];\n      sb += i * hist[i];\n      const wf = n - wb;\n      if (!wb || !wf) continue;\n      const score = wb * wf * (sb / wb - (total - sb) / wf) ** 2;\n      if (score > best) {\n        best = score;\n        t = i;\n      }\n    }\n    return min + ((t + 0.5) / 255) * (max - min);\n  }\n  function polygonContains(x, y, pts) {\n    let inside = false;\n    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {\n      const [xi, yi] = pts[i],\n        [xj, yj] = pts[j];\n      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;\n    }\n    return inside;\n  }\n  function roiMask(w, h, rois = [], invert = false) {\n    const inc = rois.filter(r => !r.exclude),\n      exc = rois.filter(r => r.exclude),\n      out = new Uint8Array(w * h);\n    const contains = (r, x, y) =>\n      r.type === 'rect'\n        ? x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h\n        : polygonContains(x, y, r.points);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let inside = !inc.length || inc.some(r => contains(r, x + 0.5, y + 0.5));\n        if (invert) inside = !inside;\n        out[y * w + x] = inside && !exc.some(r => contains(r, x + 0.5, y + 0.5)) ? 1 : 0;\n      }\n    return out;\n  }\n  function neighbors(i, w, h, fn) {\n    const x = i % w,\n      y = Math.floor(i / w);\n    if (x) fn(i - 1);\n    if (x < w - 1) fn(i + 1);\n    if (y) fn(i - w);\n    if (y < h - 1) fn(i + w);\n  }\n  function removeSmall(mask, w, h, min) {\n    if (min <= 1) return mask;\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    for (let i = 0; i < mask.length; i++)\n      if (mask[i] && !seen[i]) {\n        let head = 0,\n          tail = 1;\n        q[0] = i;\n        seen[i] = 1;\n        while (head < tail) {\n          neighbors(q[head++], w, h, j => {\n            if (mask[j] && !seen[j]) {\n              seen[j] = 1;\n              q[tail++] = j;\n            }\n          });\n        }\n        if (tail < min) for (let j = 0; j < tail; j++) mask[q[j]] = 0;\n      }\n    return mask;\n  }\n  function fillHoles(mask, w, h, roi) {\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    let head = 0,\n      tail = 0;\n    const add = i => {\n      if (!mask[i] && !seen[i]) {\n        seen[i] = 1;\n        q[tail++] = i;\n      }\n    };\n    for (let i = 0; i < mask.length; i++)\n      if (!roi[i] || i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) add(i);\n    while (head < tail) neighbors(q[head++], w, h, add);\n    for (let i = 0; i < mask.length; i++) if (roi[i] && !seen[i]) mask[i] = 1;\n    return mask;\n  }\n  function smooth(mask, w, h, roi) {\n    const out = new Uint8Array(mask.length);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let count = 0,\n          n = 0;\n        for (let dy = -1; dy <= 1; dy++)\n          for (let dx = -1; dx <= 1; dx++) {\n            const xx = x + dx,\n              yy = y + dy;\n            if (xx >= 0 && xx < w && yy >= 0 && yy < h && roi[yy * w + xx]) {\n              n++;\n              count += mask[yy * w + xx];\n            }\n          }\n        out[y * w + x] = roi[y * w + x] && count > n / 2 ? 1 : 0;\n      }\n    return out;\n  }\n  function segment(a, w, h, roi, p) {\n    const threshold = p.auto ? otsu(a, roi) : p.threshold;\n    let m = new Uint8Array(a.length);\n    for (let i = 0; i < a.length; i++) m[i] = roi[i] && a[i] > threshold !== !!p.invert ? 1 : 0;\n    if (p.smooth) m = smooth(m, w, h, roi);\n    if (p.fill) m = fillHoles(m, w, h, roi);\n    m = removeSmall(m, w, h, p.min || 0);\n    return { mask: m, threshold };\n  }\n  function perimeter(m, w, h) {\n    const p = new Uint8Array(m.length);\n    for (let i = 0; i < m.length; i++)\n      if (m[i]) {\n        if (i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) p[i] = 1;\n        else\n          neighbors(i, w, h, j => {\n            if (!m[j]) p[i] = 1;\n          });\n      }\n    return p;\n  }\n  /* Felzenszwalb/Huttenlocher separable lower envelope; pixel-centre Euclidean distances. */\n  function edt(seed, w, h) {\n    const n = Math.max(w, h),\n      f = new Float64Array(n),\n      d = new Float64Array(n),\n      v = new Int32Array(n),\n      z = new Float64Array(n + 1),\n      tmp = new Float64Array(w * h),\n      out = new Float64Array(w * h),\n      INF = 1e20;\n    if (!seed.some(x => x)) {\n      out.fill(Infinity);\n      return out;\n    }\n    function line(len) {\n      let k = 0;\n      v[0] = 0;\n      z[0] = -Infinity;\n      z[1] = Infinity;\n      for (let q = 1; q < len; q++) {\n        let s;\n        do {\n          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\n          if (s <= z[k]) k--;\n          else break;\n        } while (k >= 0);\n        if (k < 0) {\n          k = 0;\n          v[0] = q;\n          z[0] = -Infinity;\n          z[1] = Infinity;\n        } else {\n          k++;\n          v[k] = q;\n          z[k] = s;\n          z[k + 1] = Infinity;\n        }\n      }\n      k = 0;\n      for (let q = 0; q < len; q++) {\n        while (z[k + 1] < q) k++;\n        d[q] = (q - v[k]) ** 2 + f[v[k]];\n      }\n    }\n    for (let x = 0; x < w; x++) {\n      for (let y = 0; y < h; y++) f[y] = seed[y * w + x] ? 0 : INF;\n      line(h);\n      for (let y = 0; y < h; y++) tmp[y * w + x] = d[y];\n    }\n    for (let y = 0; y < h; y++) {\n      for (let x = 0; x < w; x++) f[x] = tmp[y * w + x];\n      line(w);\n      for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(d[x]);\n    }\n    return out;\n  }\n  function pearson(a, b, roi) {\n    let n = 0,\n      ma = 0,\n      mb = 0,\n      va = 0,\n      vb = 0,\n      c = 0;\n    for (let i = 0; i < a.length; i++)\n      if (roi[i]) {\n        n++;\n        const da = a[i] - ma,\n          db = b[i] - mb;\n        ma += da / n;\n        mb += db / n;\n        va += da * (a[i] - ma);\n        vb += db * (b[i] - mb);\n        c += da * (b[i] - mb);\n      }\n    return va > 0 && vb > 0 ? Math.max(-1, Math.min(1, c / Math.sqrt(va * vb))) : null;\n  }\n  function analyze({\n    w,\n    h,\n    roi,\n    nmc,\n    secondary,\n    f,\n    secondaryIntensity,\n    fIntensity,\n    grid = 5,\n    calibration = null,\n    binderRadius = 3,\n    view = 'top',\n    depthAxis = 'y',\n    depthReverse = false,\n  }) {\n    const nr = sum(roi),\n      nn = sum(nmc),\n      ns = sum(secondary);\n    if (!nr) throw Error('ROI 為空。');\n    if (!nn) throw Error('NMC mask 為空，請調整 threshold。');\n    if (!ns) throw Error('Secondary mask 為空，請調整 threshold。');\n    let ng = 0,\n      sg = 0,\n      overlap = 0,\n      nf = f ? sum(f) : 0;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        if (!nmc[i]) {\n          ng++;\n          sg += secondary[i];\n        }\n        if (f && f[i] && secondary[i]) overlap++;\n      }\n    let xmin = w,\n      xmax = -1,\n      ymin = h,\n      ymax = -1;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        xmin = Math.min(xmin, i % w);\n        xmax = Math.max(xmax, i % w);\n        ymin = Math.min(ymin, Math.floor(i / w));\n        ymax = Math.max(ymax, Math.floor(i / w));\n      }\n    const rw = xmax - xmin + 1,\n      rh = ymax - ymin + 1;\n    const tiles = [];\n    for (let gy = 0; gy < grid; gy++)\n      for (let gx = 0; gx < grid; gx++) {\n        let a = 0,\n          b = 0;\n        for (\n          let y = ymin + Math.floor((gy * rh) / grid);\n          y < ymin + Math.floor(((gy + 1) * rh) / grid);\n          y++\n        )\n          for (\n            let x = xmin + Math.floor((gx * rw) / grid);\n            x < xmin + Math.floor(((gx + 1) * rw) / grid);\n            x++\n          ) {\n            const i = y * w + x;\n            a += roi[i];\n            b += secondary[i];\n          }\n        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null });\n      }\n    const dist = edt(perimeter(nmc, w, h), w, h),\n      values = new Float64Array(ns),\n      scale = calibration || 1;\n    let k = 0,\n      total = 0;\n    for (let i = 0; i < dist.length; i++)\n      if (secondary[i]) {\n        values[k++] = dist[i] * scale;\n        total += dist[i] * scale;\n      }\n    values.sort();\n    const quantile = q => {\n      const p = q * (values.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return values[lo] + (values[hi] - values[lo]) * (p - lo);\n    };\n    const bins = [0, 0, 0, 0],\n      edges = calibration ? [0.5, 1, 2] : [1, 2, 3];\n    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;\n    const max = values[values.length - 1],\n      hist = new Array(20).fill(0);\n    for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;\n    let coverage = null;\n    if (f && nf) {\n      const sp = perimeter(secondary, w, h),\n        fd = edt(f, w, h);\n      let p = 0,\n        hit = 0;\n      for (let i = 0; i < sp.length; i++)\n        if (sp[i]) {\n          p++;\n          if (fd[i] * scale <= binderRadius) hit++;\n        }\n      coverage = fraction(hit, p);\n    } else if (f) coverage = 0;\n    let depth = null;\n    if (view === 'cross') {\n      let min = Infinity,\n        max = -Infinity;\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coordinate = depthAxis === 'x' ? i % w : Math.floor(i / w);\n          min = Math.min(min, coordinate);\n          max = Math.max(max, coordinate);\n        }\n      const zones = Array.from({ length: 3 }, (_, j) => ({\n        zone: ['Top', 'Middle', 'Bottom'][j],\n        area: 0,\n        secondary: 0,\n        f: 0,\n        overlap: 0,\n      }));\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coord = depthAxis === 'x' ? i % w : Math.floor(i / w),\n            norm = (coord - min + 0.5) / (max - min + 1);\n          let z = Math.min(2, Math.floor(norm * 3));\n          if (depthReverse) z = 2 - z;\n          const a = zones[z];\n          a.area++;\n          a.secondary += secondary[i];\n          a.f += f ? f[i] : 0;\n          a.overlap += f && f[i] && secondary[i] ? 1 : 0;\n        }\n      for (const a of zones) {\n        a.secondaryFraction = fraction(a.secondary, a.area);\n        a.fFraction = f ? fraction(a.f, a.area) : null;\n        a.overlapFraction = f ? fraction(a.overlap, a.area) : null;\n      }\n      depth = {\n        zones,\n        cv: cv(zones.filter(z => z.area).map(z => z.secondaryFraction)),\n        fCV: f ? cv(zones.filter(z => z.area).map(z => z.fFraction)) : null,\n      };\n    }\n    return {\n      roiPixels: nr,\n      nmcPixels: nn,\n      secondaryPixels: ns,\n      fPixels: f ? nf : null,\n      secondaryAreaFraction: ns / nr,\n      uniformityCV: cv(tiles.filter(t => t.area).map(t => t.fraction)),\n      interparticleOccupancy: fraction(sg, ng),\n      targetingEfficiency: sg / ns,\n      distance: {\n        unit: calibration ? 'μm' : 'px',\n        mean: total / ns,\n        median: quantile(0.5),\n        p90: quantile(0.9),\n        max,\n        bins,\n        edges,\n        histogram: hist,\n      },\n      pearson: f ? pearson(secondaryIntensity, fIntensity, roi) : null,\n      fWithSecondary: f ? fraction(overlap, nf) : null,\n      secondaryWithF: f ? overlap / ns : null,\n      binderCoverage: coverage,\n      depth,\n      tiles,\n      warnings: [\n        nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,\n        ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,\n        f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,\n        ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,\n      ].filter(Boolean),\n    };\n  }\n  function process(p) {\n    const { w, h, channels, settings } = p,\n      roi = roiMask(w, h, p.rois, p.roiInvert),\n      masks = {},\n      thresholds = {},\n      intensities = {};\n    for (const [key, ch] of Object.entries(channels))\n      if (key !== 'sem' && key !== 'other') {\n        let a = ch.data;\n        if (key === 'secondary' && settings.ratio) {\n          const ni = channels.nmc.data;\n          a = Float64Array.from(a, (x, i) => x / (ni[i] + settings.epsilon));\n        }\n        intensities[key] = ch.data;\n        const s = segment(a, w, h, roi, p.seg[key]);\n        masks[key] = s.mask;\n        thresholds[key] = s.threshold;\n      }\n    const results = p.analyze\n      ? analyze({\n          w,\n          h,\n          roi,\n          nmc: masks.nmc,\n          secondary: masks.secondary,\n          f: masks.f,\n          secondaryIntensity: intensities.secondary,\n          fIntensity: intensities.f,\n          ...settings,\n        })\n      : null;\n    return { roi, masks, thresholds, results };\n  }\n  return {\n    sum,\n    fraction,\n    cv,\n    parseCSV,\n    range,\n    otsu,\n    roiMask,\n    segment,\n    perimeter,\n    edt,\n    pearson,\n    analyze,\n    process,\n  };\n})();\nif (typeof module !== 'undefined') module.exports = Core;\n\n/* Keep imported intensity and unchanged masks in Worker memory. */\nlet channelCache = {},\n  roiKey = '',\n  roiCache = null,\n  segCache = {};\nonmessage = event => {\n  try {\n    const p = event.data.payload,\n      { w, h, settings } = p;\n    if (p.channels) {\n      channelCache = p.channels;\n      segCache = {};\n    }\n    const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);\n    if (nextROIKey !== roiKey) {\n      roiCache = Core.roiMask(w, h, p.rois, p.roiInvert);\n      roiKey = nextROIKey;\n      segCache = {};\n    }\n    const masks = {},\n      intensities = {},\n      thresholds = {};\n    for (const key of ['nmc', 'secondary', 'f'])\n      if (channelCache[key]) {\n        const param = p.seg[key],\n          signature = JSON.stringify([\n            param.auto,\n            param.auto ? null : param.threshold,\n            param.invert,\n            param.min,\n            param.fill,\n            param.smooth,\n            key === 'secondary' ? settings.ratio : false,\n            key === 'secondary' ? settings.epsilon : null,\n          ]);\n        if (segCache[key]?.signature !== signature) {\n          let data = channelCache[key].data;\n          if (key === 'secondary' && settings.ratio)\n            data = Float64Array.from(\n              data,\n              (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),\n            );\n          segCache[key] = { signature, data, ...Core.segment(data, w, h, roiCache, param) };\n        }\n        masks[key] = segCache[key].mask;\n        intensities[key] = channelCache[key].data;\n        thresholds[key] = segCache[key].threshold;\n      }\n    const results = p.analyze\n      ? Core.analyze({\n          w,\n          h,\n          roi: roiCache,\n          nmc: masks.nmc,\n          secondary: masks.secondary,\n          f: masks.f,\n          secondaryIntensity: intensities.secondary,\n          fIntensity: intensities.f,\n          ...settings,\n        })\n      : null;\n    const result = {\n      roi: new Uint8Array(roiCache),\n      masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),\n      thresholds,\n      results,\n    };\n    postMessage({ id: event.data.id, result }, [\n      result.roi.buffer,\n      ...Object.values(result.masks).map(x => x.buffer),\n    ]);\n  } catch (e) {\n    postMessage({ id: event.data.id, error: e.message });\n  }\n};\n"], { type: 'text/javascript' })),
 );
@@ -1805,17 +1816,114 @@ worker.onerror = e => {
   busy = false;
   $('#progress').classList.add('hidden');
 };
+function segIntensity(key) {
+  const ch = state.channels[key];
+  if (key === 'secondary' && state.settings.ratio && state.channels.nmc)
+    return Float64Array.from(
+      ch.data,
+      (v, i) => v / (state.channels.nmc.data[i] + state.settings.epsilon),
+    );
+  return ch.data;
+}
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(preview, 80);
+}
+async function preview() {
+  if (!dimensions() || sizeError()) return;
+  return compute(false);
+}
+async function compute(analyze = false) {
+  if (sizeError()) {
+    status(sizeErrorMessage, true);
+    return;
+  }
+  if (!dimensions()) return;
+  if (analyze && (!state.channels.nmc || !state.channels.secondary)) {
+    status('請載入 NMC 與 Secondary map。', true);
+    return;
+  }
+  if (state.settings.ratio && (!state.channels.nmc || !state.channels.secondary)) {
+    status('Ratio 需要 Ni 與 Mn map。', true);
+    return;
+  }
+  if (analyze && state.material === 'Al2O3' && state.view === 'cross' && !state.rois.length) {
+    status('Al₂O₃ 截面請先設定極層 ROI／排除集流體。', true);
+    return;
+  }
+  const id = ++requestId;
+  latest = id;
+  const rev = revision;
+  busy = true;
+  $('#progress').classList.remove('hidden');
+  status(analyze ? 'Analyzing…' : 'Segmenting…');
+  const start = performance.now();
+  const payload = {
+    ...dimensions(),
+    channels:
+      workerSentVersion !== channelVersion
+        ? Object.fromEntries(
+            Object.entries(state.channels)
+              .filter(([k]) => ['nmc', 'secondary', 'f'].includes(k))
+              .map(([k, ch]) => [k, { data: ch.data }]),
+          )
+        : null,
+    seg: state.seg,
+    rois: state.rois,
+    roiInvert: state.roiInvert,
+    settings: { ...state.settings, view: state.view },
+    analyze,
+  };
+  const response = await new Promise(resolve => {
+    waiter.set(id, resolve);
+    worker.postMessage({ id, payload });
+    workerSentVersion = channelVersion;
+  });
+  if (id !== latest) return;
+  busy = false;
+  $('#progress').classList.add('hidden');
+  if (rev !== revision) {
+    status('設定已改變，請重新分析。');
+    return;
+  }
+  if (response.error) {
+    status(response.error, true);
+    return;
+  }
+  masks = response.result.masks;
+  effectiveROI = response.result.roi;
+  for (const [k, t] of Object.entries(response.result.thresholds)) {
+    if (state.seg[k].auto) state.seg[k].threshold = t;
+  }
+  if (analyze) {
+    state.results = response.result.results;
+    state.results.elapsedMs = performance.now() - start;
+    state.results.analyzedAt = new Date().toISOString();
+    state.results.trace = trace();
+    renderResults();
+    renderControls();
+    const elapsed = Math.round(state.results.elapsedMs),
+      warnings = [...state.results.warnings];
+    status(
+      () =>
+        `${t('Analysis complete')} · ${elapsed} ms${warnings.length ? ' · ' + warnings.map(messageText).join(' ') : ''}`,
+    );
+  } else {
+    if (step === 'segment') {
+      const t = state.seg[selected]?.threshold;
+      if ($('#thresholdNumber') && t != null) {
+        $('#thresholdNumber').value = Number(t.toPrecision(7));
+        $('#thresholdSlider').value = t;
+      }
+    }
+    status('Mask updated');
+  }
+  draw();
+}
+
+/* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
   `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${['data', 'roi', 'segment', 'analyze'].map((s, i) => `<button data-step="${s}">${i + 1} ${t(s === 'roi' ? 'ROI' : s[0].toUpperCase() + s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${['original', 'mask', 'overlay'].map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
-const channelNames = {
-  sem: 'SEM / BSE',
-  nmc: 'NMC / Ni',
-  secondary: 'Secondary phase / Additive',
-  f: 'PVDF / F',
-  other: 'Other element',
-};
-let lastStatus = 'Ready',
-  lastStatusError = false;
 function status(message, error = false) {
   lastStatus = message;
   lastStatusError = error;
@@ -1870,6 +1978,103 @@ function renderChannels() {
       : Object.keys(state.channels)[0] || '';
   $('#dimensions').textContent = dimensions() ? `${dimensions().w} × ${dimensions().h} px` : '';
 }
+$('#settings').onclick = () =>
+  showDialog(
+    'Settings',
+    `<label class="field">${t('Overlay opacity')}<input id="settingsOpacity" type="range" min="0" max="1" step=".05" value="${opacity}"></label><button id="clearData">${t('Clear Local Data')}</button>`,
+  );
+$('#dialogbody').addEventListener('input', e => {
+  if (e.target.id === 'settingsOpacity') {
+    opacity = +e.target.value;
+    $('#opacity').value = opacity;
+    draw();
+  }
+});
+$('#dialogbody').addEventListener('click', e => {
+  if (e.target.id === 'clearData') {
+    state = {
+      sample: 'Untitled',
+      view: 'top',
+      material: 'TiO2',
+      channels: {},
+      seg: { nmc: defaults(), secondary: defaults(), f: defaults() },
+      rois: [],
+      roiInvert: false,
+      settings: {
+        grid: 5,
+        calibration: null,
+        binderRadius: 3,
+        ratio: false,
+        epsilon: 1,
+        depthAxis: 'y',
+        depthReverse: false,
+      },
+      comparison: [],
+      results: null,
+    };
+    channelVersion++;
+    revision++;
+    masks = {};
+    effectiveROI = null;
+    $('#sample').value = 'Untitled';
+    step = 'data';
+    $('#dialog').close();
+    renderControls();
+    renderChannels();
+    renderResults();
+    draw();
+    status('Local data cleared');
+  }
+});
+$('#about').onclick = () =>
+  showDialog(
+    'About',
+    `<p>Electrode EDS Spatial Analyzer · v${VERSION}</p><p>${help.scope}</p><p>${t('About intensity')}</p><p>${t('About offline')}</p>`,
+  );
+$('#collapse').onclick = () => $('main').classList.toggle('collapsed');
+function setupTooltips() {
+  document.querySelectorAll('[data-help]').forEach(el => {
+    const show = (full = false) => {
+      const t = $('#tooltip'),
+        text = help[el.dataset.help] || el.dataset.help;
+      t.textContent = full
+        ? text
+        : language === 'en'
+          ? text.split(';')[0].split('. ')[0] + (text.endsWith('.') ? '' : '.')
+          : text.split('；')[0].split('。')[0] + '。';
+      t.classList.remove('hidden');
+      const r = el.getBoundingClientRect();
+      t.style.left = Math.max(8, Math.min(innerWidth - 350, r.left)) + 'px';
+      t.style.top = Math.min(innerHeight - t.offsetHeight - 10, r.bottom + 8) + 'px';
+    };
+    el.onmouseenter = () => show(false);
+    el.onfocus = () => show(false);
+    el.onmouseleave = () => {
+      if (!$('#tooltip').classList.contains('pinned')) $('#tooltip').classList.add('hidden');
+    };
+    el.onblur = el.onmouseleave;
+    el.onclick = e => {
+      e.stopPropagation();
+      show(true);
+      $('#tooltip').classList.toggle('pinned');
+    };
+  });
+}
+document.addEventListener('click', () => {
+  $('#tooltip').classList.add('hidden');
+  $('#tooltip').classList.remove('pinned');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    pendingPolygon = [];
+    drawMode = 'pan';
+    $('#tooltip').classList.add('hidden');
+    $('#tooltip').classList.remove('pinned');
+    draw();
+  }
+});
+
+/* Left-hand step panels: Data, ROI, Segment and Analyze. */
 function renderControls() {
   document
     .querySelectorAll('[data-step]')
@@ -2093,15 +2298,6 @@ function renderControls() {
   }
   setupTooltips();
 }
-function segIntensity(key) {
-  const ch = state.channels[key];
-  if (key === 'secondary' && state.settings.ratio && state.channels.nmc)
-    return Float64Array.from(
-      ch.data,
-      (v, i) => v / (state.channels.nmc.data[i] + state.settings.epsilon),
-    );
-  return ch.data;
-}
 function setCalibration(value) {
   state.settings.calibration = value > 0 && Number.isFinite(value) ? value : null;
   state.settings.binderRadius = state.settings.calibration ? 0.5 : 3;
@@ -2109,6 +2305,20 @@ function setCalibration(value) {
   renderControls();
   draw();
 }
+function finishPolygon() {
+  if (pendingPolygon.length < 3) {
+    status('Polygon 至少需要 3 個頂點。', true);
+    return;
+  }
+  state.rois.push({ type: 'polygon', points: pendingPolygon, exclude });
+  pendingPolygon = [];
+  drawMode = 'pan';
+  dirty();
+  renderControls();
+  preview();
+}
+
+/* File and drag-and-drop import, plus the synthetic demo. */
 async function decodeLocalImage(file) {
   try {
     if (typeof createImageBitmap === 'function') return await createImageBitmap(file);
@@ -2195,101 +2405,46 @@ async function loadFile(file, key) {
     status(() => `${t('Import failed')}: ${file.name} · ${messageText(reason)}`, true);
   }
 }
-function schedulePreview() {
-  clearTimeout(previewTimer);
-  previewTimer = setTimeout(preview, 80);
-}
-async function preview() {
-  if (!dimensions() || sizeError()) return;
-  return compute(false);
-}
-async function compute(analyze = false) {
-  if (sizeError()) {
-    status(sizeErrorMessage, true);
-    return;
-  }
-  if (!dimensions()) return;
-  if (analyze && (!state.channels.nmc || !state.channels.secondary)) {
-    status('請載入 NMC 與 Secondary map。', true);
-    return;
-  }
-  if (state.settings.ratio && (!state.channels.nmc || !state.channels.secondary)) {
-    status('Ratio 需要 Ni 與 Mn map。', true);
-    return;
-  }
-  if (analyze && state.material === 'Al2O3' && state.view === 'cross' && !state.rois.length) {
-    status('Al₂O₃ 截面請先設定極層 ROI／排除集流體。', true);
-    return;
-  }
-  const id = ++requestId;
-  latest = id;
-  const rev = revision;
-  busy = true;
-  $('#progress').classList.remove('hidden');
-  status(analyze ? 'Analyzing…' : 'Segmenting…');
-  const start = performance.now();
-  const payload = {
-    ...dimensions(),
-    channels:
-      workerSentVersion !== channelVersion
-        ? Object.fromEntries(
-            Object.entries(state.channels)
-              .filter(([k]) => ['nmc', 'secondary', 'f'].includes(k))
-              .map(([k, ch]) => [k, { data: ch.data }]),
-          )
-        : null,
-    seg: state.seg,
-    rois: state.rois,
-    roiInvert: state.roiInvert,
-    settings: { ...state.settings, view: state.view },
-    analyze,
-  };
-  const response = await new Promise(resolve => {
-    waiter.set(id, resolve);
-    worker.postMessage({ id, payload });
-    workerSentVersion = channelVersion;
-  });
-  if (id !== latest) return;
-  busy = false;
-  $('#progress').classList.add('hidden');
-  if (rev !== revision) {
-    status('設定已改變，請重新分析。');
-    return;
-  }
-  if (response.error) {
-    status(response.error, true);
-    return;
-  }
-  masks = response.result.masks;
-  effectiveROI = response.result.roi;
-  for (const [k, t] of Object.entries(response.result.thresholds)) {
-    if (state.seg[k].auto) state.seg[k].threshold = t;
-  }
-  if (analyze) {
-    state.results = response.result.results;
-    state.results.elapsedMs = performance.now() - start;
-    state.results.analyzedAt = new Date().toISOString();
-    state.results.trace = trace();
-    renderResults();
-    renderControls();
-    const elapsed = Math.round(state.results.elapsedMs),
-      warnings = [...state.results.warnings];
-    status(
-      () =>
-        `${t('Analysis complete')} · ${elapsed} ms${warnings.length ? ' · ' + warnings.map(messageText).join(' ') : ''}`,
-    );
-  } else {
-    if (step === 'segment') {
-      const t = state.seg[selected]?.threshold;
-      if ($('#thresholdNumber') && t != null) {
-        $('#thresholdNumber').value = Number(t.toPrecision(7));
-        $('#thresholdSlider').value = t;
-      }
+function loadDemo() {
+  const w = 240,
+    h = 240,
+    ni = new Float64Array(w * h),
+    s = new Float64Array(w * h),
+    f = new Float64Array(w * h),
+    sem = new Float64Array(w * h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x,
+        dx = (x % 48) - 24,
+        dy = (y % 48) - 24;
+      ni[i] = Math.hypot(dx, dy) < 14 ? 200 : 0;
+      s[i] = x % 48 < 10 && y % 48 < 12 ? 180 : 0;
+      f[i] = x % 48 < 13 && y % 48 < 15 ? 220 : 0;
+      sem[i] = 30 + ni[i] * 0.7 + s[i] * 0.4;
     }
-    status('Mask updated');
-  }
-  draw();
+  state.channels = {
+    sem: { name: 'synthetic-sem.csv', w, h, data: sem, format: 'csv' },
+    nmc: { name: 'synthetic-ni.csv', w, h, data: ni, format: 'csv' },
+    secondary: { name: 'synthetic-ti.csv', w, h, data: s, format: 'csv' },
+    f: { name: 'synthetic-f.csv', w, h, data: f, format: 'csv' },
+  };
+  channelVersion++;
+  state.sample = 'Synthetic uniform';
+  $('#sample').value = state.sample;
+  state.rois = [];
+  state.roiInvert = false;
+  state.settings.ratio = false;
+  state.settings.calibration = null;
+  state.settings.binderRadius = 3;
+  state.seg = { nmc: defaults(), secondary: defaults(), f: defaults() };
+  dirty();
+  renderControls();
+  renderChannels();
+  preview().then(fit);
 }
+
+
+/* Viewport drawing, zoom, pan and ROI / scale-bar pointer input. */
 function draw() {
   const ch = state.channels[$('#channel').value] || baseChannel(),
     canvas = $('#canvas'),
@@ -2456,18 +2611,6 @@ $('#canvas').onpointerup = e => {
   }
   panStart = null;
 };
-function finishPolygon() {
-  if (pendingPolygon.length < 3) {
-    status('Polygon 至少需要 3 個頂點。', true);
-    return;
-  }
-  state.rois.push({ type: 'polygon', points: pendingPolygon, exclude });
-  pendingPolygon = [];
-  drawMode = 'pan';
-  dirty();
-  renderControls();
-  preview();
-}
 $('#channel').onchange = () => {
   if (['nmc', 'secondary', 'f'].includes($('#channel').value)) selected = $('#channel').value;
   if (step === 'segment') renderControls();
@@ -2512,6 +2655,8 @@ $('#import').onclick = () => {
   step = 'data';
   renderControls();
 };
+
+/* Results panel and its charts. */
 function fmt(v, percent = false) {
   return v == null || !Number.isFinite(v)
     ? '—'
@@ -2559,36 +2704,8 @@ function renderResults() {
   tc.fillText(`0 – ${fmt(tm, true)}`, 140, 22);
   setupTooltips();
 }
-function trace() {
-  return {
-    toolVersion: VERSION,
-    sample: state.sample,
-    view: state.view,
-    material: state.material,
-    images: Object.fromEntries(
-      Object.entries(state.channels).map(([k, c]) => [
-        k,
-        {
-          name: c.name,
-          w: c.w,
-          h: c.h,
-          format: c.format,
-          sha256: c.sha256 || null,
-          sourceSha256: c.sourceSha256 || null,
-          importInfo: c.importInfo || null,
-          intensityRange: Core.range(c.data),
-        },
-      ]),
-    ),
-    rois: structuredClone(state.rois),
-    roiInvert: state.roiInvert,
-    segmentation: structuredClone(state.seg),
-    parameters: structuredClone(state.settings),
-    intensityMethod: 'CSV raw; image max(R,G,B)',
-    distanceConvention: 'pixel-center to nearest 4-neighbor boundary pixel-center',
-    connectivity: 4,
-  };
-}
+
+/* Session snapshot, validation and reload. */
 function snapshot() {
   return {
     schema: 'electrode-eds-session',
@@ -2616,16 +2733,6 @@ function snapshot() {
     workspace: { selected, display, zoom, opacity },
   };
 }
-function download(name, content, type = 'application/json') {
-  const blob = content instanceof Blob ? content : new Blob([content], { type }),
-    url = URL.createObjectURL(blob),
-    a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 3000);
-}
-const safeName = () => state.sample.replace(/[^\p{L}\p{N}._-]/gu, '_') || 'sample';
 $('#save').onclick = () => download(safeName() + '.session.json', JSON.stringify(snapshot()));
 $('#sessionFile').onchange = async e => {
   const file = e.target.files[0];
@@ -2747,6 +2854,48 @@ function validateSession(s) {
     } else throw Error('ROI 格式不合法。');
   }
 }
+
+/* Trace, comparison table and CSV / JSON / PNG export. */
+function trace() {
+  return {
+    toolVersion: VERSION,
+    sample: state.sample,
+    view: state.view,
+    material: state.material,
+    images: Object.fromEntries(
+      Object.entries(state.channels).map(([k, c]) => [
+        k,
+        {
+          name: c.name,
+          w: c.w,
+          h: c.h,
+          format: c.format,
+          sha256: c.sha256 || null,
+          sourceSha256: c.sourceSha256 || null,
+          importInfo: c.importInfo || null,
+          intensityRange: Core.range(c.data),
+        },
+      ]),
+    ),
+    rois: structuredClone(state.rois),
+    roiInvert: state.roiInvert,
+    segmentation: structuredClone(state.seg),
+    parameters: structuredClone(state.settings),
+    intensityMethod: 'CSV raw; image max(R,G,B)',
+    distanceConvention: 'pixel-center to nearest 4-neighbor boundary pixel-center',
+    connectivity: 4,
+  };
+}
+function download(name, content, type = 'application/json') {
+  const blob = content instanceof Blob ? content : new Blob([content], { type }),
+    url = URL.createObjectURL(blob),
+    a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+const safeName = () => state.sample.replace(/[^\p{L}\p{N}._-]/gu, '_') || 'sample';
 function addComparison() {
   if (!state.results) return;
   state.comparison.push({
@@ -2904,139 +3053,8 @@ function exportPNG() {
   display = old;
   draw();
 }
-$('#settings').onclick = () =>
-  showDialog(
-    'Settings',
-    `<label class="field">${t('Overlay opacity')}<input id="settingsOpacity" type="range" min="0" max="1" step=".05" value="${opacity}"></label><button id="clearData">${t('Clear Local Data')}</button>`,
-  );
-$('#dialogbody').addEventListener('input', e => {
-  if (e.target.id === 'settingsOpacity') {
-    opacity = +e.target.value;
-    $('#opacity').value = opacity;
-    draw();
-  }
-});
-$('#dialogbody').addEventListener('click', e => {
-  if (e.target.id === 'clearData') {
-    state = {
-      sample: 'Untitled',
-      view: 'top',
-      material: 'TiO2',
-      channels: {},
-      seg: { nmc: defaults(), secondary: defaults(), f: defaults() },
-      rois: [],
-      roiInvert: false,
-      settings: {
-        grid: 5,
-        calibration: null,
-        binderRadius: 3,
-        ratio: false,
-        epsilon: 1,
-        depthAxis: 'y',
-        depthReverse: false,
-      },
-      comparison: [],
-      results: null,
-    };
-    channelVersion++;
-    revision++;
-    masks = {};
-    effectiveROI = null;
-    $('#sample').value = 'Untitled';
-    step = 'data';
-    $('#dialog').close();
-    renderControls();
-    renderChannels();
-    renderResults();
-    draw();
-    status('Local data cleared');
-  }
-});
-$('#about').onclick = () =>
-  showDialog(
-    'About',
-    `<p>Electrode EDS Spatial Analyzer · v${VERSION}</p><p>${help.scope}</p><p>${t('About intensity')}</p><p>${t('About offline')}</p>`,
-  );
-$('#collapse').onclick = () => $('main').classList.toggle('collapsed');
-function setupTooltips() {
-  document.querySelectorAll('[data-help]').forEach(el => {
-    const show = (full = false) => {
-      const t = $('#tooltip'),
-        text = help[el.dataset.help] || el.dataset.help;
-      t.textContent = full
-        ? text
-        : language === 'en'
-          ? text.split(';')[0].split('. ')[0] + (text.endsWith('.') ? '' : '.')
-          : text.split('；')[0].split('。')[0] + '。';
-      t.classList.remove('hidden');
-      const r = el.getBoundingClientRect();
-      t.style.left = Math.max(8, Math.min(innerWidth - 350, r.left)) + 'px';
-      t.style.top = Math.min(innerHeight - t.offsetHeight - 10, r.bottom + 8) + 'px';
-    };
-    el.onmouseenter = () => show(false);
-    el.onfocus = () => show(false);
-    el.onmouseleave = () => {
-      if (!$('#tooltip').classList.contains('pinned')) $('#tooltip').classList.add('hidden');
-    };
-    el.onblur = el.onmouseleave;
-    el.onclick = e => {
-      e.stopPropagation();
-      show(true);
-      $('#tooltip').classList.toggle('pinned');
-    };
-  });
-}
-document.addEventListener('click', () => {
-  $('#tooltip').classList.add('hidden');
-  $('#tooltip').classList.remove('pinned');
-});
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    pendingPolygon = [];
-    drawMode = 'pan';
-    $('#tooltip').classList.add('hidden');
-    $('#tooltip').classList.remove('pinned');
-    draw();
-  }
-});
-function loadDemo() {
-  const w = 240,
-    h = 240,
-    ni = new Float64Array(w * h),
-    s = new Float64Array(w * h),
-    f = new Float64Array(w * h),
-    sem = new Float64Array(w * h);
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x,
-        dx = (x % 48) - 24,
-        dy = (y % 48) - 24;
-      ni[i] = Math.hypot(dx, dy) < 14 ? 200 : 0;
-      s[i] = x % 48 < 10 && y % 48 < 12 ? 180 : 0;
-      f[i] = x % 48 < 13 && y % 48 < 15 ? 220 : 0;
-      sem[i] = 30 + ni[i] * 0.7 + s[i] * 0.4;
-    }
-  state.channels = {
-    sem: { name: 'synthetic-sem.csv', w, h, data: sem, format: 'csv' },
-    nmc: { name: 'synthetic-ni.csv', w, h, data: ni, format: 'csv' },
-    secondary: { name: 'synthetic-ti.csv', w, h, data: s, format: 'csv' },
-    f: { name: 'synthetic-f.csv', w, h, data: f, format: 'csv' },
-  };
-  channelVersion++;
-  state.sample = 'Synthetic uniform';
-  $('#sample').value = state.sample;
-  state.rois = [];
-  state.roiInvert = false;
-  state.settings.ratio = false;
-  state.settings.calibration = null;
-  state.settings.binderRadius = 3;
-  state.seg = { nmc: defaults(), secondary: defaults(), f: defaults() };
-  dirty();
-  renderControls();
-  renderChannels();
-  preview().then(fit);
-}
 
+/* Language switching and start-up. */
 function updateChrome() {
   document.documentElement.lang = language;
   document.title = t('Electrode EDS Analyzer');
