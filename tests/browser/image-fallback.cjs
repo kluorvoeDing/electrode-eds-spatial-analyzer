@@ -1,2 +1,63 @@
-const {chromium}=require('playwright'),assert=require('node:assert/strict'),path=require('node:path');
-(async()=>{const b=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox']});const p=await b.newPage();const errors=[],external=[];p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>{if(/^https?:/.test(r.url()))external.push(r.url());});await p.goto('file://'+path.resolve('dist/Electrode_EDS_Analyzer.html'));const decoded=await p.evaluate(async()=>{const c=document.createElement('canvas');c.width=10;c.height=8;c.getContext('2d').fillRect(0,0,10,8);const blob=await new Promise(r=>c.toBlob(r));const original=window.createImageBitmap;window.createImageBitmap=async()=>{throw Error('Forced primary decoder failure');};try{const image=await decodeLocalImage(new File([blob],'map.png',{type:'image/png'}));return {w:image.naturalWidth,h:image.naturalHeight};}finally{window.createImageBitmap=original;}});assert.deepEqual(decoded,{w:10,h:8});const err=await p.evaluate(async()=>{try{await decodeLocalImage(new File(['invalid'],'bad.png'));}catch(e){return e.message;}});assert.equal(err,'Image could not be decoded');await p.evaluate(()=>{state.channels={nmc:{w:261,h:251,data:new Float64Array(261*251),name:"nmc.png"},secondary:{w:261,h:255,data:new Float64Array(261*255),name:"secondary.png"}};status(sizeErrorMessage,true);});assert.ok((await p.locator('#status').innerText()).includes('261×251'));await p.locator('#language').selectOption('en');assert.ok((await p.locator('#status').innerText()).includes('Crop labels'));assert.deepEqual(errors,[]);assert.deepEqual(external,[]);await b.close();console.log('Offline fallback image decoding, invalid file and bilingual dimension guidance passed');})().catch(e=>{console.error(e);process.exit(1)});
+const { chromium } = require('playwright'),
+  assert = require('node:assert/strict'),
+  path = require('node:path');
+(async () => {
+  const b = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROMIUM_EXECUTABLE_PATH,
+    args: ['--no-sandbox'],
+  });
+  const p = await b.newPage();
+  const errors = [],
+    external = [];
+  p.on('pageerror', e => errors.push(e.message));
+  p.on('request', r => {
+    if (/^https?:/.test(r.url())) external.push(r.url());
+  });
+  await p.goto('file://' + path.resolve('dist/Electrode_EDS_Analyzer.html'));
+  const decoded = await p.evaluate(async () => {
+    const c = document.createElement('canvas');
+    c.width = 10;
+    c.height = 8;
+    c.getContext('2d').fillRect(0, 0, 10, 8);
+    const blob = await new Promise(r => c.toBlob(r));
+    const original = window.createImageBitmap;
+    window.createImageBitmap = async () => {
+      throw Error('Forced primary decoder failure');
+    };
+    try {
+      const image = await decodeLocalImage(new File([blob], 'map.png', { type: 'image/png' }));
+      return { w: image.naturalWidth, h: image.naturalHeight };
+    } finally {
+      window.createImageBitmap = original;
+    }
+  });
+  assert.deepEqual(decoded, { w: 10, h: 8 });
+  const err = await p.evaluate(async () => {
+    try {
+      await decodeLocalImage(new File(['invalid'], 'bad.png'));
+    } catch (e) {
+      return e.message;
+    }
+  });
+  assert.equal(err, 'Image could not be decoded');
+  await p.evaluate(() => {
+    state.channels = {
+      nmc: { w: 261, h: 251, data: new Float64Array(261 * 251), name: 'nmc.png' },
+      secondary: { w: 261, h: 255, data: new Float64Array(261 * 255), name: 'secondary.png' },
+    };
+    status(sizeErrorMessage, true);
+  });
+  assert.ok((await p.locator('#status').innerText()).includes('261×251'));
+  await p.locator('#language').selectOption('en');
+  assert.ok((await p.locator('#status').innerText()).includes('Crop labels'));
+  assert.deepEqual(errors, []);
+  assert.deepEqual(external, []);
+  await b.close();
+  console.log(
+    'Offline fallback image decoding, invalid file and bilingual dimension guidance passed',
+  );
+})().catch(e => {
+  console.error(e);
+  process.exit(1);
+});

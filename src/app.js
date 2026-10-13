@@ -1,135 +1,1367 @@
 'use strict';
-const VERSION='0.1.3';
-const $=s=>document.querySelector(s), esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function info(key){return `<button class="info" type="button" aria-label="${esc(key)} ${t('Help')}" data-help="${key}">i</button>`;}
-const defaults=()=>({auto:true,threshold:128,invert:false,min:0,fill:false,smooth:false});
-let state={sample:'Untitled',view:'top',material:'TiO2',channels:{},seg:{nmc:defaults(),secondary:defaults(),f:defaults()},rois:[],roiInvert:false,settings:{grid:5,calibration:null,binderRadius:3,ratio:false,epsilon:1,depthAxis:'y',depthReverse:false},comparison:[],results:null};
-let step='data',selected='secondary',display='overlay',zoom=1,opacity=.45,masks={},effectiveROI=null,revision=0,busy=false,requestId=0,latest=0,pendingPolygon=[],dragStart=null,drawMode='pan',exclude=false,scalePoints=[],panStart=null,previewTimer=null,channelVersion=0,workerSentVersion=-1;
-const worker=new Worker(URL.createObjectURL(new Blob([/*WORKER_SOURCE*/],{type:'text/javascript'})));
-let waiter=new Map();worker.onmessage=({data})=>{const call=waiter.get(data.id);if(!call)return;waiter.delete(data.id);call(data);};worker.onerror=e=>{status(()=>t('Background calculation failed')+': '+messageText(e.message),true);busy=false;$('#progress').classList.add('hidden');};
-$('#app').innerHTML=`<header><strong id="appName">${t("Electrode EDS Analyzer")}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t("Import")}</button><button id="save">${t("Save Session")}</button><button id="export">${t("Export")}</button><button id="settings">${t("Settings")}</button><button id="about">${t("About")}</button></header><main><aside><nav>${['data','roi','segment','analyze'].map((s,i)=>`<button data-step="${s}">${i+1} ${t(s==='roi'?'ROI':s[0].toUpperCase()+s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${['original','mask','overlay'].map(x=>`<button data-display="${x}">${t(x[0].toUpperCase()+x.slice(1))}</button>`).join('')}</div><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t("Fit")}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t("Pan")}</button></div><div id="progress" class="progress hidden"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t("Import map")}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t("Ready")}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t("Close")}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
-const channelNames={sem:'SEM / BSE',nmc:'NMC / Ni',secondary:'Secondary phase / Additive',f:'PVDF / F',other:'Other element'};
-let lastStatus='Ready',lastStatusError=false;
-function status(message,error=false){lastStatus=message;lastStatusError=error;$('#status').textContent=messageText(typeof message==='function'?message():message);$('#status').classList.toggle('error',error);}
-function dirty(){revision++;state.results=null;renderResults();}
-function baseChannel(){return state.channels.sem||state.channels[selected]||state.channels.nmc||Object.values(state.channels)[0];}
-function dimensions(){const ch=Object.values(state.channels)[0];return ch?{w:ch.w,h:ch.h}:null;}
-function sizeError(){const a=Object.values(state.channels);return a.length&&a.some(c=>c.w!==a[0].w||c.h!==a[0].h);}
-function showDialog(title,body){$('#dialog').classList.toggle('image-editor',title==='Crop and review');$('#dialogtitle').textContent=t(title);$('#dialogbody').innerHTML=body;$('#dialog').showModal();}
-$('#dialog').addEventListener('close',()=>{awaitingPaste=false;imageImport=null;imageImportTicket++;});$('#closeDialog').onclick=()=>$('#dialog').close();$('#dialog').onclick=e=>{if(e.target===$('#dialog'))$('#dialog').close();};
-function renderChannels(){const current=$('#channel').value;$('#channel').innerHTML=Object.keys(state.channels).map(k=>`<option value="${k}">${t(channelNames[k])}</option>`).join('');$('#channel').value=state.channels[current]?current:state.channels[selected]?selected:Object.keys(state.channels)[0]||'';$('#dimensions').textContent=dimensions()?`${dimensions().w} × ${dimensions().h} px`:'';}
-function renderControls(){
- document.querySelectorAll('[data-step]').forEach(b=>b.classList.toggle('active',b.dataset.step===step));
- const c=$('#controls');
- if(step==='data'){
- c.innerHTML=`<h2>${t("Data")} ${info('unit')}</h2><label class="field">${t("View")}<select id="view"><option value="top">${t("Top View")}</option><option value="cross">${t("Cross Section")}</option></select></label><label class="field">${t("Additive")}<select id="material">${['TiO2','ZrO2','MnO2','Al2O3','LFP','Other'].map(x=>`<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(channelNames).map(([key,name])=>`<div class="drop ${pasteTarget===key?'paste-target':''}" data-drop="${key}"><strong>${t(name)} ${key==='secondary'?info('secondary'):info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="row"><button data-paste="${key}" type="button">${t("Paste / Ctrl+V")}</button>${state.channels[key]?.image?`<button data-crop="${key}" type="button">${t("Crop / review")}</button>`:''}</div><div class="filename">${esc(state.channels[key]?state.channels[key].name+' · '+state.channels[key].w+'×'+state.channels[key].h:'—')}</div>${state.channels[key]?`<button data-remove="${key}" class="compact">${t("Remove")}</button>`:''}</div>`).join('')}<div class="row"><button id="loadSession">${t("Load Session")}</button><button id="demo">${t("Synthetic")}</button></div>`;
- $('#view').value=state.view;$('#material').value=state.material;
- $('#view').onchange=e=>{state.view=e.target.value;dirty();renderControls();};$('#material').onchange=e=>{state.material=e.target.value;dirty();renderControls();};
- const mw=$('#materialWarning');if(state.material==='MnO2')mw.innerHTML=`<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>`;if(state.material==='Al2O3'&&state.view==='cross')mw.innerHTML=`<div class="warning">${t('Exclude Al current collector')} ${info('al')}</div>`;
- document.querySelectorAll('[data-paste]').forEach(b=>b.onclick=()=>preparePaste(b.dataset.paste));document.querySelectorAll('[data-crop]').forEach(b=>b.onclick=()=>openImageImport(null,b.dataset.crop,state.channels[b.dataset.crop]));
- document.querySelectorAll('[data-file]').forEach(el=>el.onchange=()=>loadFile(el.files[0],el.dataset.file));
- document.querySelectorAll('[data-drop]').forEach(el=>{el.ondragover=e=>{e.preventDefault();el.classList.add('drag');};el.ondragleave=()=>el.classList.remove('drag');el.ondrop=e=>{e.preventDefault();el.classList.remove('drag');loadFile(e.dataTransfer.files[0],el.dataset.drop);};});
- document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{delete state.channels[b.dataset.remove];channelVersion++;dirty();masks={};effectiveROI=null;renderControls();renderChannels();draw();preview();});$('#loadSession').onclick=()=>$('#sessionFile').click();$('#demo').onclick=loadDemo;
- }else if(step==='roi'){
- c.innerHTML=`<h2>${t("ROI")} ${info('roi')}</h2><div class="row"><select id="roiMode"><option value="rect">${t("Rectangle")}</option><option value="polygon">${t("Polygon")}</option></select><button id="drawROI">${t("Draw")}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t("Full image")}</button><button id="clearROI">${t("Clear")}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r,i)=>`<div class="row"><span>${i+1}. ${t(r.exclude?'Exclude':'Include')} ${t(r.type==='rect'?'Rectangle':'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div><h3>${t("Calibration")} ${info('cal')}</h3><label class="field">${t('μm / pixel')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration||''}"></label><label class="field">${t("Scale bar length (\u03bcm)")}<input id="scaleLength" type="number" min="0" step="any" value="10"></label><button id="scaleBar">${t('Select scale bar endpoints')}</button>`;
- $('#exclude').checked=exclude;$('#roiInvert').checked=state.roiInvert;$('#exclude').onchange=e=>exclude=e.target.checked;$('#drawROI').onclick=()=>{drawMode=$('#roiMode').value;pendingPolygon=[];status(drawMode==='rect'?'拖曳 Rectangle。':'點選 Polygon 頂點，完成後按完成。');};$('#finishPolygon').onclick=finishPolygon;$('#cancelDraw').onclick=()=>{pendingPolygon=[];dragStart=null;drawMode='pan';draw();status('Ready');};$('#clearROI').onclick=$('#fullROI').onclick=()=>{state.rois=[];state.roiInvert=false;dirty();renderControls();preview();};$('#roiInvert').onchange=e=>{state.roiInvert=e.target.checked;dirty();preview();};document.querySelectorAll('[data-delroi]').forEach(b=>b.onclick=()=>{state.rois.splice(+b.dataset.delroi,1);dirty();renderControls();preview();});$('#calibration').onchange=e=>setCalibration(+e.target.value);$('#scaleBar').onclick=()=>{if(!(+$('#scaleLength').value>0)){status('Scale bar length 必須 > 0。',true);return;}scalePoints=[];drawMode='scale';status('點選 Scale bar 兩端。');};
- }else if(step==='segment'){
- const p=state.seg[selected]||state.seg.secondary,ch=state.channels[selected],a=ch?segIntensity(selected):null,r=a?Core.range(a):{min:0,max:255};
- c.innerHTML=`<h2>${t("Segmentation")} ${info('threshold')}</h2><label class="field">${t("Channel")}<select id="segChannel">${['nmc','secondary','f'].map(k=>`<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material==='MnO2'&&!state.settings.ratio?`<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>`:''}<div class="row"><button id="auto" class="${p.auto?'active':''}">${t("Auto")}</button><button id="manual" class="${!p.auto?'active':''}">${t("Manual")}</button></div><label class="field">${t("Threshold")}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max===r.min?r.max+1:r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><div class="checks"><label><input id="invert" type="checkbox" ${p.invert?'checked':''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill?'checked':''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth?'checked':''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t("Min object size (px)")}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label>${selected==='secondary'?`<h3>${t("Ratio map")} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio?'checked':''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>`:''}`;
- $('#segChannel').value=selected;$('#segChannel').onchange=e=>{selected=e.target.value;if(state.channels[selected])$('#channel').value=selected;renderControls();draw();};$('#auto').onclick=()=>{p.auto=true;dirty();renderControls();preview();};$('#manual').onclick=()=>{p.auto=false;dirty();renderControls();};
- function thresholdChange(value){if(!Number.isFinite(value)){status('Threshold 必須為有限數值。',true);return;}p.threshold=value;p.auto=false;$('#thresholdNumber').value=value;$('#thresholdSlider').value=value;$('#manual').classList.add('active');$('#auto').classList.remove('active');dirty();schedulePreview();}
- $('#thresholdNumber').onchange=e=>thresholdChange(+e.target.value);$('#thresholdSlider').oninput=e=>thresholdChange(+e.target.value);
- for(const key of ['invert','fill','smooth'])$('#'+key).onchange=e=>{p[key]=e.target.checked;dirty();preview();};$('#minObject').onchange=e=>{p.min=Math.max(0,Math.floor(+e.target.value||0));dirty();preview();};if($('#ratio')){$('#ratio').onchange=e=>{state.settings.ratio=e.target.checked;p.auto=true;dirty();renderControls();preview();};$('#epsilon').onchange=e=>{if(+e.target.value<=0){status('ε 必須 > 0。',true);return;}state.settings.epsilon=+e.target.value;dirty();preview();};}
- }else{
- c.innerHTML=`<h2>${t("Analysis")}</h2><label class="field">${t("Grid")} ${info('cv')}<select id="grid">${[3,5,8].map(n=>`<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration?'μm':'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view==='cross'?`<label class="field">${t("Depth axis")} ${info('depth')}<select id="depthAxis"><option value="y">${t("Y (vertical)")}</option><option value="x">${t("X (horizontal)")}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse?'checked':''}> ${t('Reverse Top / Bottom')}</label>`:''}<div class="row"><button class="primary full" id="analyze">${t("Analyze")}</button></div><div class="row"><button id="addComparison" ${state.results?'':'disabled'}>${t("Add to Comparison")}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings"></div>`;
- $('#grid').value=state.settings.grid;$('#grid').onchange=e=>{state.settings.grid=+e.target.value;dirty();};$('#radius').onchange=e=>{if(!Number.isFinite(+e.target.value)||+e.target.value<0){status('距離必須 ≥ 0。',true);return;}state.settings.binderRadius=+e.target.value;dirty();};if($('#depthAxis')){$('#depthAxis').value=state.settings.depthAxis;$('#depthAxis').onchange=e=>{state.settings.depthAxis=e.target.value;dirty();};$('#depthReverse').onchange=e=>{state.settings.depthReverse=e.target.checked;dirty();};}$('#analyze').onclick=()=>compute(true);$('#addComparison').onclick=addComparison;$('#showComparison').onclick=showComparison;
- }
- setupTooltips();
+const VERSION = '0.1.3';
+const $ = s => document.querySelector(s),
+  esc = s =>
+    String(s).replace(
+      /[&<>"']/g,
+      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+    );
+function info(key) {
+  return `<button class="info" type="button" aria-label="${esc(key)} ${t('Help')}" data-help="${key}">i</button>`;
 }
-function segIntensity(key){const ch=state.channels[key];if(key==='secondary'&&state.settings.ratio&&state.channels.nmc)return Float64Array.from(ch.data,(v,i)=>v/(state.channels.nmc.data[i]+state.settings.epsilon));return ch.data;}
-function setCalibration(value){state.settings.calibration=value>0&&Number.isFinite(value)?value:null;state.settings.binderRadius=state.settings.calibration?.5:3;dirty();renderControls();draw();}
-async function decodeLocalImage(file){
- try{if(typeof createImageBitmap==='function')return await createImageBitmap(file);}catch(_){}
- const url=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('File could not be read'));reader.readAsDataURL(file);});
- return await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('Image could not be decoded'));img.src=url;});
+const defaults = () => ({
+  auto: true,
+  threshold: 128,
+  invert: false,
+  min: 0,
+  fill: false,
+  smooth: false,
+});
+let state = {
+  sample: 'Untitled',
+  view: 'top',
+  material: 'TiO2',
+  channels: {},
+  seg: { nmc: defaults(), secondary: defaults(), f: defaults() },
+  rois: [],
+  roiInvert: false,
+  settings: {
+    grid: 5,
+    calibration: null,
+    binderRadius: 3,
+    ratio: false,
+    epsilon: 1,
+    depthAxis: 'y',
+    depthReverse: false,
+  },
+  comparison: [],
+  results: null,
+};
+let step = 'data',
+  selected = 'secondary',
+  display = 'overlay',
+  zoom = 1,
+  opacity = 0.45,
+  masks = {},
+  effectiveROI = null,
+  revision = 0,
+  busy = false,
+  requestId = 0,
+  latest = 0,
+  pendingPolygon = [],
+  dragStart = null,
+  drawMode = 'pan',
+  exclude = false,
+  scalePoints = [],
+  panStart = null,
+  previewTimer = null,
+  channelVersion = 0,
+  workerSentVersion = -1;
+const worker = new Worker(
+  URL.createObjectURL(new Blob([/*WORKER_SOURCE*/], { type: 'text/javascript' })),
+);
+let waiter = new Map();
+worker.onmessage = ({ data }) => {
+  const call = waiter.get(data.id);
+  if (!call) return;
+  waiter.delete(data.id);
+  call(data);
+};
+worker.onerror = e => {
+  status(() => t('Background calculation failed') + ': ' + messageText(e.message), true);
+  busy = false;
+  $('#progress').classList.add('hidden');
+};
+$('#app').innerHTML =
+  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${['data', 'roi', 'segment', 'analyze'].map((s, i) => `<button data-step="${s}">${i + 1} ${t(s === 'roi' ? 'ROI' : s[0].toUpperCase() + s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${['original', 'mask', 'overlay'].map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+const channelNames = {
+  sem: 'SEM / BSE',
+  nmc: 'NMC / Ni',
+  secondary: 'Secondary phase / Additive',
+  f: 'PVDF / F',
+  other: 'Other element',
+};
+let lastStatus = 'Ready',
+  lastStatusError = false;
+function status(message, error = false) {
+  lastStatus = message;
+  lastStatusError = error;
+  $('#status').textContent = messageText(typeof message === 'function' ? message() : message);
+  $('#status').classList.toggle('error', error);
 }
-function sizeErrorMessage(){const sizes=Object.entries(state.channels).map(([k,c])=>`${t(channelNames[k])}: ${c.w}×${c.h}`).join(' · ');return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}`;}
-async function loadFile(file,key){if(!file)return;try{let ch;
- if(/\.csv$/i.test(file.name)){ch=Core.parseCSV(await file.text());ch.format='csv';}
- else if(/\.(png|jpe?g)$/i.test(file.name)){const img=await decodeLocalImage(file),canvas=document.createElement('canvas');canvas.width=img.naturalWidth||img.width;canvas.height=img.naturalHeight||img.height;if(canvas.width*canvas.height>16e6){img.close?.();throw Error('Map 超過 1600 萬像素，請先縮小。');}const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0);const rgba=ctx.getImageData(0,0,canvas.width,canvas.height).data;ch={w:canvas.width,h:canvas.height,data:Float64Array.from({length:canvas.width*canvas.height},(_,i)=>Math.max(rgba[i*4],rgba[i*4+1],rgba[i*4+2])),image:canvas.toDataURL('image/png'),rgba:new Uint8ClampedArray(rgba),format:'image'};img.close?.();}
- else throw Error('僅支援 PNG / JPG / CSV。');
- if(ch.w*ch.h>16e6)throw Error('Map 超過 1600 萬像素，請先縮小。');ch.name=file.name;if(crypto.subtle){const digest=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());ch.sha256=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');}const previous=dimensions();state.channels[key]=ch;channelVersion++;if(previous&&(previous.w!==ch.w||previous.h!==ch.h)){state.rois=[];state.roiInvert=false;}state.seg[key]&& (state.seg[key].auto=true);dirty();renderControls();renderChannels();draw();if(sizeError()){masks={};effectiveROI=null;status(sizeErrorMessage,true);}else{status(()=>`${t('Imported')} ${file.name}`);await preview();fit();}
- }catch(e){const reason=e.message;status(()=>`${t('Import failed')}: ${file.name} · ${messageText(reason)}`,true);}}
-function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(preview,80);}
-async function preview(){if(!dimensions()||sizeError())return;return compute(false);}
-async function compute(analyze=false){
- if(sizeError()){status(sizeErrorMessage,true);return;}if(!dimensions())return;
- if(analyze&&(!state.channels.nmc||!state.channels.secondary)){status('請載入 NMC 與 Secondary map。',true);return;}
- if(state.settings.ratio&&(!state.channels.nmc||!state.channels.secondary)){status('Ratio 需要 Ni 與 Mn map。',true);return;}
- if(analyze&&state.material==='Al2O3'&&state.view==='cross'&&!state.rois.length){status('Al₂O₃ 截面請先設定極層 ROI／排除集流體。',true);return;}
- const id=++requestId;latest=id;const rev=revision;busy=true;$('#progress').classList.remove('hidden');status(analyze?'Analyzing…':'Segmenting…');const start=performance.now();
- const payload={...dimensions(),channels:workerSentVersion!==channelVersion?Object.fromEntries(Object.entries(state.channels).filter(([k])=>['nmc','secondary','f'].includes(k)).map(([k,ch])=>[k,{data:ch.data}])):null,seg:state.seg,rois:state.rois,roiInvert:state.roiInvert,settings:{...state.settings,view:state.view},analyze};
- const response=await new Promise(resolve=>{waiter.set(id,resolve);worker.postMessage({id,payload});workerSentVersion=channelVersion;});if(id!==latest)return;busy=false;$('#progress').classList.add('hidden');if(rev!==revision){status('設定已改變，請重新分析。');return;}if(response.error){status(response.error,true);return;}masks=response.result.masks;effectiveROI=response.result.roi;
- for(const [k,t] of Object.entries(response.result.thresholds)){if(state.seg[k].auto)state.seg[k].threshold=t;}
- if(analyze){state.results=response.result.results;state.results.elapsedMs=performance.now()-start;state.results.analyzedAt=new Date().toISOString();state.results.trace=trace();renderResults();renderControls();const elapsed=Math.round(state.results.elapsedMs),warnings=[...state.results.warnings];status(()=>`${t('Analysis complete')} · ${elapsed} ms${warnings.length?' · '+warnings.map(messageText).join(' '):''}`);}else{if(step==='segment'){const t=state.seg[selected]?.threshold;if($('#thresholdNumber')&&t!=null){$('#thresholdNumber').value=Number(t.toPrecision(7));$('#thresholdSlider').value=t;}}status('Mask updated');}draw();
+function dirty() {
+  revision++;
+  state.results = null;
+  renderResults();
 }
-function draw(){const ch=state.channels[$('#channel').value]||baseChannel(),canvas=$('#canvas'),ctx=canvas.getContext('2d');if(!ch){canvas.width=1;canvas.height=1;$('#empty').classList.remove('hidden');return;}$('#empty').classList.add('hidden');canvas.width=ch.w;canvas.height=ch.h;canvas.style.width=`${ch.w*zoom}px`;canvas.style.height=`${ch.h*zoom}px`;
- const r=Core.range(ch.data),image=ctx.createImageData(ch.w,ch.h),key=$('#channel').value,mask=masks[key]||masks[selected];
- for(let i=0;i<ch.data.length;i++){let g=r.max===r.min?0:Math.round((ch.data[i]-r.min)/(r.max-r.min)*255),rr=ch.rgba?ch.rgba[i*4]:g,gg=ch.rgba?ch.rgba[i*4+1]:g,bb=ch.rgba?ch.rgba[i*4+2]:g;if(display==='mask'){rr=gg=bb=mask?.[i]?255:0;}else if(display==='overlay'&&mask?.[i]){rr=rr*(1-opacity)+7*opacity;gg=gg*(1-opacity)+170*opacity;bb=bb*(1-opacity)+183*opacity;}if(effectiveROI&&!effectiveROI[i]){rr*=.35;gg*=.35;bb*=.35;}image.data[i*4]=rr;image.data[i*4+1]=gg;image.data[i*4+2]=bb;image.data[i*4+3]=255;}ctx.putImageData(image,0,0);
- ctx.lineWidth=2/zoom;state.rois.forEach(r=>{ctx.strokeStyle=r.exclude?'#f5ba70':'#ffffff';ctx.setLineDash(r.exclude?[6/zoom,4/zoom]:[]);ctx.beginPath();if(r.type==='rect')ctx.rect(r.x,r.y,r.w,r.h);else{r.points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();}ctx.stroke();});ctx.setLineDash([]);if(pendingPolygon.length){ctx.strokeStyle='#fff';ctx.beginPath();pendingPolygon.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.stroke();}if(dragStart&&drawMode==='rect'&&dragStart.end){ctx.strokeStyle='#fff';ctx.strokeRect(dragStart.x,dragStart.y,dragStart.end[0]-dragStart.x,dragStart.end[1]-dragStart.y);}
- if(state.settings.calibration){const length=Math.min(ch.w*.2,100/zoom),um=length*state.settings.calibration;ctx.fillStyle='white';ctx.fillRect(18/zoom,(ch.h-28/zoom),length,3/zoom);ctx.font=`${12/zoom}px system-ui`;ctx.fillText(`${um.toPrecision(3)} μm`,18/zoom,ch.h-10/zoom);}
- document.querySelectorAll('[data-display]').forEach(b=>b.classList.toggle('active',b.dataset.display===display));
+function baseChannel() {
+  return (
+    state.channels.sem ||
+    state.channels[selected] ||
+    state.channels.nmc ||
+    Object.values(state.channels)[0]
+  );
 }
-function fit(){const ch=state.channels[$('#channel').value]||baseChannel();if(!ch)return;zoom=Math.max(.02,Math.min(4,($('#viewport').clientWidth-40)/ch.w,($('#viewport').clientHeight-40)/ch.h));$('#zoom').value='fit';draw();}
-function point(e){const r=$('#canvas').getBoundingClientRect(),d=state.channels[$('#channel').value]||baseChannel();return [Math.max(0,Math.min(d.w,(e.clientX-r.left)/zoom)),Math.max(0,Math.min(d.h,(e.clientY-r.top)/zoom))];}
-$('#canvas').onpointerdown=e=>{if(!baseChannel())return;const p=point(e);if(drawMode==='polygon'){pendingPolygon.push(p);draw();return;}if(drawMode==='scale'){scalePoints.push(p);if(scalePoints.length===2){const distance=Math.hypot(scalePoints[0][0]-p[0],scalePoints[0][1]-p[1]);if(distance>0){setCalibration(+$('#scaleLength').value/distance);status('Calibration updated');}else status('兩端不能相同。',true);drawMode='pan';}return;}if(drawMode==='rect')dragStart={x:p[0],y:p[1]};else panStart={x:e.clientX,y:e.clientY,left:$('#viewport').scrollLeft,top:$('#viewport').scrollTop};$('#canvas').setPointerCapture(e.pointerId);};
-$('#canvas').onpointermove=e=>{if(dragStart&&drawMode==='rect'){dragStart.end=point(e);draw();}if(panStart){$('#viewport').scrollLeft=panStart.left-(e.clientX-panStart.x);$('#viewport').scrollTop=panStart.top-(e.clientY-panStart.y);}};
-$('#canvas').onpointerup=e=>{if(dragStart&&drawMode==='rect'){const p=point(e),r={type:'rect',x:Math.min(dragStart.x,p[0]),y:Math.min(dragStart.y,p[1]),w:Math.abs(p[0]-dragStart.x),h:Math.abs(p[1]-dragStart.y),exclude};dragStart=null;if(r.w>=1&&r.h>=1){state.rois.push(r);dirty();renderControls();preview();}drawMode='pan';}panStart=null;};
-function finishPolygon(){if(pendingPolygon.length<3){status('Polygon 至少需要 3 個頂點。',true);return;}state.rois.push({type:'polygon',points:pendingPolygon,exclude});pendingPolygon=[];drawMode='pan';dirty();renderControls();preview();}
-$('#channel').onchange=()=>{if(['nmc','secondary','f'].includes($('#channel').value))selected=$('#channel').value;if(step==='segment')renderControls();draw();};$('#zoom').onchange=e=>{if(e.target.value==='fit')fit();else{zoom=+e.target.value;draw();}};$('#opacity').oninput=e=>{opacity=+e.target.value;draw();};$('#pan').onclick=()=>{drawMode='pan';pendingPolygon=[];draw();};document.querySelectorAll('[data-display]').forEach(b=>b.onclick=()=>{display=b.dataset.display;draw();});document.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{step=b.dataset.step;drawMode='pan';renderControls();});$('#sample').oninput=e=>{state.sample=e.target.value;dirty();};$('#import').onclick=()=>{step='data';renderControls();};
-function fmt(v,percent=false){return v==null||!Number.isFinite(v)?'—':percent?(v*100).toFixed(2)+'%':v.toFixed(3);}
-function renderResults(){const r=state.results;if(!r){$('#results').innerHTML='';return;}const m=(name,value,key,unit='')=>`<div class="metric"><div class="label">${t(name)} ${info(key)}</div><div class="value">${value} <small>${unit}</small></div></div>`;
- $('#results').innerHTML=`<h2>${t("Results")}</h2>${m('Uniformity CV',fmt(r.uniformityCV),'cv')}${m('Interparticle Occupancy',fmt(r.interparticleOccupancy,true),'occupancy')}${m('Targeting Efficiency',fmt(r.targetingEfficiency,true),'targeting')}${m('Median Distance',fmt(r.distance.median),'distance',r.distance.unit)}<div class="row compact">${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}</div>${state.channels.f?m('Binder Coverage',fmt(r.binderCoverage,true),'binder'):''}<h3>${t("Distance distribution")} ${info('distance')}</h3><canvas id="hist" class="chart" width="260" height="130"></canvas><div class="compact" id="bins"></div><h3>${t("Local area fraction")} ${info('cv')}</h3><canvas id="tileChart" class="chart" width="260" height="130"></canvas>${state.channels.f?`<h3>${t("F colocalization")} ${info('overlap')}</h3><div class="row">${t("Pearson r")} ${info('pearson')} <strong>${fmt(r.pearson)}</strong></div><div class="row compact">${t('F with Secondary')} <strong>${fmt(r.fWithSecondary,true)}</strong></div><div class="row compact">${t('Secondary with F')} <strong>${fmt(r.secondaryWithF,true)}</strong></div>`:''}${r.depth?`${m('Depth CV',fmt(r.depth.cv),'depth')}<table><tr><th>${t("Zone")}</th><th>${t("Additive")}</th><th>F</th><th>${t("Overlap")}</th></tr>${r.depth.zones.map(z=>`<tr><td>${t(z.zone)}</td><td>${fmt(z.secondaryFraction,true)}</td><td>${fmt(z.fFraction,true)}</td><td>${fmt(z.overlapFraction,true)}</td></tr>`).join('')}</table><div class="compact">${t('F Depth CV')} ${fmt(r.depth.fCV)}</div>`:''}${r.warnings.map(w=>`<div class="warning">${esc(messageText(w))}</div>`).join('')}`;
- const ctx=$('#hist').getContext('2d'),max=Math.max(...r.distance.histogram,1);ctx.fillStyle='#078491';r.distance.histogram.forEach((v,i)=>ctx.fillRect(10+i*12,105-v/max*90,10,v/max*90));ctx.fillStyle='#6b7380';ctx.font='11px system-ui';ctx.fillText(`0`,10,124);ctx.fillText(`${fmt(r.distance.max)} ${r.distance.unit}`,175,124);ctx.fillText(`${max} px`,10,11);
- $('#bins').innerHTML=r.distance.bins.map((v,i)=>`${['< '+r.distance.edges[0],r.distance.edges[0]+' – '+r.distance.edges[1],r.distance.edges[1]+' – '+r.distance.edges[2],'> '+r.distance.edges[2]][i]} ${r.distance.unit}: ${fmt(v/r.secondaryPixels,true)}`).join('<br>');
- const tc=$('#tileChart').getContext('2d'),grid=state.settings.grid,tm=Math.max(...r.tiles.map(t=>t.fraction||0),.01),cell=120/grid;r.tiles.forEach(t=>{tc.fillStyle=t.area?`rgba(7,132,145,${.1+.9*(t.fraction||0)/tm})`:'#ddd';tc.fillRect(5+t.x*cell,5+t.y*cell,cell-1,cell-1);});tc.fillStyle='#6b7380';tc.font='11px system-ui';tc.fillText(`0 – ${fmt(tm,true)}`,140,22);setupTooltips();
+function dimensions() {
+  const ch = Object.values(state.channels)[0];
+  return ch ? { w: ch.w, h: ch.h } : null;
 }
-function trace(){return {toolVersion:VERSION,sample:state.sample,view:state.view,material:state.material,images:Object.fromEntries(Object.entries(state.channels).map(([k,c])=>[k,{name:c.name,w:c.w,h:c.h,format:c.format,sha256:c.sha256||null,sourceSha256:c.sourceSha256||null,importInfo:c.importInfo||null,intensityRange:Core.range(c.data)}])),rois:structuredClone(state.rois),roiInvert:state.roiInvert,segmentation:structuredClone(state.seg),parameters:structuredClone(state.settings),intensityMethod:'CSV raw; image max(R,G,B)',distanceConvention:'pixel-center to nearest 4-neighbor boundary pixel-center',connectivity:4};}
-function snapshot(){return {schema:'electrode-eds-session',schemaVersion:1,toolVersion:VERSION,uiLanguage:language,...state,channels:Object.fromEntries(Object.entries(state.channels).map(([k,ch])=>[k,{name:ch.name,w:ch.w,h:ch.h,format:ch.format,sha256:ch.sha256,image:ch.image,sourceImage:ch.sourceImage,sourceSha256:ch.sourceSha256,importInfo:ch.importInfo,data:Array.from(ch.data)}])),workspace:{selected,display,zoom,opacity}};}
-function download(name,content,type='application/json'){const blob=content instanceof Blob?content:new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
-const safeName=()=>state.sample.replace(/[^\p{L}\p{N}._-]/gu,'_')||'sample';
-$('#save').onclick=()=>download(safeName()+'.session.json',JSON.stringify(snapshot()));
-$('#sessionFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const s=JSON.parse(await file.text());validateSession(s);state={sample:s.sample,view:s.view,material:s.material,channels:Object.fromEntries(Object.entries(s.channels).map(([k,ch])=>[k,{...ch,data:new Float64Array(ch.data)}])),seg:s.seg,rois:s.rois,roiInvert:s.roiInvert,settings:s.settings,comparison:s.comparison||[],results:null};for(const ch of Object.values(state.channels))if(ch.image){const img=new Image();img.src=ch.image;await img.decode();const c=document.createElement('canvas');c.width=ch.w;c.height=ch.h;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);ch.rgba=ctx.getImageData(0,0,ch.w,ch.h).data;}setUILanguage(s.uiLanguage||language);updateChrome();channelVersion++;revision++;selected=['nmc','secondary','f'].includes(s.workspace?.selected)?s.workspace.selected:'secondary';display=['original','mask','overlay'].includes(s.workspace?.display)?s.workspace.display:'overlay';zoom=Number.isFinite(s.workspace?.zoom)&&s.workspace.zoom>0?s.workspace.zoom:1;opacity=Number.isFinite(s.workspace?.opacity)?Math.min(1,Math.max(0,s.workspace.opacity)):.45;$('#opacity').value=opacity;$('#sample').value=state.sample;renderControls();renderChannels();await compute(!!state.channels.nmc&&!!state.channels.secondary);fit();status('Session loaded · results recomputed');}catch(err){status(()=>t('Session could not be loaded')+': '+messageText(err.message),true);}e.target.value='';};
-function validateSession(s){if(s.schema!=='electrode-eds-session'||s.schemaVersion!==1)throw Error('不支援的 Session 格式。');if(typeof s.sample!=='string'||!['top','cross'].includes(s.view)||!s.channels||!s.seg||!s.settings||!Array.isArray(s.rois))throw Error('欄位缺漏。');for(const [k,c] of Object.entries(s.channels)){if((c.image&&!/^data:image\/png;base64,/.test(c.image))||(c.sourceImage&&!/^data:image\/png;base64,/.test(c.sourceImage)))throw Error('圖片須為內嵌 PNG。');if(!channelNames[k]||!Number.isInteger(c.w)||!Number.isInteger(c.h)||c.w<1||c.h<1||c.w*c.h>16e6||!Array.isArray(c.data)||c.data.length!==c.w*c.h||c.data.some(x=>!Number.isFinite(x)))throw Error('Channel 資料不合法。');}if(![3,5,8].includes(s.settings.grid)||!(s.settings.epsilon>0)||!Number.isFinite(s.settings.binderRadius)||s.settings.binderRadius<0||s.settings.calibration!==null&&!(Number.isFinite(s.settings.calibration)&&s.settings.calibration>0))throw Error('參數不合法。');for(const k of ['nmc','secondary','f']){const p=s.seg[k];if(!p||!Number.isFinite(p.threshold)||!Number.isFinite(p.min)||p.min<0)throw Error('Segmentation 不合法。');}for(const r of s.rois){if(r.type==='rect'){if(![r.x,r.y,r.w,r.h].every(Number.isFinite)||r.w<=0||r.h<=0)throw Error('ROI 不合法。');}else if(r.type==='polygon'){if(!Array.isArray(r.points)||r.points.length<3||r.points.some(p=>!Array.isArray(p)||p.length!==2||!p.every(Number.isFinite)))throw Error('Polygon 不合法。');}else throw Error('ROI 格式不合法。');}}
-function addComparison(){if(!state.results)return;state.comparison.push({sample:state.sample,view:state.view,metrics:structuredClone(state.results),trace:trace(),cohesive:'',peel:'',note:''});renderControls();status('Added to Comparison');}
-function showComparison(){showDialog('Comparison',`<div style="overflow:auto"><table><tr><th>${t("Sample")}</th><th>${t("CV")}</th><th>${t("Occupancy")}</th><th>${t("Targeting")}</th><th>${t("Median")}</th><th>${t("Binder")}</th><th>${t("Depth CV")}</th><th>${t("Cohesive")}</th><th>${t("Peel")}</th><th>${t("Recipe note")}</th><th></th></tr>${state.comparison.map((c,i)=>`<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy,true)}</td><td>${fmt(c.metrics.targetingEfficiency,true)}</td><td>${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}</td><td>${fmt(c.metrics.binderCoverage,true)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive','peel','note'].map(k=>`<td><input data-comp="${i}" data-key="${k}" aria-label="${t({cohesive:'Cohesive',peel:'Peel',note:'Recipe note'}[k])} ${i+1}" value="${esc(c[k]||'')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t("Export comparison CSV")}</button></div>`);document.querySelectorAll('[data-comp]').forEach(e=>e.oninput=()=>state.comparison[+e.dataset.comp][e.dataset.key]=e.value);document.querySelectorAll('[data-removecomp]').forEach(b=>b.onclick=()=>{state.comparison.splice(+b.dataset.removecomp,1);$('#dialog').close();showComparison();renderControls();});$('#comparisonCSV').onclick=()=>exportCSV(true);}
-function csvCell(x){let s=typeof x==='object'?JSON.stringify(x):String(x??'');if(/^[=+@\-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}
-function flatResult(r,t,c={}){return {Sample:t.sample,View:t.view,UniformityCV:r.uniformityCV,InterparticleOccupancy:r.interparticleOccupancy,TargetingEfficiency:r.targetingEfficiency,SecondaryAreaFraction:r.secondaryAreaFraction,MeanDistance:r.distance.mean,MedianDistance:r.distance.median,P90Distance:r.distance.p90,DistanceUnit:r.distance.unit,BinderCoverage:r.binderCoverage,Pearson:r.pearson,FWithSecondary:r.fWithSecondary,SecondaryWithF:r.secondaryWithF,DepthCV:r.depth?.cv,FDepthCV:r.depth?.fCV,Cohesive:c.cohesive||'',Peel:c.peel||'',RecipeNote:c.note||'',ToolVersion:VERSION,AnalyzedAt:r.analyzedAt,Calibration:t.parameters.calibration,Thresholds:t.segmentation,ROI:t.rois,ROIInvert:t.roiInvert,Parameters:t.parameters,Images:t.images,DepthZones:r.depth?.zones||[],Tiles:r.tiles,DistanceHistogram:r.distance.histogram,DistanceBins:r.distance.bins,Warnings:r.warnings};}
-function exportCSV(comparison=false){const rows=comparison?state.comparison.map(c=>flatResult(c.metrics,c.trace,c)):state.results?[flatResult(state.results,state.results.trace)]:[];if(!rows.length){status('尚無分析結果。',true);return;}const keys=Object.keys(rows[0]);download(comparison?'comparison.csv':safeName()+'.analysis.csv','\uFEFF'+[keys,...rows.map(r=>keys.map(k=>r[k]))].map(row=>row.map(csvCell).join(',')).join('\r\n'),'text/csv;charset=utf-8');}
-$('#export').onclick=()=>{showDialog('Export',`<div class="row"><button id="exportCSV">${t("Analysis CSV")}</button><button id="exportJSON">${t("Analysis JSON")}</button><button id="exportPNG">${t("Overlay PNG")}</button></div><div class="row"><button id="exportSession">${t("Session JSON")}</button><button id="exportComparison">${t("Comparison CSV")}</button></div>`);$('#exportCSV').onclick=()=>exportCSV();$('#exportJSON').onclick=()=>{if(!state.results){status('尚無分析結果。',true);return;}download(safeName()+'.analysis.json',JSON.stringify({schema:'electrode-eds-analysis',results:state.results,trace:state.results.trace},null,2));};$('#exportPNG').onclick=exportPNG;$('#exportSession').onclick=$('#save').onclick;$('#exportComparison').onclick=()=>exportCSV(true);};
-function exportPNG(){if(!baseChannel()||!state.results){status('請先完成分析。',true);return;}const old=display;display='overlay';draw();const source=$('#canvas'),out=document.createElement('canvas');out.width=Math.max(640,source.width);out.height=source.height+100;const ctx=out.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,out.width,out.height);ctx.drawImage(source,0,0);ctx.fillStyle='#242b35';const size=Math.max(12,Math.min(20,out.width/35));ctx.font=`${size}px system-ui`;ctx.fillText(`${state.sample} · ${t(state.view==='top'?'Top View':'Cross Section')} · v${VERSION}`,12,source.height+28);ctx.font=`${size*.8}px system-ui`;ctx.fillText(`CV ${fmt(state.results.uniformityCV)} | ${t('Occupancy')} ${fmt(state.results.interparticleOccupancy,true)} | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}`,12,source.height+55);ctx.fillText(`${t('2D image quantification')} · ${t(state.settings.calibration?'calibrated':'uncalibrated (px)')}`,12,source.height+80);out.toBlob(b=>download(safeName()+'.overlay.png',b),'image/png');display=old;draw();}
-$('#settings').onclick=()=>showDialog('Settings',`<label class="field">${t("Overlay opacity")}<input id="settingsOpacity" type="range" min="0" max="1" step=".05" value="${opacity}"></label><button id="clearData">${t("Clear Local Data")}</button>`);
-$('#dialogbody').addEventListener('input',e=>{if(e.target.id==='settingsOpacity'){opacity=+e.target.value;$('#opacity').value=opacity;draw();}});$('#dialogbody').addEventListener('click',e=>{if(e.target.id==='clearData'){state={sample:'Untitled',view:'top',material:'TiO2',channels:{},seg:{nmc:defaults(),secondary:defaults(),f:defaults()},rois:[],roiInvert:false,settings:{grid:5,calibration:null,binderRadius:3,ratio:false,epsilon:1,depthAxis:'y',depthReverse:false},comparison:[],results:null};channelVersion++;revision++;masks={};effectiveROI=null;$('#sample').value='Untitled';step='data';$('#dialog').close();renderControls();renderChannels();renderResults();draw();status('Local data cleared');}});
-$('#about').onclick=()=>showDialog('About',`<p>Electrode EDS Spatial Analyzer · v${VERSION}</p><p>${help.scope}</p><p>${t('About intensity')}</p><p>${t('About offline')}</p>`);
-$('#collapse').onclick=()=>$('main').classList.toggle('collapsed');
-function setupTooltips(){document.querySelectorAll('[data-help]').forEach(el=>{const show=(full=false)=>{const t=$('#tooltip'),text=help[el.dataset.help]||el.dataset.help;t.textContent=full?text:language==='en'?text.split(';')[0].split('. ')[0]+(text.endsWith('.')?'':'.'):text.split('；')[0].split('。')[0]+'。';t.classList.remove('hidden');const r=el.getBoundingClientRect();t.style.left=Math.max(8,Math.min(innerWidth-350,r.left))+'px';t.style.top=Math.min(innerHeight-t.offsetHeight-10,r.bottom+8)+'px';};el.onmouseenter=()=>show(false);el.onfocus=()=>show(false);el.onmouseleave=()=>{if(!$('#tooltip').classList.contains('pinned'))$('#tooltip').classList.add('hidden');};el.onblur=el.onmouseleave;el.onclick=e=>{e.stopPropagation();show(true);$('#tooltip').classList.toggle('pinned');};});}
-document.addEventListener('click',()=>{$('#tooltip').classList.add('hidden');$('#tooltip').classList.remove('pinned');});document.addEventListener('keydown',e=>{if(e.key==='Escape'){pendingPolygon=[];drawMode='pan';$('#tooltip').classList.add('hidden');$('#tooltip').classList.remove('pinned');draw();}});
-function loadDemo(){const w=240,h=240,ni=new Float64Array(w*h),s=new Float64Array(w*h),f=new Float64Array(w*h),sem=new Float64Array(w*h);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x,dx=(x%48)-24,dy=(y%48)-24;ni[i]=Math.hypot(dx,dy)<14?200:0;s[i]=(x%48<10&&y%48<12)?180:0;f[i]=(x%48<13&&y%48<15)?220:0;sem[i]=30+ni[i]*.7+s[i]*.4;}state.channels={sem:{name:'synthetic-sem.csv',w,h,data:sem,format:'csv'},nmc:{name:'synthetic-ni.csv',w,h,data:ni,format:'csv'},secondary:{name:'synthetic-ti.csv',w,h,data:s,format:'csv'},f:{name:'synthetic-f.csv',w,h,data:f,format:'csv'}};channelVersion++;state.sample='Synthetic uniform';$('#sample').value=state.sample;state.rois=[];state.roiInvert=false;state.settings.ratio=false;state.settings.calibration=null;state.settings.binderRadius=3;state.seg={nmc:defaults(),secondary:defaults(),f:defaults()};dirty();renderControls();renderChannels();preview().then(fit);}
+function sizeError() {
+  const a = Object.values(state.channels);
+  return a.length && a.some(c => c.w !== a[0].w || c.h !== a[0].h);
+}
+function showDialog(title, body) {
+  $('#dialog').classList.toggle('image-editor', title === 'Crop and review');
+  $('#dialogtitle').textContent = t(title);
+  $('#dialogbody').innerHTML = body;
+  $('#dialog').showModal();
+}
+$('#dialog').addEventListener('close', () => {
+  awaitingPaste = false;
+  imageImport = null;
+  imageImportTicket++;
+});
+$('#closeDialog').onclick = () => $('#dialog').close();
+$('#dialog').onclick = e => {
+  if (e.target === $('#dialog')) $('#dialog').close();
+};
+function renderChannels() {
+  const current = $('#channel').value;
+  $('#channel').innerHTML = Object.keys(state.channels)
+    .map(k => `<option value="${k}">${t(channelNames[k])}</option>`)
+    .join('');
+  $('#channel').value = state.channels[current]
+    ? current
+    : state.channels[selected]
+      ? selected
+      : Object.keys(state.channels)[0] || '';
+  $('#dimensions').textContent = dimensions() ? `${dimensions().w} × ${dimensions().h} px` : '';
+}
+function renderControls() {
+  document
+    .querySelectorAll('[data-step]')
+    .forEach(b => b.classList.toggle('active', b.dataset.step === step));
+  const c = $('#controls');
+  if (step === 'data') {
+    c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'].map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(
+      channelNames,
+    )
+      .map(
+        ([key, name]) =>
+          `<div class="drop ${pasteTarget === key ? 'paste-target' : ''}" data-drop="${key}"><strong>${t(name)} ${key === 'secondary' ? info('secondary') : info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="row"><button data-paste="${key}" type="button">${t('Paste / Ctrl+V')}</button>${state.channels[key]?.image ? `<button data-crop="${key}" type="button">${t('Crop / review')}</button>` : ''}</div><div class="filename">${esc(state.channels[key] ? state.channels[key].name + ' · ' + state.channels[key].w + '×' + state.channels[key].h : '—')}</div>${state.channels[key] ? `<button data-remove="${key}" class="compact">${t('Remove')}</button>` : ''}</div>`,
+      )
+      .join(
+        '',
+      )}<div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
+    $('#view').value = state.view;
+    $('#material').value = state.material;
+    $('#view').onchange = e => {
+      state.view = e.target.value;
+      dirty();
+      renderControls();
+    };
+    $('#material').onchange = e => {
+      state.material = e.target.value;
+      dirty();
+      renderControls();
+    };
+    const mw = $('#materialWarning');
+    if (state.material === 'MnO2')
+      mw.innerHTML = `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>`;
+    if (state.material === 'Al2O3' && state.view === 'cross')
+      mw.innerHTML = `<div class="warning">${t('Exclude Al current collector')} ${info('al')}</div>`;
+    document
+      .querySelectorAll('[data-paste]')
+      .forEach(b => (b.onclick = () => preparePaste(b.dataset.paste)));
+    document
+      .querySelectorAll('[data-crop]')
+      .forEach(
+        b =>
+          (b.onclick = () => openImageImport(null, b.dataset.crop, state.channels[b.dataset.crop])),
+      );
+    document
+      .querySelectorAll('[data-file]')
+      .forEach(el => (el.onchange = () => loadFile(el.files[0], el.dataset.file)));
+    document.querySelectorAll('[data-drop]').forEach(el => {
+      el.ondragover = e => {
+        e.preventDefault();
+        el.classList.add('drag');
+      };
+      el.ondragleave = () => el.classList.remove('drag');
+      el.ondrop = e => {
+        e.preventDefault();
+        el.classList.remove('drag');
+        loadFile(e.dataTransfer.files[0], el.dataset.drop);
+      };
+    });
+    document.querySelectorAll('[data-remove]').forEach(
+      b =>
+        (b.onclick = () => {
+          delete state.channels[b.dataset.remove];
+          channelVersion++;
+          dirty();
+          masks = {};
+          effectiveROI = null;
+          renderControls();
+          renderChannels();
+          draw();
+          preview();
+        }),
+    );
+    $('#loadSession').onclick = () => $('#sessionFile').click();
+    $('#demo').onclick = loadDemo;
+  } else if (step === 'roi') {
+    c.innerHTML = `<h2>${t('ROI')} ${info('roi')}</h2><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div><h3>${t('Calibration')} ${info('cal')}</h3><label class="field">${t('μm / pixel')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}"></label><label class="field">${t('Scale bar length (\u03bcm)')}<input id="scaleLength" type="number" min="0" step="any" value="10"></label><button id="scaleBar">${t('Select scale bar endpoints')}</button>`;
+    $('#exclude').checked = exclude;
+    $('#roiInvert').checked = state.roiInvert;
+    $('#exclude').onchange = e => (exclude = e.target.checked);
+    $('#drawROI').onclick = () => {
+      drawMode = $('#roiMode').value;
+      pendingPolygon = [];
+      status(drawMode === 'rect' ? '拖曳 Rectangle。' : '點選 Polygon 頂點，完成後按完成。');
+    };
+    $('#finishPolygon').onclick = finishPolygon;
+    $('#cancelDraw').onclick = () => {
+      pendingPolygon = [];
+      dragStart = null;
+      drawMode = 'pan';
+      draw();
+      status('Ready');
+    };
+    $('#clearROI').onclick = $('#fullROI').onclick = () => {
+      state.rois = [];
+      state.roiInvert = false;
+      dirty();
+      renderControls();
+      preview();
+    };
+    $('#roiInvert').onchange = e => {
+      state.roiInvert = e.target.checked;
+      dirty();
+      preview();
+    };
+    document.querySelectorAll('[data-delroi]').forEach(
+      b =>
+        (b.onclick = () => {
+          state.rois.splice(+b.dataset.delroi, 1);
+          dirty();
+          renderControls();
+          preview();
+        }),
+    );
+    $('#calibration').onchange = e => setCalibration(+e.target.value);
+    $('#scaleBar').onclick = () => {
+      if (!(+$('#scaleLength').value > 0)) {
+        status('Scale bar length 必須 > 0。', true);
+        return;
+      }
+      scalePoints = [];
+      drawMode = 'scale';
+      status('點選 Scale bar 兩端。');
+    };
+  } else if (step === 'segment') {
+    const p = state.seg[selected] || state.seg.secondary,
+      ch = state.channels[selected],
+      a = ch ? segIntensity(selected) : null,
+      r = a ? Core.range(a) : { min: 0, max: 255 };
+    c.innerHTML = `<h2>${t('Segmentation')} ${info('threshold')}</h2><label class="field">${t('Channel')}<select id="segChannel">${['nmc', 'secondary', 'f'].map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label>${selected === 'secondary' ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}`;
+    $('#segChannel').value = selected;
+    $('#segChannel').onchange = e => {
+      selected = e.target.value;
+      if (state.channels[selected]) $('#channel').value = selected;
+      renderControls();
+      draw();
+    };
+    $('#auto').onclick = () => {
+      p.auto = true;
+      dirty();
+      renderControls();
+      preview();
+    };
+    $('#manual').onclick = () => {
+      p.auto = false;
+      dirty();
+      renderControls();
+    };
+    function thresholdChange(value) {
+      if (!Number.isFinite(value)) {
+        status('Threshold 必須為有限數值。', true);
+        return;
+      }
+      p.threshold = value;
+      p.auto = false;
+      $('#thresholdNumber').value = value;
+      $('#thresholdSlider').value = value;
+      $('#manual').classList.add('active');
+      $('#auto').classList.remove('active');
+      dirty();
+      schedulePreview();
+    }
+    $('#thresholdNumber').onchange = e => thresholdChange(+e.target.value);
+    $('#thresholdSlider').oninput = e => thresholdChange(+e.target.value);
+    for (const key of ['invert', 'fill', 'smooth'])
+      $('#' + key).onchange = e => {
+        p[key] = e.target.checked;
+        dirty();
+        preview();
+      };
+    $('#minObject').onchange = e => {
+      p.min = Math.max(0, Math.floor(+e.target.value || 0));
+      dirty();
+      preview();
+    };
+    if ($('#ratio')) {
+      $('#ratio').onchange = e => {
+        state.settings.ratio = e.target.checked;
+        p.auto = true;
+        dirty();
+        renderControls();
+        preview();
+      };
+      $('#epsilon').onchange = e => {
+        if (+e.target.value <= 0) {
+          status('ε 必須 > 0。', true);
+          return;
+        }
+        state.settings.epsilon = +e.target.value;
+        dirty();
+        preview();
+      };
+    }
+  } else {
+    c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${[3, 5, 8].map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings"></div>`;
+    $('#grid').value = state.settings.grid;
+    $('#grid').onchange = e => {
+      state.settings.grid = +e.target.value;
+      dirty();
+    };
+    $('#radius').onchange = e => {
+      if (!Number.isFinite(+e.target.value) || +e.target.value < 0) {
+        status('距離必須 ≥ 0。', true);
+        return;
+      }
+      state.settings.binderRadius = +e.target.value;
+      dirty();
+    };
+    if ($('#depthAxis')) {
+      $('#depthAxis').value = state.settings.depthAxis;
+      $('#depthAxis').onchange = e => {
+        state.settings.depthAxis = e.target.value;
+        dirty();
+      };
+      $('#depthReverse').onchange = e => {
+        state.settings.depthReverse = e.target.checked;
+        dirty();
+      };
+    }
+    $('#analyze').onclick = () => compute(true);
+    $('#addComparison').onclick = addComparison;
+    $('#showComparison').onclick = showComparison;
+  }
+  setupTooltips();
+}
+function segIntensity(key) {
+  const ch = state.channels[key];
+  if (key === 'secondary' && state.settings.ratio && state.channels.nmc)
+    return Float64Array.from(
+      ch.data,
+      (v, i) => v / (state.channels.nmc.data[i] + state.settings.epsilon),
+    );
+  return ch.data;
+}
+function setCalibration(value) {
+  state.settings.calibration = value > 0 && Number.isFinite(value) ? value : null;
+  state.settings.binderRadius = state.settings.calibration ? 0.5 : 3;
+  dirty();
+  renderControls();
+  draw();
+}
+async function decodeLocalImage(file) {
+  try {
+    if (typeof createImageBitmap === 'function') return await createImageBitmap(file);
+  } catch (_) {}
+  const url = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(Error('File could not be read'));
+    reader.readAsDataURL(file);
+  });
+  return await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(Error('Image could not be decoded'));
+    img.src = url;
+  });
+}
+function sizeErrorMessage() {
+  const sizes = Object.entries(state.channels)
+    .map(([k, c]) => `${t(channelNames[k])}: ${c.w}×${c.h}`)
+    .join(' · ');
+  return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}`;
+}
+async function loadFile(file, key) {
+  if (!file) return;
+  try {
+    let ch;
+    if (/\.csv$/i.test(file.name)) {
+      ch = Core.parseCSV(await file.text());
+      ch.format = 'csv';
+    } else if (/\.(png|jpe?g)$/i.test(file.name)) {
+      const img = await decodeLocalImage(file),
+        canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      if (canvas.width * canvas.height > 16e6) {
+        img.close?.();
+        throw Error('Map 超過 1600 萬像素，請先縮小。');
+      }
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      ch = {
+        w: canvas.width,
+        h: canvas.height,
+        data: Float64Array.from({ length: canvas.width * canvas.height }, (_, i) =>
+          Math.max(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]),
+        ),
+        image: canvas.toDataURL('image/png'),
+        rgba: new Uint8ClampedArray(rgba),
+        format: 'image',
+      };
+      img.close?.();
+    } else throw Error('僅支援 PNG / JPG / CSV。');
+    if (ch.w * ch.h > 16e6) throw Error('Map 超過 1600 萬像素，請先縮小。');
+    ch.name = file.name;
+    if (crypto.subtle) {
+      const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      ch.sha256 = Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, '0')).join('');
+    }
+    const previous = dimensions();
+    state.channels[key] = ch;
+    channelVersion++;
+    if (previous && (previous.w !== ch.w || previous.h !== ch.h)) {
+      state.rois = [];
+      state.roiInvert = false;
+    }
+    state.seg[key] && (state.seg[key].auto = true);
+    dirty();
+    renderControls();
+    renderChannels();
+    draw();
+    if (sizeError()) {
+      masks = {};
+      effectiveROI = null;
+      status(sizeErrorMessage, true);
+    } else {
+      status(() => `${t('Imported')} ${file.name}`);
+      await preview();
+      fit();
+    }
+  } catch (e) {
+    const reason = e.message;
+    status(() => `${t('Import failed')}: ${file.name} · ${messageText(reason)}`, true);
+  }
+}
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(preview, 80);
+}
+async function preview() {
+  if (!dimensions() || sizeError()) return;
+  return compute(false);
+}
+async function compute(analyze = false) {
+  if (sizeError()) {
+    status(sizeErrorMessage, true);
+    return;
+  }
+  if (!dimensions()) return;
+  if (analyze && (!state.channels.nmc || !state.channels.secondary)) {
+    status('請載入 NMC 與 Secondary map。', true);
+    return;
+  }
+  if (state.settings.ratio && (!state.channels.nmc || !state.channels.secondary)) {
+    status('Ratio 需要 Ni 與 Mn map。', true);
+    return;
+  }
+  if (analyze && state.material === 'Al2O3' && state.view === 'cross' && !state.rois.length) {
+    status('Al₂O₃ 截面請先設定極層 ROI／排除集流體。', true);
+    return;
+  }
+  const id = ++requestId;
+  latest = id;
+  const rev = revision;
+  busy = true;
+  $('#progress').classList.remove('hidden');
+  status(analyze ? 'Analyzing…' : 'Segmenting…');
+  const start = performance.now();
+  const payload = {
+    ...dimensions(),
+    channels:
+      workerSentVersion !== channelVersion
+        ? Object.fromEntries(
+            Object.entries(state.channels)
+              .filter(([k]) => ['nmc', 'secondary', 'f'].includes(k))
+              .map(([k, ch]) => [k, { data: ch.data }]),
+          )
+        : null,
+    seg: state.seg,
+    rois: state.rois,
+    roiInvert: state.roiInvert,
+    settings: { ...state.settings, view: state.view },
+    analyze,
+  };
+  const response = await new Promise(resolve => {
+    waiter.set(id, resolve);
+    worker.postMessage({ id, payload });
+    workerSentVersion = channelVersion;
+  });
+  if (id !== latest) return;
+  busy = false;
+  $('#progress').classList.add('hidden');
+  if (rev !== revision) {
+    status('設定已改變，請重新分析。');
+    return;
+  }
+  if (response.error) {
+    status(response.error, true);
+    return;
+  }
+  masks = response.result.masks;
+  effectiveROI = response.result.roi;
+  for (const [k, t] of Object.entries(response.result.thresholds)) {
+    if (state.seg[k].auto) state.seg[k].threshold = t;
+  }
+  if (analyze) {
+    state.results = response.result.results;
+    state.results.elapsedMs = performance.now() - start;
+    state.results.analyzedAt = new Date().toISOString();
+    state.results.trace = trace();
+    renderResults();
+    renderControls();
+    const elapsed = Math.round(state.results.elapsedMs),
+      warnings = [...state.results.warnings];
+    status(
+      () =>
+        `${t('Analysis complete')} · ${elapsed} ms${warnings.length ? ' · ' + warnings.map(messageText).join(' ') : ''}`,
+    );
+  } else {
+    if (step === 'segment') {
+      const t = state.seg[selected]?.threshold;
+      if ($('#thresholdNumber') && t != null) {
+        $('#thresholdNumber').value = Number(t.toPrecision(7));
+        $('#thresholdSlider').value = t;
+      }
+    }
+    status('Mask updated');
+  }
+  draw();
+}
+function draw() {
+  const ch = state.channels[$('#channel').value] || baseChannel(),
+    canvas = $('#canvas'),
+    ctx = canvas.getContext('2d');
+  if (!ch) {
+    canvas.width = 1;
+    canvas.height = 1;
+    $('#empty').classList.remove('hidden');
+    return;
+  }
+  $('#empty').classList.add('hidden');
+  canvas.width = ch.w;
+  canvas.height = ch.h;
+  canvas.style.width = `${ch.w * zoom}px`;
+  canvas.style.height = `${ch.h * zoom}px`;
+  const r = Core.range(ch.data),
+    image = ctx.createImageData(ch.w, ch.h),
+    key = $('#channel').value,
+    mask = masks[key] || masks[selected];
+  for (let i = 0; i < ch.data.length; i++) {
+    let g = r.max === r.min ? 0 : Math.round(((ch.data[i] - r.min) / (r.max - r.min)) * 255),
+      rr = ch.rgba ? ch.rgba[i * 4] : g,
+      gg = ch.rgba ? ch.rgba[i * 4 + 1] : g,
+      bb = ch.rgba ? ch.rgba[i * 4 + 2] : g;
+    if (display === 'mask') {
+      rr = gg = bb = mask?.[i] ? 255 : 0;
+    } else if (display === 'overlay' && mask?.[i]) {
+      rr = rr * (1 - opacity) + 7 * opacity;
+      gg = gg * (1 - opacity) + 170 * opacity;
+      bb = bb * (1 - opacity) + 183 * opacity;
+    }
+    if (effectiveROI && !effectiveROI[i]) {
+      rr *= 0.35;
+      gg *= 0.35;
+      bb *= 0.35;
+    }
+    image.data[i * 4] = rr;
+    image.data[i * 4 + 1] = gg;
+    image.data[i * 4 + 2] = bb;
+    image.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  ctx.lineWidth = 2 / zoom;
+  state.rois.forEach(r => {
+    ctx.strokeStyle = r.exclude ? '#f5ba70' : '#ffffff';
+    ctx.setLineDash(r.exclude ? [6 / zoom, 4 / zoom] : []);
+    ctx.beginPath();
+    if (r.type === 'rect') ctx.rect(r.x, r.y, r.w, r.h);
+    else {
+      r.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+    }
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  if (pendingPolygon.length) {
+    ctx.strokeStyle = '#fff';
+    ctx.beginPath();
+    pendingPolygon.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.stroke();
+  }
+  if (dragStart && drawMode === 'rect' && dragStart.end) {
+    ctx.strokeStyle = '#fff';
+    ctx.strokeRect(
+      dragStart.x,
+      dragStart.y,
+      dragStart.end[0] - dragStart.x,
+      dragStart.end[1] - dragStart.y,
+    );
+  }
+  if (state.settings.calibration) {
+    const length = Math.min(ch.w * 0.2, 100 / zoom),
+      um = length * state.settings.calibration;
+    ctx.fillStyle = 'white';
+    ctx.fillRect(18 / zoom, ch.h - 28 / zoom, length, 3 / zoom);
+    ctx.font = `${12 / zoom}px system-ui`;
+    ctx.fillText(`${um.toPrecision(3)} μm`, 18 / zoom, ch.h - 10 / zoom);
+  }
+  document
+    .querySelectorAll('[data-display]')
+    .forEach(b => b.classList.toggle('active', b.dataset.display === display));
+}
+function fit() {
+  const ch = state.channels[$('#channel').value] || baseChannel();
+  if (!ch) return;
+  zoom = Math.max(
+    0.02,
+    Math.min(
+      4,
+      ($('#viewport').clientWidth - 40) / ch.w,
+      ($('#viewport').clientHeight - 40) / ch.h,
+    ),
+  );
+  $('#zoom').value = 'fit';
+  draw();
+}
+function point(e) {
+  const r = $('#canvas').getBoundingClientRect(),
+    d = state.channels[$('#channel').value] || baseChannel();
+  return [
+    Math.max(0, Math.min(d.w, (e.clientX - r.left) / zoom)),
+    Math.max(0, Math.min(d.h, (e.clientY - r.top) / zoom)),
+  ];
+}
+$('#canvas').onpointerdown = e => {
+  if (!baseChannel()) return;
+  const p = point(e);
+  if (drawMode === 'polygon') {
+    pendingPolygon.push(p);
+    draw();
+    return;
+  }
+  if (drawMode === 'scale') {
+    scalePoints.push(p);
+    if (scalePoints.length === 2) {
+      const distance = Math.hypot(scalePoints[0][0] - p[0], scalePoints[0][1] - p[1]);
+      if (distance > 0) {
+        setCalibration(+$('#scaleLength').value / distance);
+        status('Calibration updated');
+      } else status('兩端不能相同。', true);
+      drawMode = 'pan';
+    }
+    return;
+  }
+  if (drawMode === 'rect') dragStart = { x: p[0], y: p[1] };
+  else
+    panStart = {
+      x: e.clientX,
+      y: e.clientY,
+      left: $('#viewport').scrollLeft,
+      top: $('#viewport').scrollTop,
+    };
+  $('#canvas').setPointerCapture(e.pointerId);
+};
+$('#canvas').onpointermove = e => {
+  if (dragStart && drawMode === 'rect') {
+    dragStart.end = point(e);
+    draw();
+  }
+  if (panStart) {
+    $('#viewport').scrollLeft = panStart.left - (e.clientX - panStart.x);
+    $('#viewport').scrollTop = panStart.top - (e.clientY - panStart.y);
+  }
+};
+$('#canvas').onpointerup = e => {
+  if (dragStart && drawMode === 'rect') {
+    const p = point(e),
+      r = {
+        type: 'rect',
+        x: Math.min(dragStart.x, p[0]),
+        y: Math.min(dragStart.y, p[1]),
+        w: Math.abs(p[0] - dragStart.x),
+        h: Math.abs(p[1] - dragStart.y),
+        exclude,
+      };
+    dragStart = null;
+    if (r.w >= 1 && r.h >= 1) {
+      state.rois.push(r);
+      dirty();
+      renderControls();
+      preview();
+    }
+    drawMode = 'pan';
+  }
+  panStart = null;
+};
+function finishPolygon() {
+  if (pendingPolygon.length < 3) {
+    status('Polygon 至少需要 3 個頂點。', true);
+    return;
+  }
+  state.rois.push({ type: 'polygon', points: pendingPolygon, exclude });
+  pendingPolygon = [];
+  drawMode = 'pan';
+  dirty();
+  renderControls();
+  preview();
+}
+$('#channel').onchange = () => {
+  if (['nmc', 'secondary', 'f'].includes($('#channel').value)) selected = $('#channel').value;
+  if (step === 'segment') renderControls();
+  draw();
+};
+$('#zoom').onchange = e => {
+  if (e.target.value === 'fit') fit();
+  else {
+    zoom = +e.target.value;
+    draw();
+  }
+};
+$('#opacity').oninput = e => {
+  opacity = +e.target.value;
+  draw();
+};
+$('#pan').onclick = () => {
+  drawMode = 'pan';
+  pendingPolygon = [];
+  draw();
+};
+document.querySelectorAll('[data-display]').forEach(
+  b =>
+    (b.onclick = () => {
+      display = b.dataset.display;
+      draw();
+    }),
+);
+document.querySelectorAll('[data-step]').forEach(
+  b =>
+    (b.onclick = () => {
+      step = b.dataset.step;
+      drawMode = 'pan';
+      renderControls();
+    }),
+);
+$('#sample').oninput = e => {
+  state.sample = e.target.value;
+  dirty();
+};
+$('#import').onclick = () => {
+  step = 'data';
+  renderControls();
+};
+function fmt(v, percent = false) {
+  return v == null || !Number.isFinite(v)
+    ? '—'
+    : percent
+      ? (v * 100).toFixed(2) + '%'
+      : v.toFixed(3);
+}
+function renderResults() {
+  const r = state.results;
+  if (!r) {
+    $('#results').innerHTML = '';
+    return;
+  }
+  const m = (name, value, key, unit = '') =>
+    `<div class="metric"><div class="label">${t(name)} ${info(key)}</div><div class="value">${value} <small>${unit}</small></div></div>`;
+  $('#results').innerHTML =
+    `<h2>${t('Results')}</h2>${m('Uniformity CV', fmt(r.uniformityCV), 'cv')}${m('Interparticle Occupancy', fmt(r.interparticleOccupancy, true), 'occupancy')}${m('Targeting Efficiency', fmt(r.targetingEfficiency, true), 'targeting')}${m('Median Distance', fmt(r.distance.median), 'distance', r.distance.unit)}<div class="row compact">${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}</div>${state.channels.f ? m('Binder Coverage', fmt(r.binderCoverage, true), 'binder') : ''}<h3>${t('Distance distribution')} ${info('distance')}</h3><canvas id="hist" class="chart" width="260" height="130"></canvas><div class="compact" id="bins"></div><h3>${t('Local area fraction')} ${info('cv')}</h3><canvas id="tileChart" class="chart" width="260" height="130"></canvas>${state.channels.f ? `<h3>${t('F colocalization')} ${info('overlap')}</h3><div class="row">${t('Pearson r')} ${info('pearson')} <strong>${fmt(r.pearson)}</strong></div><div class="row compact">${t('F with Secondary')} <strong>${fmt(r.fWithSecondary, true)}</strong></div><div class="row compact">${t('Secondary with F')} <strong>${fmt(r.secondaryWithF, true)}</strong></div>` : ''}${r.depth ? `${m('Depth CV', fmt(r.depth.cv), 'depth')}<table><tr><th>${t('Zone')}</th><th>${t('Additive')}</th><th>F</th><th>${t('Overlap')}</th></tr>${r.depth.zones.map(z => `<tr><td>${t(z.zone)}</td><td>${fmt(z.secondaryFraction, true)}</td><td>${fmt(z.fFraction, true)}</td><td>${fmt(z.overlapFraction, true)}</td></tr>`).join('')}</table><div class="compact">${t('F Depth CV')} ${fmt(r.depth.fCV)}</div>` : ''}${r.warnings.map(w => `<div class="warning">${esc(messageText(w))}</div>`).join('')}`;
+  const ctx = $('#hist').getContext('2d'),
+    max = Math.max(...r.distance.histogram, 1);
+  ctx.fillStyle = '#078491';
+  r.distance.histogram.forEach((v, i) =>
+    ctx.fillRect(10 + i * 12, 105 - (v / max) * 90, 10, (v / max) * 90),
+  );
+  ctx.fillStyle = '#6b7380';
+  ctx.font = '11px system-ui';
+  ctx.fillText(`0`, 10, 124);
+  ctx.fillText(`${fmt(r.distance.max)} ${r.distance.unit}`, 175, 124);
+  ctx.fillText(`${max} px`, 10, 11);
+  $('#bins').innerHTML = r.distance.bins
+    .map(
+      (v, i) =>
+        `${['< ' + r.distance.edges[0], r.distance.edges[0] + ' – ' + r.distance.edges[1], r.distance.edges[1] + ' – ' + r.distance.edges[2], '> ' + r.distance.edges[2]][i]} ${r.distance.unit}: ${fmt(v / r.secondaryPixels, true)}`,
+    )
+    .join('<br>');
+  const tc = $('#tileChart').getContext('2d'),
+    grid = state.settings.grid,
+    tm = Math.max(...r.tiles.map(t => t.fraction || 0), 0.01),
+    cell = 120 / grid;
+  r.tiles.forEach(t => {
+    tc.fillStyle = t.area ? `rgba(7,132,145,${0.1 + (0.9 * (t.fraction || 0)) / tm})` : '#ddd';
+    tc.fillRect(5 + t.x * cell, 5 + t.y * cell, cell - 1, cell - 1);
+  });
+  tc.fillStyle = '#6b7380';
+  tc.font = '11px system-ui';
+  tc.fillText(`0 – ${fmt(tm, true)}`, 140, 22);
+  setupTooltips();
+}
+function trace() {
+  return {
+    toolVersion: VERSION,
+    sample: state.sample,
+    view: state.view,
+    material: state.material,
+    images: Object.fromEntries(
+      Object.entries(state.channels).map(([k, c]) => [
+        k,
+        {
+          name: c.name,
+          w: c.w,
+          h: c.h,
+          format: c.format,
+          sha256: c.sha256 || null,
+          sourceSha256: c.sourceSha256 || null,
+          importInfo: c.importInfo || null,
+          intensityRange: Core.range(c.data),
+        },
+      ]),
+    ),
+    rois: structuredClone(state.rois),
+    roiInvert: state.roiInvert,
+    segmentation: structuredClone(state.seg),
+    parameters: structuredClone(state.settings),
+    intensityMethod: 'CSV raw; image max(R,G,B)',
+    distanceConvention: 'pixel-center to nearest 4-neighbor boundary pixel-center',
+    connectivity: 4,
+  };
+}
+function snapshot() {
+  return {
+    schema: 'electrode-eds-session',
+    schemaVersion: 1,
+    toolVersion: VERSION,
+    uiLanguage: language,
+    ...state,
+    channels: Object.fromEntries(
+      Object.entries(state.channels).map(([k, ch]) => [
+        k,
+        {
+          name: ch.name,
+          w: ch.w,
+          h: ch.h,
+          format: ch.format,
+          sha256: ch.sha256,
+          image: ch.image,
+          sourceImage: ch.sourceImage,
+          sourceSha256: ch.sourceSha256,
+          importInfo: ch.importInfo,
+          data: Array.from(ch.data),
+        },
+      ]),
+    ),
+    workspace: { selected, display, zoom, opacity },
+  };
+}
+function download(name, content, type = 'application/json') {
+  const blob = content instanceof Blob ? content : new Blob([content], { type }),
+    url = URL.createObjectURL(blob),
+    a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+const safeName = () => state.sample.replace(/[^\p{L}\p{N}._-]/gu, '_') || 'sample';
+$('#save').onclick = () => download(safeName() + '.session.json', JSON.stringify(snapshot()));
+$('#sessionFile').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const s = JSON.parse(await file.text());
+    validateSession(s);
+    state = {
+      sample: s.sample,
+      view: s.view,
+      material: s.material,
+      channels: Object.fromEntries(
+        Object.entries(s.channels).map(([k, ch]) => [
+          k,
+          { ...ch, data: new Float64Array(ch.data) },
+        ]),
+      ),
+      seg: s.seg,
+      rois: s.rois,
+      roiInvert: s.roiInvert,
+      settings: s.settings,
+      comparison: s.comparison || [],
+      results: null,
+    };
+    for (const ch of Object.values(state.channels))
+      if (ch.image) {
+        const img = new Image();
+        img.src = ch.image;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = ch.w;
+        c.height = ch.h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        ch.rgba = ctx.getImageData(0, 0, ch.w, ch.h).data;
+      }
+    setUILanguage(s.uiLanguage || language);
+    updateChrome();
+    channelVersion++;
+    revision++;
+    selected = ['nmc', 'secondary', 'f'].includes(s.workspace?.selected)
+      ? s.workspace.selected
+      : 'secondary';
+    display = ['original', 'mask', 'overlay'].includes(s.workspace?.display)
+      ? s.workspace.display
+      : 'overlay';
+    zoom = Number.isFinite(s.workspace?.zoom) && s.workspace.zoom > 0 ? s.workspace.zoom : 1;
+    opacity = Number.isFinite(s.workspace?.opacity)
+      ? Math.min(1, Math.max(0, s.workspace.opacity))
+      : 0.45;
+    $('#opacity').value = opacity;
+    $('#sample').value = state.sample;
+    renderControls();
+    renderChannels();
+    await compute(!!state.channels.nmc && !!state.channels.secondary);
+    fit();
+    status('Session loaded · results recomputed');
+  } catch (err) {
+    status(() => t('Session could not be loaded') + ': ' + messageText(err.message), true);
+  }
+  e.target.value = '';
+};
+function validateSession(s) {
+  if (s.schema !== 'electrode-eds-session' || s.schemaVersion !== 1)
+    throw Error('不支援的 Session 格式。');
+  if (
+    typeof s.sample !== 'string' ||
+    !['top', 'cross'].includes(s.view) ||
+    !s.channels ||
+    !s.seg ||
+    !s.settings ||
+    !Array.isArray(s.rois)
+  )
+    throw Error('欄位缺漏。');
+  for (const [k, c] of Object.entries(s.channels)) {
+    if (
+      (c.image && !/^data:image\/png;base64,/.test(c.image)) ||
+      (c.sourceImage && !/^data:image\/png;base64,/.test(c.sourceImage))
+    )
+      throw Error('圖片須為內嵌 PNG。');
+    if (
+      !channelNames[k] ||
+      !Number.isInteger(c.w) ||
+      !Number.isInteger(c.h) ||
+      c.w < 1 ||
+      c.h < 1 ||
+      c.w * c.h > 16e6 ||
+      !Array.isArray(c.data) ||
+      c.data.length !== c.w * c.h ||
+      c.data.some(x => !Number.isFinite(x))
+    )
+      throw Error('Channel 資料不合法。');
+  }
+  if (
+    ![3, 5, 8].includes(s.settings.grid) ||
+    !(s.settings.epsilon > 0) ||
+    !Number.isFinite(s.settings.binderRadius) ||
+    s.settings.binderRadius < 0 ||
+    (s.settings.calibration !== null &&
+      !(Number.isFinite(s.settings.calibration) && s.settings.calibration > 0))
+  )
+    throw Error('參數不合法。');
+  for (const k of ['nmc', 'secondary', 'f']) {
+    const p = s.seg[k];
+    if (!p || !Number.isFinite(p.threshold) || !Number.isFinite(p.min) || p.min < 0)
+      throw Error('Segmentation 不合法。');
+  }
+  for (const r of s.rois) {
+    if (r.type === 'rect') {
+      if (![r.x, r.y, r.w, r.h].every(Number.isFinite) || r.w <= 0 || r.h <= 0)
+        throw Error('ROI 不合法。');
+    } else if (r.type === 'polygon') {
+      if (
+        !Array.isArray(r.points) ||
+        r.points.length < 3 ||
+        r.points.some(p => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite))
+      )
+        throw Error('Polygon 不合法。');
+    } else throw Error('ROI 格式不合法。');
+  }
+}
+function addComparison() {
+  if (!state.results) return;
+  state.comparison.push({
+    sample: state.sample,
+    view: state.view,
+    metrics: structuredClone(state.results),
+    trace: trace(),
+    cohesive: '',
+    peel: '',
+    note: '',
+  });
+  renderControls();
+  status('Added to Comparison');
+}
+function showComparison() {
+  showDialog(
+    'Comparison',
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('CV')}</th><th>${t('Occupancy')}</th><th>${t('Targeting')}</th><th>${t('Median')}</th><th>${t('Binder')}</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
+  );
+  document
+    .querySelectorAll('[data-comp]')
+    .forEach(e => (e.oninput = () => (state.comparison[+e.dataset.comp][e.dataset.key] = e.value)));
+  document.querySelectorAll('[data-removecomp]').forEach(
+    b =>
+      (b.onclick = () => {
+        state.comparison.splice(+b.dataset.removecomp, 1);
+        $('#dialog').close();
+        showComparison();
+        renderControls();
+      }),
+  );
+  $('#comparisonCSV').onclick = () => exportCSV(true);
+}
+function csvCell(x) {
+  let s = typeof x === 'object' ? JSON.stringify(x) : String(x ?? '');
+  if (/^[=+@\-]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function flatResult(r, t, c = {}) {
+  return {
+    Sample: t.sample,
+    View: t.view,
+    UniformityCV: r.uniformityCV,
+    InterparticleOccupancy: r.interparticleOccupancy,
+    TargetingEfficiency: r.targetingEfficiency,
+    SecondaryAreaFraction: r.secondaryAreaFraction,
+    MeanDistance: r.distance.mean,
+    MedianDistance: r.distance.median,
+    P90Distance: r.distance.p90,
+    DistanceUnit: r.distance.unit,
+    BinderCoverage: r.binderCoverage,
+    Pearson: r.pearson,
+    FWithSecondary: r.fWithSecondary,
+    SecondaryWithF: r.secondaryWithF,
+    DepthCV: r.depth?.cv,
+    FDepthCV: r.depth?.fCV,
+    Cohesive: c.cohesive || '',
+    Peel: c.peel || '',
+    RecipeNote: c.note || '',
+    ToolVersion: VERSION,
+    AnalyzedAt: r.analyzedAt,
+    Calibration: t.parameters.calibration,
+    Thresholds: t.segmentation,
+    ROI: t.rois,
+    ROIInvert: t.roiInvert,
+    Parameters: t.parameters,
+    Images: t.images,
+    DepthZones: r.depth?.zones || [],
+    Tiles: r.tiles,
+    DistanceHistogram: r.distance.histogram,
+    DistanceBins: r.distance.bins,
+    Warnings: r.warnings,
+  };
+}
+function exportCSV(comparison = false) {
+  const rows = comparison
+    ? state.comparison.map(c => flatResult(c.metrics, c.trace, c))
+    : state.results
+      ? [flatResult(state.results, state.results.trace)]
+      : [];
+  if (!rows.length) {
+    status('尚無分析結果。', true);
+    return;
+  }
+  const keys = Object.keys(rows[0]);
+  download(
+    comparison ? 'comparison.csv' : safeName() + '.analysis.csv',
+    '\uFEFF' +
+      [keys, ...rows.map(r => keys.map(k => r[k]))]
+        .map(row => row.map(csvCell).join(','))
+        .join('\r\n'),
+    'text/csv;charset=utf-8',
+  );
+}
+$('#export').onclick = () => {
+  showDialog(
+    'Export',
+    `<div class="row"><button id="exportCSV">${t('Analysis CSV')}</button><button id="exportJSON">${t('Analysis JSON')}</button><button id="exportPNG">${t('Overlay PNG')}</button></div><div class="row"><button id="exportSession">${t('Session JSON')}</button><button id="exportComparison">${t('Comparison CSV')}</button></div>`,
+  );
+  $('#exportCSV').onclick = () => exportCSV();
+  $('#exportJSON').onclick = () => {
+    if (!state.results) {
+      status('尚無分析結果。', true);
+      return;
+    }
+    download(
+      safeName() + '.analysis.json',
+      JSON.stringify(
+        { schema: 'electrode-eds-analysis', results: state.results, trace: state.results.trace },
+        null,
+        2,
+      ),
+    );
+  };
+  $('#exportPNG').onclick = exportPNG;
+  $('#exportSession').onclick = $('#save').onclick;
+  $('#exportComparison').onclick = () => exportCSV(true);
+};
+function exportPNG() {
+  if (!baseChannel() || !state.results) {
+    status('請先完成分析。', true);
+    return;
+  }
+  const old = display;
+  display = 'overlay';
+  draw();
+  const source = $('#canvas'),
+    out = document.createElement('canvas');
+  out.width = Math.max(640, source.width);
+  out.height = source.height + 100;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(source, 0, 0);
+  ctx.fillStyle = '#242b35';
+  const size = Math.max(12, Math.min(20, out.width / 35));
+  ctx.font = `${size}px system-ui`;
+  ctx.fillText(
+    `${state.sample} · ${t(state.view === 'top' ? 'Top View' : 'Cross Section')} · v${VERSION}`,
+    12,
+    source.height + 28,
+  );
+  ctx.font = `${size * 0.8}px system-ui`;
+  ctx.fillText(
+    `CV ${fmt(state.results.uniformityCV)} | ${t('Occupancy')} ${fmt(state.results.interparticleOccupancy, true)} | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}`,
+    12,
+    source.height + 55,
+  );
+  ctx.fillText(
+    `${t('2D image quantification')} · ${t(state.settings.calibration ? 'calibrated' : 'uncalibrated (px)')}`,
+    12,
+    source.height + 80,
+  );
+  out.toBlob(b => download(safeName() + '.overlay.png', b), 'image/png');
+  display = old;
+  draw();
+}
+$('#settings').onclick = () =>
+  showDialog(
+    'Settings',
+    `<label class="field">${t('Overlay opacity')}<input id="settingsOpacity" type="range" min="0" max="1" step=".05" value="${opacity}"></label><button id="clearData">${t('Clear Local Data')}</button>`,
+  );
+$('#dialogbody').addEventListener('input', e => {
+  if (e.target.id === 'settingsOpacity') {
+    opacity = +e.target.value;
+    $('#opacity').value = opacity;
+    draw();
+  }
+});
+$('#dialogbody').addEventListener('click', e => {
+  if (e.target.id === 'clearData') {
+    state = {
+      sample: 'Untitled',
+      view: 'top',
+      material: 'TiO2',
+      channels: {},
+      seg: { nmc: defaults(), secondary: defaults(), f: defaults() },
+      rois: [],
+      roiInvert: false,
+      settings: {
+        grid: 5,
+        calibration: null,
+        binderRadius: 3,
+        ratio: false,
+        epsilon: 1,
+        depthAxis: 'y',
+        depthReverse: false,
+      },
+      comparison: [],
+      results: null,
+    };
+    channelVersion++;
+    revision++;
+    masks = {};
+    effectiveROI = null;
+    $('#sample').value = 'Untitled';
+    step = 'data';
+    $('#dialog').close();
+    renderControls();
+    renderChannels();
+    renderResults();
+    draw();
+    status('Local data cleared');
+  }
+});
+$('#about').onclick = () =>
+  showDialog(
+    'About',
+    `<p>Electrode EDS Spatial Analyzer · v${VERSION}</p><p>${help.scope}</p><p>${t('About intensity')}</p><p>${t('About offline')}</p>`,
+  );
+$('#collapse').onclick = () => $('main').classList.toggle('collapsed');
+function setupTooltips() {
+  document.querySelectorAll('[data-help]').forEach(el => {
+    const show = (full = false) => {
+      const t = $('#tooltip'),
+        text = help[el.dataset.help] || el.dataset.help;
+      t.textContent = full
+        ? text
+        : language === 'en'
+          ? text.split(';')[0].split('. ')[0] + (text.endsWith('.') ? '' : '.')
+          : text.split('；')[0].split('。')[0] + '。';
+      t.classList.remove('hidden');
+      const r = el.getBoundingClientRect();
+      t.style.left = Math.max(8, Math.min(innerWidth - 350, r.left)) + 'px';
+      t.style.top = Math.min(innerHeight - t.offsetHeight - 10, r.bottom + 8) + 'px';
+    };
+    el.onmouseenter = () => show(false);
+    el.onfocus = () => show(false);
+    el.onmouseleave = () => {
+      if (!$('#tooltip').classList.contains('pinned')) $('#tooltip').classList.add('hidden');
+    };
+    el.onblur = el.onmouseleave;
+    el.onclick = e => {
+      e.stopPropagation();
+      show(true);
+      $('#tooltip').classList.toggle('pinned');
+    };
+  });
+}
+document.addEventListener('click', () => {
+  $('#tooltip').classList.add('hidden');
+  $('#tooltip').classList.remove('pinned');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    pendingPolygon = [];
+    drawMode = 'pan';
+    $('#tooltip').classList.add('hidden');
+    $('#tooltip').classList.remove('pinned');
+    draw();
+  }
+});
+function loadDemo() {
+  const w = 240,
+    h = 240,
+    ni = new Float64Array(w * h),
+    s = new Float64Array(w * h),
+    f = new Float64Array(w * h),
+    sem = new Float64Array(w * h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x,
+        dx = (x % 48) - 24,
+        dy = (y % 48) - 24;
+      ni[i] = Math.hypot(dx, dy) < 14 ? 200 : 0;
+      s[i] = x % 48 < 10 && y % 48 < 12 ? 180 : 0;
+      f[i] = x % 48 < 13 && y % 48 < 15 ? 220 : 0;
+      sem[i] = 30 + ni[i] * 0.7 + s[i] * 0.4;
+    }
+  state.channels = {
+    sem: { name: 'synthetic-sem.csv', w, h, data: sem, format: 'csv' },
+    nmc: { name: 'synthetic-ni.csv', w, h, data: ni, format: 'csv' },
+    secondary: { name: 'synthetic-ti.csv', w, h, data: s, format: 'csv' },
+    f: { name: 'synthetic-f.csv', w, h, data: f, format: 'csv' },
+  };
+  channelVersion++;
+  state.sample = 'Synthetic uniform';
+  $('#sample').value = state.sample;
+  state.rois = [];
+  state.roiInvert = false;
+  state.settings.ratio = false;
+  state.settings.calibration = null;
+  state.settings.binderRadius = 3;
+  state.seg = { nmc: defaults(), secondary: defaults(), f: defaults() };
+  dirty();
+  renderControls();
+  renderChannels();
+  preview().then(fit);
+}
 
-function updateChrome(){
- document.documentElement.lang=language;document.title=t('Electrode EDS Analyzer');$('#language').value=language;
- for(const [id,key] of Object.entries({appName:'Electrode EDS Analyzer',import:'Import',save:'Save Session',export:'Export',settings:'Settings',about:'About',pan:'Pan',closeDialog:'Close',empty:'Import map',opacityLabel:'Opacity'}))$('#'+id).textContent=t(key);
- for(const [id,key] of Object.entries({sample:'Sample name',channel:'Display channel',zoom:'Zoom',opacity:'Overlay opacity',collapse:'Toggle results'}))$('#'+id).setAttribute('aria-label',t(key));
- document.querySelectorAll('[data-step]').forEach(b=>{const s=b.dataset.step;b.textContent=({data:'1 ',roi:'2 ',segment:'3 ',analyze:'4 '})[s]+t({data:'Data',roi:'ROI',segment:'Segment',analyze:'Analyze'}[s]);});
- document.querySelectorAll('[data-display]').forEach(b=>b.textContent=t(b.dataset.display[0].toUpperCase()+b.dataset.display.slice(1)));
- $('#zoom').querySelector('[value="fit"]').textContent=t('Fit');$('#pan').title=t('Pan');status(lastStatus,lastStatusError);
+function updateChrome() {
+  document.documentElement.lang = language;
+  document.title = t('Electrode EDS Analyzer');
+  $('#language').value = language;
+  for (const [id, key] of Object.entries({
+    appName: 'Electrode EDS Analyzer',
+    import: 'Import',
+    save: 'Save Session',
+    export: 'Export',
+    settings: 'Settings',
+    about: 'About',
+    pan: 'Pan',
+    closeDialog: 'Close',
+    empty: 'Import map',
+    opacityLabel: 'Opacity',
+  }))
+    $('#' + id).textContent = t(key);
+  for (const [id, key] of Object.entries({
+    sample: 'Sample name',
+    channel: 'Display channel',
+    zoom: 'Zoom',
+    opacity: 'Overlay opacity',
+    collapse: 'Toggle results',
+  }))
+    $('#' + id).setAttribute('aria-label', t(key));
+  document.querySelectorAll('[data-step]').forEach(b => {
+    const s = b.dataset.step;
+    b.textContent =
+      { data: '1 ', roi: '2 ', segment: '3 ', analyze: '4 ' }[s] +
+      t({ data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' }[s]);
+  });
+  document
+    .querySelectorAll('[data-display]')
+    .forEach(
+      b => (b.textContent = t(b.dataset.display[0].toUpperCase() + b.dataset.display.slice(1))),
+    );
+  $('#zoom').querySelector('[value="fit"]').textContent = t('Fit');
+  $('#pan').title = t('Pan');
+  status(lastStatus, lastStatusError);
 }
-function changeLanguage(value){
- if(!setUILanguage(value))return;
- const transient=Object.fromEntries(['roiMode','scaleLength'].filter(id=>$('#'+id)).map(id=>[id,$('#'+id).value]));
- $('#tooltip').classList.add('hidden');$('#tooltip').classList.remove('pinned');updateChrome();renderControls();renderChannels();renderResults();
- for(const [id,value] of Object.entries(transient))if($('#'+id))$('#'+id).value=value;
- draw();setupTooltips();
+function changeLanguage(value) {
+  if (!setUILanguage(value)) return;
+  const transient = Object.fromEntries(
+    ['roiMode', 'scaleLength'].filter(id => $('#' + id)).map(id => [id, $('#' + id).value]),
+  );
+  $('#tooltip').classList.add('hidden');
+  $('#tooltip').classList.remove('pinned');
+  updateChrome();
+  renderControls();
+  renderChannels();
+  renderResults();
+  for (const [id, value] of Object.entries(transient)) if ($('#' + id)) $('#' + id).value = value;
+  draw();
+  setupTooltips();
 }
-$('#language').onchange=e=>changeLanguage(e.target.value);
-updateChrome();renderControls();renderChannels();draw();setupTooltips();
+$('#language').onchange = e => changeLanguage(e.target.value);
+updateChrome();
+renderControls();
+renderChannels();
+draw();
+setupTooltips();
