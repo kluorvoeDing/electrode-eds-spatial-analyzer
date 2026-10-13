@@ -3,7 +3,7 @@ const STEP_ORDER = ['data', 'roi', 'segment', 'analyze'],
   STEP_LABELS = { data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' },
   STEP_HINTS = {
     data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
-    roi: 'Optional. Skip this step to analyse the whole image.',
+    roi: 'The region is optional: leave it empty to analyse the whole image. Enter μm / pixel here if distances should be in micrometres.',
     segment:
       'Check that the mask of each channel covers the right areas; adjust the threshold if not.',
     analyze: 'Run the analysis. Change a setting and run it again to compare.',

@@ -357,7 +357,8 @@ Object.assign(UI_ZH, {
   'Show elements': '顯示元素',
   'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.':
     '為每個通道貼上或選擇影像。工具會自動框出有效區域，並讓各通道保持相同尺寸。',
-  'Optional. Skip this step to analyse the whole image.': '可略過：不設定時分析整張影像。',
+  'The region is optional: leave it empty to analyse the whole image. Enter μm / pixel here if distances should be in micrometres.':
+    '分析區域可不設定（分析整張影像）。若距離要以 μm 顯示，請在此填入 μm／像素。',
   'Check that the mask of each channel covers the right areas; adjust the threshold if not.':
     '逐一檢查各通道的遮罩是否蓋住正確區域；不對時調整閾值。',
   'Run the analysis. Change a setting and run it again to compare.':

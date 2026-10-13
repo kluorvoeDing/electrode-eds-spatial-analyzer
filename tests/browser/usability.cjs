@@ -208,7 +208,7 @@ fs.mkdirSync('qa', { recursive: true });
   // 5. Step guidance: one hint per step, a way forward, and a view that suits the step.
   await p.locator('#nextStep').click();
   assert.equal(await p.evaluate(() => step), 'roi');
-  assert.match(await p.locator('.hint').textContent(), /Optional/);
+  assert.match(await p.locator('.hint').textContent(), /region is optional.*μm \/ pixel/);
   await p.locator('#nextStep').click();
   assert.deepEqual(await p.evaluate(() => [step, display]), ['segment', 'overlay']);
   assert.match(await p.locator('#maskLabel').textContent(), /^Mask: /);
