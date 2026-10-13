@@ -18,7 +18,8 @@ const defaults = () => ({
   fill: false,
   smooth: false,
 });
-let state = {
+const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
+const initialState = () => ({
   sample: 'Untitled',
   view: 'top',
   material: 'TiO2',
@@ -29,7 +30,8 @@ let state = {
   settings: {
     grid: 5,
     calibration: null,
-    binderRadius: 3,
+    binderRadius: Core.BINDER_DEFAULT.px,
+    binderRadiusCustom: false,
     ratio: false,
     epsilon: 1,
     depthAxis: 'y',
@@ -37,7 +39,8 @@ let state = {
   },
   comparison: [],
   results: null,
-};
+});
+let state = initialState();
 let step = 'data',
   selected = 'secondary',
   display = 'overlay',

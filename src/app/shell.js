@@ -58,7 +58,7 @@ function renderChannels() {
 $('#settings').onclick = () =>
   showDialog(
     'Settings',
-    `<label class="field">${t('Overlay opacity')}<input id="settingsOpacity" type="range" min="0" max="1" step=".05" value="${opacity}"></label><button id="clearData">${t('Clear Local Data')}</button>`,
+    `<label class="field">${t('Overlay opacity')}<input id="settingsOpacity" type="range" min="0" max="1" step=".05" value="${opacity}"></label><button id="clearData">${t('Reset workspace')}</button>`,
   );
 $('#dialogbody').addEventListener('input', e => {
   if (e.target.id === 'settingsOpacity') {
@@ -69,26 +69,7 @@ $('#dialogbody').addEventListener('input', e => {
 });
 $('#dialogbody').addEventListener('click', e => {
   if (e.target.id === 'clearData') {
-    state = {
-      sample: 'Untitled',
-      view: 'top',
-      material: 'TiO2',
-      channels: {},
-      seg: { nmc: defaults(), secondary: defaults(), f: defaults() },
-      rois: [],
-      roiInvert: false,
-      settings: {
-        grid: 5,
-        calibration: null,
-        binderRadius: 3,
-        ratio: false,
-        epsilon: 1,
-        depthAxis: 'y',
-        depthReverse: false,
-      },
-      comparison: [],
-      results: null,
-    };
+    state = initialState();
     channelVersion++;
     revision++;
     masks = {};
@@ -100,7 +81,7 @@ $('#dialogbody').addEventListener('click', e => {
     renderChannels();
     renderResults();
     draw();
-    status('Local data cleared');
+    status('Workspace reset');
   }
 });
 $('#about').onclick = () =>

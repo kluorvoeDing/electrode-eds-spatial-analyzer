@@ -10,9 +10,16 @@ worker.onmessage = ({ data }) => {
   call(data);
 };
 worker.onerror = e => {
-  status(() => t('Background calculation failed') + ': ' + messageText(e.message), true);
+  const reason = e.message,
+    message = () => t('Background calculation failed') + ': ' + messageText(reason),
+    pending = [...waiter.values()];
+  // Settle every pending request; otherwise compute() waits forever with the UI marked busy.
+  waiter.clear();
+  workerSentVersion = -1;
   busy = false;
   $('#progress').classList.add('hidden');
+  status(message, true);
+  for (const call of pending) call({ error: message });
 };
 function segIntensity(key) {
   const ch = state.channels[key];
@@ -80,12 +87,12 @@ async function compute(analyze = false) {
   if (id !== latest) return;
   busy = false;
   $('#progress').classList.add('hidden');
-  if (rev !== revision) {
-    status('設定已改變，請重新分析。');
-    return;
-  }
   if (response.error) {
     status(response.error, true);
+    return;
+  }
+  if (rev !== revision) {
+    status('設定已改變，請重新分析。');
     return;
   }
   masks = response.result.masks;

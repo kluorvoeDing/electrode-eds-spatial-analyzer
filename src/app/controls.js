@@ -13,7 +13,7 @@ function renderControls() {
   setupTooltips();
 }
 function renderDataStep(c) {
-  c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'].map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(
+  c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${MATERIALS.map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(
     channelNames,
   )
     .map(
@@ -213,7 +213,9 @@ function renderAnalyzeStep(c) {
       status('距離必須 ≥ 0。', true);
       return;
     }
+    const unit = state.settings.calibration ? 'um' : 'px';
     state.settings.binderRadius = +e.target.value;
+    state.settings.binderRadiusCustom = +e.target.value !== Core.BINDER_DEFAULT[unit];
     dirty();
   };
   if ($('#depthAxis')) {
@@ -231,12 +233,33 @@ function renderAnalyzeStep(c) {
   $('#addComparison').onclick = addComparison;
   $('#showComparison').onclick = showComparison;
 }
+/* Changes the calibration without re-rendering; the binder radius follows the new unit. */
+function applyCalibration(value) {
+  const s = state.settings,
+    next = value > 0 && Number.isFinite(value) ? value : null;
+  s.binderRadius = Core.rescaleBinderRadius(
+    s.binderRadius,
+    s.binderRadiusCustom,
+    s.calibration,
+    next,
+  );
+  s.calibration = next;
+}
 function setCalibration(value) {
-  state.settings.calibration = value > 0 && Number.isFinite(value) ? value : null;
-  state.settings.binderRadius = state.settings.calibration ? 0.5 : 3;
+  const before = state.settings.calibration;
+  applyCalibration(value);
   dirty();
   renderControls();
   draw();
+  const { calibration, binderRadius, binderRadiusCustom } = state.settings;
+  if (!calibration && !(before && binderRadiusCustom)) return;
+  status(
+    () =>
+      t(calibration ? 'Calibration updated' : 'Calibration cleared') +
+      (binderRadiusCustom
+        ? ` · ${t('Binder neighborhood')} ${binderRadius} ${calibration ? 'μm' : 'px'}`
+        : ''),
+  );
 }
 function finishPolygon() {
   if (pendingPolygon.length < 3) {

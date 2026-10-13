@@ -430,7 +430,17 @@ const Core = (() => {
   }
   const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],
     MAX_PIXELS = 16e6,
-    GRID_OPTIONS = [3, 5, 8];
+    GRID_OPTIONS = [3, 5, 8],
+    BINDER_DEFAULT = { px: 3, um: 0.5 };
+  /* Binder neighbourhood after the calibration changes from `from` to `to` (μm per pixel, or
+     null for pixels). The default follows the unit; a radius the user chose keeps its physical
+     size, so it is converted when the unit changes and left alone otherwise. */
+  function rescaleBinderRadius(radius, custom, from, to) {
+    if (!custom) return to ? BINDER_DEFAULT.um : BINDER_DEFAULT.px;
+    if (!from && to) return Number((radius * to).toPrecision(6));
+    if (from && !to) return Number((radius / from).toPrecision(6));
+    return radius;
+  }
   /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI
      mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */
   function createPipeline() {
@@ -516,6 +526,8 @@ const Core = (() => {
     ANALYSIS_KEYS,
     MAX_PIXELS,
     GRID_OPTIONS,
+    BINDER_DEFAULT,
+    rescaleBinderRadius,
   };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

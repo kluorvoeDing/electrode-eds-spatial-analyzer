@@ -22,6 +22,29 @@ function sizeErrorMessage() {
     .join(' · ');
   return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}`;
 }
+/* Single entry point for putting a channel into the workspace. ROI and calibration describe the
+   analysis grid, so both are cleared when an analysis channel is replaced or the grid size
+   changes. Adding a channel, or swapping a display-only one on the same grid, keeps them.
+   Returns whether anything was cleared. */
+function replaceChannel(key, ch) {
+  const previous = dimensions(),
+    gridChanged = !!previous && (previous.w !== ch.w || previous.h !== ch.h),
+    reset = gridChanged || (!!state.channels[key] && ANALYSIS_KEYS.includes(key)),
+    cleared =
+      reset && !!(state.rois.length || state.roiInvert || state.settings.calibration !== null);
+  state.channels[key] = ch;
+  channelVersion++;
+  if (reset) {
+    state.rois = [];
+    state.roiInvert = false;
+    applyCalibration(null);
+  }
+  if (state.seg[key]) state.seg[key].auto = true;
+  masks = {};
+  effectiveROI = null;
+  dirty();
+  return cleared;
+}
 async function loadFile(file, key) {
   if (!file) return;
   try {
@@ -59,24 +82,16 @@ async function loadFile(file, key) {
       const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
       ch.sha256 = Array.from(new Uint8Array(digest), x => x.toString(16).padStart(2, '0')).join('');
     }
-    const previous = dimensions();
-    state.channels[key] = ch;
-    channelVersion++;
-    if (previous && (previous.w !== ch.w || previous.h !== ch.h)) {
-      state.rois = [];
-      state.roiInvert = false;
-    }
-    state.seg[key] && (state.seg[key].auto = true);
-    dirty();
+    const cleared = replaceChannel(key, ch);
     renderControls();
     renderChannels();
     draw();
-    if (sizeError()) {
-      masks = {};
-      effectiveROI = null;
-      status(sizeErrorMessage, true);
-    } else {
-      status(() => `${t('Imported')} ${file.name}`);
+    if (sizeError()) status(sizeErrorMessage, true);
+    else {
+      status(
+        () =>
+          `${t('Imported')} ${file.name}${cleared ? ' · ' + t('ROI and calibration cleared.') : ''}`,
+      );
       await preview();
       fit();
     }
@@ -114,8 +129,8 @@ function loadDemo() {
   state.rois = [];
   state.roiInvert = false;
   state.settings.ratio = false;
-  state.settings.calibration = null;
-  state.settings.binderRadius = 3;
+  state.settings.binderRadiusCustom = false;
+  applyCalibration(null);
   state.seg = { nmc: defaults(), secondary: defaults(), f: defaults() };
   dirty();
   renderControls();

@@ -107,7 +107,7 @@ const UI_ZH = {
   'Overlay PNG': '疊圖 PNG',
   'Session JSON': '專案 JSON',
   'Comparison CSV': '比較 CSV',
-  'Clear Local Data': '清除本機資料',
+  'Reset workspace': '重設工作區',
   Help: '說明',
   Language: '介面語言',
   Imported: '已匯入',
@@ -117,7 +117,9 @@ const UI_ZH = {
   'Calibration updated': '尺度校正已更新',
   'Added to Comparison': '已加入比較',
   'Session loaded · results recomputed': '專案已載入，結果已重新計算',
-  'Local data cleared': '本機資料已清除',
+  'Workspace reset': '工作區已重設',
+  'Calibration cleared': '尺度校正已清除',
+  'ROI and calibration cleared.': '原分析區域與校正已清除。',
   'Analysis complete': '分析完成',
   'Session could not be loaded': '無法載入專案',
   'Background calculation failed': '背景計算失敗',
@@ -317,9 +319,9 @@ Object.assign(UI_ZH, {
     '剪貼簿內沒有影像。請複製顯示出的影像或截圖。',
 });
 HELP_ZH.pasteCrop =
-  '在 VDI 複製影像或截圖，點選通道的貼上按鈕，再按 Ctrl+V。拖曳只框選有效元素圖，移除標題與比例尺。套用參考圖尺寸只改變裁切框的寬高，不會拉伸影像；各圖應以相同顯示倍率截圖並保留同一掃描範圍。尺寸相同不代表已對位，須以混合預覽人工確認。更換或重新裁切既有通道會清除 ROI 與校正，截圖距離須重新校正。';
+  '在 VDI 複製影像或截圖，點選通道的貼上按鈕，再按 Ctrl+V。拖曳只框選有效元素圖，移除標題與比例尺。套用參考圖尺寸只改變裁切框的寬高，不會拉伸影像；各圖應以相同顯示倍率截圖並保留同一掃描範圍。尺寸相同不代表已對位，須以混合預覽人工確認。更換或重新裁切既有的分析通道（Ni／次要相／F），或影像尺寸改變時，會清除 ROI 與校正，截圖距離須重新校正；SEM 與其他元素僅供顯示，尺寸不變時保留。';
 HELP_EN.pasteCrop =
-  'Copy an image or screenshot in VDI, select a channel, then press Ctrl+V. Crop only the map region. Reference dimensions change the crop rectangle without resizing pixels. Capture each map at the same display scale and retain the same field of view. Equal dimensions do not prove registration: inspect the blend preview. Replacing or recropping a channel clears ROI and calibration; recalibrate screenshot distances.';
+  'Copy an image or screenshot in VDI, select a channel, then press Ctrl+V. Crop only the map region. Reference dimensions change the crop rectangle without resizing pixels. Capture each map at the same display scale and retain the same field of view. Equal dimensions do not prove registration: inspect the blend preview. Replacing or recropping an analysis channel (Ni, secondary phase or F), or changing the image size, clears ROI and calibration; recalibrate screenshot distances. SEM and other-element maps are display-only and keep them when the size is unchanged.';
 function t(key) {
   return language === 'zh-Hant' ? (UI_ZH[key] ?? key) : (UI_EN[key] ?? key);
 }
@@ -335,4 +337,15 @@ const help = new Proxy(HELP_ZH, {
   get: (_, key) => (language === 'en' ? (HELP_EN[key] ?? HELP_ZH[key]) : HELP_ZH[key]),
 });
 if (typeof module !== 'undefined')
-  module.exports = { t, messageText, help, setUILanguage, getLanguage: () => language };
+  module.exports = {
+    t,
+    messageText,
+    help,
+    setUILanguage,
+    getLanguage: () => language,
+    UI_ZH,
+    UI_EN,
+    HELP_ZH,
+    HELP_EN,
+    MESSAGES,
+  };

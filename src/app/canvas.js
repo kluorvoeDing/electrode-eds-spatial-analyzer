@@ -117,7 +117,6 @@ $('#canvas').onpointerdown = e => {
       const distance = Math.hypot(scalePoints[0][0] - p[0], scalePoints[0][1] - p[1]);
       if (distance > 0) {
         setCalibration(+$('#scaleLength').value / distance);
-        status('Calibration updated');
       } else status('兩端不能相同。', true);
       drawMode = 'pan';
     }

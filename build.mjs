@@ -28,8 +28,10 @@ function fill(text, placeholder, value) {
   return text.replace(placeholder, () => value);
 }
 
-const worker = WORKER_SOURCES.map(read).join('\n');
-let app = APP_SOURCES.map(read).join('\n');
+// The directive must lead each bundle; a 'use strict' inside a later source file has no effect.
+const bundle = sources => `'use strict';\n${sources.map(read).join('\n')}`;
+const worker = bundle(WORKER_SOURCES);
+let app = bundle(APP_SOURCES);
 app = fill(app, '/*WORKER_SOURCE*/', JSON.stringify(worker));
 app = fill(app, '/*VERSION*/', version);
 

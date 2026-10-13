@@ -313,19 +313,8 @@ async function applyImageImport() {
           reviewedAt: new Date().toISOString(),
         },
       };
-    if (original || !dimensions()) {
-      state.rois = [];
-      state.roiInvert = false;
-      state.settings.calibration = null;
-      state.settings.binderRadius = 3;
-    }
     $('#dialog').close();
-    state.channels[p.key] = ch;
-    channelVersion++;
-    masks = {};
-    effectiveROI = null;
-    dirty();
-    if (state.seg[p.key]) state.seg[p.key].auto = true;
+    const cleared = replaceChannel(p.key, ch);
     renderControls();
     renderChannels();
     $('#channel').value = p.key;
@@ -337,7 +326,7 @@ async function applyImageImport() {
       fit();
       status(
         () =>
-          `${t('Image applied')} · ${t(channelNames[p.key])} · ${ch.w}×${ch.h}${original ? ' · ' + t('ROI and calibration cleared; recalibrate cropped screenshots.') : ' · ' + t('Calibrate screenshots before using micrometres.')}`,
+          `${t('Image applied')} · ${t(channelNames[p.key])} · ${ch.w}×${ch.h}${cleared ? ' · ' + t('ROI and calibration cleared; recalibrate cropped screenshots.') : state.settings.calibration === null ? ' · ' + t('Calibrate screenshots before using micrometres.') : ''}`,
       );
     }
   } catch (e) {
