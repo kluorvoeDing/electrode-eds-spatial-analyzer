@@ -34,7 +34,7 @@ async function loadFile(file, key) {
         canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth || img.width;
       canvas.height = img.naturalHeight || img.height;
-      if (canvas.width * canvas.height > 16e6) {
+      if (canvas.width * canvas.height > MAX_PIXELS) {
         img.close?.();
         throw Error('Map 超過 1600 萬像素，請先縮小。');
       }
@@ -53,7 +53,7 @@ async function loadFile(file, key) {
       };
       img.close?.();
     } else throw Error('僅支援 PNG / JPG / CSV。');
-    if (ch.w * ch.h > 16e6) throw Error('Map 超過 1600 萬像素，請先縮小。');
+    if (ch.w * ch.h > MAX_PIXELS) throw Error('Map 超過 1600 萬像素，請先縮小。');
     ch.name = file.name;
     if (crypto.subtle) {
       const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
@@ -122,4 +122,3 @@ function loadDemo() {
   renderChannels();
   preview().then(fit);
 }
-

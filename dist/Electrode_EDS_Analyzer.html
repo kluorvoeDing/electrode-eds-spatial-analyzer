@@ -967,38 +967,75 @@ const Core = (() => {
       ].filter(Boolean),
     };
   }
-  function process(p) {
-    const { w, h, channels, settings } = p,
-      roi = roiMask(w, h, p.rois, p.roiInvert),
-      masks = {},
-      thresholds = {},
-      intensities = {};
-    for (const [key, ch] of Object.entries(channels))
-      if (key !== 'sem' && key !== 'other') {
-        let a = ch.data;
-        if (key === 'secondary' && settings.ratio) {
-          const ni = channels.nmc.data;
-          a = Float64Array.from(a, (x, i) => x / (ni[i] + settings.epsilon));
-        }
-        intensities[key] = ch.data;
-        const s = segment(a, w, h, roi, p.seg[key]);
-        masks[key] = s.mask;
-        thresholds[key] = s.threshold;
+  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],
+    MAX_PIXELS = 16e6,
+    GRID_OPTIONS = [3, 5, 8];
+  /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI
+     mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */
+  function createPipeline() {
+    let channelCache = {},
+      roiKey = '',
+      roiCache = null,
+      segCache = {};
+    return function run(p) {
+      const { w, h, settings } = p;
+      if (p.channels) {
+        channelCache = p.channels;
+        segCache = {};
       }
-    const results = p.analyze
-      ? analyze({
-          w,
-          h,
-          roi,
-          nmc: masks.nmc,
-          secondary: masks.secondary,
-          f: masks.f,
-          secondaryIntensity: intensities.secondary,
-          fIntensity: intensities.f,
-          ...settings,
-        })
-      : null;
-    return { roi, masks, thresholds, results };
+      const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);
+      if (nextROIKey !== roiKey) {
+        roiCache = roiMask(w, h, p.rois, p.roiInvert);
+        roiKey = nextROIKey;
+        segCache = {};
+      }
+      const masks = {},
+        intensities = {},
+        thresholds = {};
+      for (const key of ANALYSIS_KEYS)
+        if (channelCache[key]) {
+          const param = p.seg[key],
+            signature = JSON.stringify([
+              param.auto,
+              param.auto ? null : param.threshold,
+              param.invert,
+              param.min,
+              param.fill,
+              param.smooth,
+              key === 'secondary' ? settings.ratio : false,
+              key === 'secondary' ? settings.epsilon : null,
+            ]);
+          if (segCache[key]?.signature !== signature) {
+            let data = channelCache[key].data;
+            if (key === 'secondary' && settings.ratio)
+              data = Float64Array.from(
+                data,
+                (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),
+              );
+            segCache[key] = { signature, ...segment(data, w, h, roiCache, param) };
+          }
+          masks[key] = segCache[key].mask;
+          intensities[key] = channelCache[key].data;
+          thresholds[key] = segCache[key].threshold;
+        }
+      const results = p.analyze
+        ? analyze({
+            w,
+            h,
+            roi: roiCache,
+            nmc: masks.nmc,
+            secondary: masks.secondary,
+            f: masks.f,
+            secondaryIntensity: intensities.secondary,
+            fIntensity: intensities.f,
+            ...settings,
+          })
+        : null;
+      return { roi: roiCache, masks, thresholds, results };
+    };
+  }
+  function process(p) {
+    return createPipeline()(p);
   }
   return {
     sum,
@@ -1014,6 +1051,10 @@ const Core = (() => {
     pearson,
     analyze,
     process,
+    createPipeline,
+    ANALYSIS_KEYS,
+    MAX_PIXELS,
+    GRID_OPTIONS,
   };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
@@ -1442,7 +1483,7 @@ async function openImageImport(file, key, existing = null) {
     }
     const w = input.naturalWidth || input.width,
       h = input.naturalHeight || input.height;
-    if (w * h > 16e6) {
+    if (w * h > MAX_PIXELS) {
       input.close?.();
       throw Error('Map 超過 1600 萬像素，請先縮小。');
     }
@@ -1688,7 +1729,7 @@ async function applyImageImport() {
     renderControls();
     renderChannels();
     $('#channel').value = p.key;
-    if (['nmc', 'secondary', 'f'].includes(p.key)) selected = p.key;
+    if (ANALYSIS_KEYS.includes(p.key)) selected = p.key;
     draw();
     if (sizeError()) status(sizeErrorMessage, true);
     else {
@@ -1733,6 +1774,7 @@ if (typeof module !== 'undefined') module.exports = { cropRectValid, cropRGBA };
 
 /* Shared application state, defaults and constants. */
 const VERSION = '0.1.3';
+const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
     String(s).replace(
@@ -1802,7 +1844,7 @@ let lastStatus = 'Ready',
 
 /* Worker bootstrap and the segment / analyze request cycle. */
 const worker = new Worker(
-  URL.createObjectURL(new Blob(["/* Deterministic numerical core, shared by the browser Worker and Node tests. */\nconst Core = (() => {\n  const sum = a => a.reduce((s, x) => s + x, 0);\n  const fraction = (a, b) => (b ? a / b : null);\n  function cv(a) {\n    const m = sum(a) / a.length;\n    return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;\n  }\n  function parseCSV(text) {\n    const rows = text\n      .replace(/^\\uFEFF/, '')\n      .trim()\n      .split(/\\r?\\n/)\n      .map(x =>\n        x\n          .trim()\n          .split(',')\n          .map(v => {\n            if (!v.trim() || !Number.isFinite(Number(v))) throw Error('CSV 含空值或非數值。');\n            return Number(v);\n          }),\n      );\n    if (!rows.length || !rows[0].length || rows.some(r => r.length !== rows[0].length))\n      throw Error('CSV 各列欄數不一致。');\n    return { w: rows[0].length, h: rows.length, data: new Float64Array(rows.flat()) };\n  }\n  function range(a) {\n    let min = Infinity,\n      max = -Infinity;\n    for (const x of a) {\n      if (!Number.isFinite(x)) throw Error('Map 含非有限數值。');\n      min = Math.min(min, x);\n      max = Math.max(max, x);\n    }\n    return { min, max };\n  }\n  function otsu(a, roi) {\n    const { min, max } = range(a);\n    if (max === min) return min;\n    const hist = new Float64Array(256);\n    let n = 0;\n    for (let i = 0; i < a.length; i++)\n      if (!roi || roi[i]) {\n        hist[Math.min(255, Math.floor(((a[i] - min) / (max - min)) * 255))]++;\n        n++;\n      }\n    let total = 0;\n    for (let i = 0; i < 256; i++) total += i * hist[i];\n    let wb = 0,\n      sb = 0,\n      best = -1,\n      t = 0;\n    for (let i = 0; i < 255; i++) {\n      wb += hist[i];\n      sb += i * hist[i];\n      const wf = n - wb;\n      if (!wb || !wf) continue;\n      const score = wb * wf * (sb / wb - (total - sb) / wf) ** 2;\n      if (score > best) {\n        best = score;\n        t = i;\n      }\n    }\n    return min + ((t + 0.5) / 255) * (max - min);\n  }\n  function polygonContains(x, y, pts) {\n    let inside = false;\n    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {\n      const [xi, yi] = pts[i],\n        [xj, yj] = pts[j];\n      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;\n    }\n    return inside;\n  }\n  function roiMask(w, h, rois = [], invert = false) {\n    const inc = rois.filter(r => !r.exclude),\n      exc = rois.filter(r => r.exclude),\n      out = new Uint8Array(w * h);\n    const contains = (r, x, y) =>\n      r.type === 'rect'\n        ? x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h\n        : polygonContains(x, y, r.points);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let inside = !inc.length || inc.some(r => contains(r, x + 0.5, y + 0.5));\n        if (invert) inside = !inside;\n        out[y * w + x] = inside && !exc.some(r => contains(r, x + 0.5, y + 0.5)) ? 1 : 0;\n      }\n    return out;\n  }\n  function neighbors(i, w, h, fn) {\n    const x = i % w,\n      y = Math.floor(i / w);\n    if (x) fn(i - 1);\n    if (x < w - 1) fn(i + 1);\n    if (y) fn(i - w);\n    if (y < h - 1) fn(i + w);\n  }\n  function removeSmall(mask, w, h, min) {\n    if (min <= 1) return mask;\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    for (let i = 0; i < mask.length; i++)\n      if (mask[i] && !seen[i]) {\n        let head = 0,\n          tail = 1;\n        q[0] = i;\n        seen[i] = 1;\n        while (head < tail) {\n          neighbors(q[head++], w, h, j => {\n            if (mask[j] && !seen[j]) {\n              seen[j] = 1;\n              q[tail++] = j;\n            }\n          });\n        }\n        if (tail < min) for (let j = 0; j < tail; j++) mask[q[j]] = 0;\n      }\n    return mask;\n  }\n  function fillHoles(mask, w, h, roi) {\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    let head = 0,\n      tail = 0;\n    const add = i => {\n      if (!mask[i] && !seen[i]) {\n        seen[i] = 1;\n        q[tail++] = i;\n      }\n    };\n    for (let i = 0; i < mask.length; i++)\n      if (!roi[i] || i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) add(i);\n    while (head < tail) neighbors(q[head++], w, h, add);\n    for (let i = 0; i < mask.length; i++) if (roi[i] && !seen[i]) mask[i] = 1;\n    return mask;\n  }\n  function smooth(mask, w, h, roi) {\n    const out = new Uint8Array(mask.length);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let count = 0,\n          n = 0;\n        for (let dy = -1; dy <= 1; dy++)\n          for (let dx = -1; dx <= 1; dx++) {\n            const xx = x + dx,\n              yy = y + dy;\n            if (xx >= 0 && xx < w && yy >= 0 && yy < h && roi[yy * w + xx]) {\n              n++;\n              count += mask[yy * w + xx];\n            }\n          }\n        out[y * w + x] = roi[y * w + x] && count > n / 2 ? 1 : 0;\n      }\n    return out;\n  }\n  function segment(a, w, h, roi, p) {\n    const threshold = p.auto ? otsu(a, roi) : p.threshold;\n    let m = new Uint8Array(a.length);\n    for (let i = 0; i < a.length; i++) m[i] = roi[i] && a[i] > threshold !== !!p.invert ? 1 : 0;\n    if (p.smooth) m = smooth(m, w, h, roi);\n    if (p.fill) m = fillHoles(m, w, h, roi);\n    m = removeSmall(m, w, h, p.min || 0);\n    return { mask: m, threshold };\n  }\n  function perimeter(m, w, h) {\n    const p = new Uint8Array(m.length);\n    for (let i = 0; i < m.length; i++)\n      if (m[i]) {\n        if (i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) p[i] = 1;\n        else\n          neighbors(i, w, h, j => {\n            if (!m[j]) p[i] = 1;\n          });\n      }\n    return p;\n  }\n  /* Felzenszwalb/Huttenlocher separable lower envelope; pixel-centre Euclidean distances. */\n  function edt(seed, w, h) {\n    const n = Math.max(w, h),\n      f = new Float64Array(n),\n      d = new Float64Array(n),\n      v = new Int32Array(n),\n      z = new Float64Array(n + 1),\n      tmp = new Float64Array(w * h),\n      out = new Float64Array(w * h),\n      INF = 1e20;\n    if (!seed.some(x => x)) {\n      out.fill(Infinity);\n      return out;\n    }\n    function line(len) {\n      let k = 0;\n      v[0] = 0;\n      z[0] = -Infinity;\n      z[1] = Infinity;\n      for (let q = 1; q < len; q++) {\n        let s;\n        do {\n          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\n          if (s <= z[k]) k--;\n          else break;\n        } while (k >= 0);\n        if (k < 0) {\n          k = 0;\n          v[0] = q;\n          z[0] = -Infinity;\n          z[1] = Infinity;\n        } else {\n          k++;\n          v[k] = q;\n          z[k] = s;\n          z[k + 1] = Infinity;\n        }\n      }\n      k = 0;\n      for (let q = 0; q < len; q++) {\n        while (z[k + 1] < q) k++;\n        d[q] = (q - v[k]) ** 2 + f[v[k]];\n      }\n    }\n    for (let x = 0; x < w; x++) {\n      for (let y = 0; y < h; y++) f[y] = seed[y * w + x] ? 0 : INF;\n      line(h);\n      for (let y = 0; y < h; y++) tmp[y * w + x] = d[y];\n    }\n    for (let y = 0; y < h; y++) {\n      for (let x = 0; x < w; x++) f[x] = tmp[y * w + x];\n      line(w);\n      for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(d[x]);\n    }\n    return out;\n  }\n  function pearson(a, b, roi) {\n    let n = 0,\n      ma = 0,\n      mb = 0,\n      va = 0,\n      vb = 0,\n      c = 0;\n    for (let i = 0; i < a.length; i++)\n      if (roi[i]) {\n        n++;\n        const da = a[i] - ma,\n          db = b[i] - mb;\n        ma += da / n;\n        mb += db / n;\n        va += da * (a[i] - ma);\n        vb += db * (b[i] - mb);\n        c += da * (b[i] - mb);\n      }\n    return va > 0 && vb > 0 ? Math.max(-1, Math.min(1, c / Math.sqrt(va * vb))) : null;\n  }\n  function analyze({\n    w,\n    h,\n    roi,\n    nmc,\n    secondary,\n    f,\n    secondaryIntensity,\n    fIntensity,\n    grid = 5,\n    calibration = null,\n    binderRadius = 3,\n    view = 'top',\n    depthAxis = 'y',\n    depthReverse = false,\n  }) {\n    const nr = sum(roi),\n      nn = sum(nmc),\n      ns = sum(secondary);\n    if (!nr) throw Error('ROI 為空。');\n    if (!nn) throw Error('NMC mask 為空，請調整 threshold。');\n    if (!ns) throw Error('Secondary mask 為空，請調整 threshold。');\n    let ng = 0,\n      sg = 0,\n      overlap = 0,\n      nf = f ? sum(f) : 0;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        if (!nmc[i]) {\n          ng++;\n          sg += secondary[i];\n        }\n        if (f && f[i] && secondary[i]) overlap++;\n      }\n    let xmin = w,\n      xmax = -1,\n      ymin = h,\n      ymax = -1;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        xmin = Math.min(xmin, i % w);\n        xmax = Math.max(xmax, i % w);\n        ymin = Math.min(ymin, Math.floor(i / w));\n        ymax = Math.max(ymax, Math.floor(i / w));\n      }\n    const rw = xmax - xmin + 1,\n      rh = ymax - ymin + 1;\n    const tiles = [];\n    for (let gy = 0; gy < grid; gy++)\n      for (let gx = 0; gx < grid; gx++) {\n        let a = 0,\n          b = 0;\n        for (\n          let y = ymin + Math.floor((gy * rh) / grid);\n          y < ymin + Math.floor(((gy + 1) * rh) / grid);\n          y++\n        )\n          for (\n            let x = xmin + Math.floor((gx * rw) / grid);\n            x < xmin + Math.floor(((gx + 1) * rw) / grid);\n            x++\n          ) {\n            const i = y * w + x;\n            a += roi[i];\n            b += secondary[i];\n          }\n        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null });\n      }\n    const dist = edt(perimeter(nmc, w, h), w, h),\n      values = new Float64Array(ns),\n      scale = calibration || 1;\n    let k = 0,\n      total = 0;\n    for (let i = 0; i < dist.length; i++)\n      if (secondary[i]) {\n        values[k++] = dist[i] * scale;\n        total += dist[i] * scale;\n      }\n    values.sort();\n    const quantile = q => {\n      const p = q * (values.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return values[lo] + (values[hi] - values[lo]) * (p - lo);\n    };\n    const bins = [0, 0, 0, 0],\n      edges = calibration ? [0.5, 1, 2] : [1, 2, 3];\n    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;\n    const max = values[values.length - 1],\n      hist = new Array(20).fill(0);\n    for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;\n    let coverage = null;\n    if (f && nf) {\n      const sp = perimeter(secondary, w, h),\n        fd = edt(f, w, h);\n      let p = 0,\n        hit = 0;\n      for (let i = 0; i < sp.length; i++)\n        if (sp[i]) {\n          p++;\n          if (fd[i] * scale <= binderRadius) hit++;\n        }\n      coverage = fraction(hit, p);\n    } else if (f) coverage = 0;\n    let depth = null;\n    if (view === 'cross') {\n      let min = Infinity,\n        max = -Infinity;\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coordinate = depthAxis === 'x' ? i % w : Math.floor(i / w);\n          min = Math.min(min, coordinate);\n          max = Math.max(max, coordinate);\n        }\n      const zones = Array.from({ length: 3 }, (_, j) => ({\n        zone: ['Top', 'Middle', 'Bottom'][j],\n        area: 0,\n        secondary: 0,\n        f: 0,\n        overlap: 0,\n      }));\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coord = depthAxis === 'x' ? i % w : Math.floor(i / w),\n            norm = (coord - min + 0.5) / (max - min + 1);\n          let z = Math.min(2, Math.floor(norm * 3));\n          if (depthReverse) z = 2 - z;\n          const a = zones[z];\n          a.area++;\n          a.secondary += secondary[i];\n          a.f += f ? f[i] : 0;\n          a.overlap += f && f[i] && secondary[i] ? 1 : 0;\n        }\n      for (const a of zones) {\n        a.secondaryFraction = fraction(a.secondary, a.area);\n        a.fFraction = f ? fraction(a.f, a.area) : null;\n        a.overlapFraction = f ? fraction(a.overlap, a.area) : null;\n      }\n      depth = {\n        zones,\n        cv: cv(zones.filter(z => z.area).map(z => z.secondaryFraction)),\n        fCV: f ? cv(zones.filter(z => z.area).map(z => z.fFraction)) : null,\n      };\n    }\n    return {\n      roiPixels: nr,\n      nmcPixels: nn,\n      secondaryPixels: ns,\n      fPixels: f ? nf : null,\n      secondaryAreaFraction: ns / nr,\n      uniformityCV: cv(tiles.filter(t => t.area).map(t => t.fraction)),\n      interparticleOccupancy: fraction(sg, ng),\n      targetingEfficiency: sg / ns,\n      distance: {\n        unit: calibration ? 'μm' : 'px',\n        mean: total / ns,\n        median: quantile(0.5),\n        p90: quantile(0.9),\n        max,\n        bins,\n        edges,\n        histogram: hist,\n      },\n      pearson: f ? pearson(secondaryIntensity, fIntensity, roi) : null,\n      fWithSecondary: f ? fraction(overlap, nf) : null,\n      secondaryWithF: f ? overlap / ns : null,\n      binderCoverage: coverage,\n      depth,\n      tiles,\n      warnings: [\n        nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,\n        ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,\n        f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,\n        ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,\n      ].filter(Boolean),\n    };\n  }\n  function process(p) {\n    const { w, h, channels, settings } = p,\n      roi = roiMask(w, h, p.rois, p.roiInvert),\n      masks = {},\n      thresholds = {},\n      intensities = {};\n    for (const [key, ch] of Object.entries(channels))\n      if (key !== 'sem' && key !== 'other') {\n        let a = ch.data;\n        if (key === 'secondary' && settings.ratio) {\n          const ni = channels.nmc.data;\n          a = Float64Array.from(a, (x, i) => x / (ni[i] + settings.epsilon));\n        }\n        intensities[key] = ch.data;\n        const s = segment(a, w, h, roi, p.seg[key]);\n        masks[key] = s.mask;\n        thresholds[key] = s.threshold;\n      }\n    const results = p.analyze\n      ? analyze({\n          w,\n          h,\n          roi,\n          nmc: masks.nmc,\n          secondary: masks.secondary,\n          f: masks.f,\n          secondaryIntensity: intensities.secondary,\n          fIntensity: intensities.f,\n          ...settings,\n        })\n      : null;\n    return { roi, masks, thresholds, results };\n  }\n  return {\n    sum,\n    fraction,\n    cv,\n    parseCSV,\n    range,\n    otsu,\n    roiMask,\n    segment,\n    perimeter,\n    edt,\n    pearson,\n    analyze,\n    process,\n  };\n})();\nif (typeof module !== 'undefined') module.exports = Core;\n\n/* Keep imported intensity and unchanged masks in Worker memory. */\nlet channelCache = {},\n  roiKey = '',\n  roiCache = null,\n  segCache = {};\nonmessage = event => {\n  try {\n    const p = event.data.payload,\n      { w, h, settings } = p;\n    if (p.channels) {\n      channelCache = p.channels;\n      segCache = {};\n    }\n    const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);\n    if (nextROIKey !== roiKey) {\n      roiCache = Core.roiMask(w, h, p.rois, p.roiInvert);\n      roiKey = nextROIKey;\n      segCache = {};\n    }\n    const masks = {},\n      intensities = {},\n      thresholds = {};\n    for (const key of ['nmc', 'secondary', 'f'])\n      if (channelCache[key]) {\n        const param = p.seg[key],\n          signature = JSON.stringify([\n            param.auto,\n            param.auto ? null : param.threshold,\n            param.invert,\n            param.min,\n            param.fill,\n            param.smooth,\n            key === 'secondary' ? settings.ratio : false,\n            key === 'secondary' ? settings.epsilon : null,\n          ]);\n        if (segCache[key]?.signature !== signature) {\n          let data = channelCache[key].data;\n          if (key === 'secondary' && settings.ratio)\n            data = Float64Array.from(\n              data,\n              (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),\n            );\n          segCache[key] = { signature, data, ...Core.segment(data, w, h, roiCache, param) };\n        }\n        masks[key] = segCache[key].mask;\n        intensities[key] = channelCache[key].data;\n        thresholds[key] = segCache[key].threshold;\n      }\n    const results = p.analyze\n      ? Core.analyze({\n          w,\n          h,\n          roi: roiCache,\n          nmc: masks.nmc,\n          secondary: masks.secondary,\n          f: masks.f,\n          secondaryIntensity: intensities.secondary,\n          fIntensity: intensities.f,\n          ...settings,\n        })\n      : null;\n    const result = {\n      roi: new Uint8Array(roiCache),\n      masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),\n      thresholds,\n      results,\n    };\n    postMessage({ id: event.data.id, result }, [\n      result.roi.buffer,\n      ...Object.values(result.masks).map(x => x.buffer),\n    ]);\n  } catch (e) {\n    postMessage({ id: event.data.id, error: e.message });\n  }\n};\n"], { type: 'text/javascript' })),
+  URL.createObjectURL(new Blob(["/* Deterministic numerical core, shared by the browser Worker and Node tests. */\nconst Core = (() => {\n  const sum = a => a.reduce((s, x) => s + x, 0);\n  const fraction = (a, b) => (b ? a / b : null);\n  function cv(a) {\n    const m = sum(a) / a.length;\n    return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;\n  }\n  function parseCSV(text) {\n    const rows = text\n      .replace(/^\\uFEFF/, '')\n      .trim()\n      .split(/\\r?\\n/)\n      .map(x =>\n        x\n          .trim()\n          .split(',')\n          .map(v => {\n            if (!v.trim() || !Number.isFinite(Number(v))) throw Error('CSV 含空值或非數值。');\n            return Number(v);\n          }),\n      );\n    if (!rows.length || !rows[0].length || rows.some(r => r.length !== rows[0].length))\n      throw Error('CSV 各列欄數不一致。');\n    return { w: rows[0].length, h: rows.length, data: new Float64Array(rows.flat()) };\n  }\n  function range(a) {\n    let min = Infinity,\n      max = -Infinity;\n    for (const x of a) {\n      if (!Number.isFinite(x)) throw Error('Map 含非有限數值。');\n      min = Math.min(min, x);\n      max = Math.max(max, x);\n    }\n    return { min, max };\n  }\n  function otsu(a, roi) {\n    const { min, max } = range(a);\n    if (max === min) return min;\n    const hist = new Float64Array(256);\n    let n = 0;\n    for (let i = 0; i < a.length; i++)\n      if (!roi || roi[i]) {\n        hist[Math.min(255, Math.floor(((a[i] - min) / (max - min)) * 255))]++;\n        n++;\n      }\n    let total = 0;\n    for (let i = 0; i < 256; i++) total += i * hist[i];\n    let wb = 0,\n      sb = 0,\n      best = -1,\n      t = 0;\n    for (let i = 0; i < 255; i++) {\n      wb += hist[i];\n      sb += i * hist[i];\n      const wf = n - wb;\n      if (!wb || !wf) continue;\n      const score = wb * wf * (sb / wb - (total - sb) / wf) ** 2;\n      if (score > best) {\n        best = score;\n        t = i;\n      }\n    }\n    return min + ((t + 0.5) / 255) * (max - min);\n  }\n  function polygonContains(x, y, pts) {\n    let inside = false;\n    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {\n      const [xi, yi] = pts[i],\n        [xj, yj] = pts[j];\n      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;\n    }\n    return inside;\n  }\n  function roiMask(w, h, rois = [], invert = false) {\n    const inc = rois.filter(r => !r.exclude),\n      exc = rois.filter(r => r.exclude),\n      out = new Uint8Array(w * h);\n    const contains = (r, x, y) =>\n      r.type === 'rect'\n        ? x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h\n        : polygonContains(x, y, r.points);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let inside = !inc.length || inc.some(r => contains(r, x + 0.5, y + 0.5));\n        if (invert) inside = !inside;\n        out[y * w + x] = inside && !exc.some(r => contains(r, x + 0.5, y + 0.5)) ? 1 : 0;\n      }\n    return out;\n  }\n  function neighbors(i, w, h, fn) {\n    const x = i % w,\n      y = Math.floor(i / w);\n    if (x) fn(i - 1);\n    if (x < w - 1) fn(i + 1);\n    if (y) fn(i - w);\n    if (y < h - 1) fn(i + w);\n  }\n  function removeSmall(mask, w, h, min) {\n    if (min <= 1) return mask;\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    for (let i = 0; i < mask.length; i++)\n      if (mask[i] && !seen[i]) {\n        let head = 0,\n          tail = 1;\n        q[0] = i;\n        seen[i] = 1;\n        while (head < tail) {\n          neighbors(q[head++], w, h, j => {\n            if (mask[j] && !seen[j]) {\n              seen[j] = 1;\n              q[tail++] = j;\n            }\n          });\n        }\n        if (tail < min) for (let j = 0; j < tail; j++) mask[q[j]] = 0;\n      }\n    return mask;\n  }\n  function fillHoles(mask, w, h, roi) {\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    let head = 0,\n      tail = 0;\n    const add = i => {\n      if (!mask[i] && !seen[i]) {\n        seen[i] = 1;\n        q[tail++] = i;\n      }\n    };\n    for (let i = 0; i < mask.length; i++)\n      if (!roi[i] || i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) add(i);\n    while (head < tail) neighbors(q[head++], w, h, add);\n    for (let i = 0; i < mask.length; i++) if (roi[i] && !seen[i]) mask[i] = 1;\n    return mask;\n  }\n  function smooth(mask, w, h, roi) {\n    const out = new Uint8Array(mask.length);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let count = 0,\n          n = 0;\n        for (let dy = -1; dy <= 1; dy++)\n          for (let dx = -1; dx <= 1; dx++) {\n            const xx = x + dx,\n              yy = y + dy;\n            if (xx >= 0 && xx < w && yy >= 0 && yy < h && roi[yy * w + xx]) {\n              n++;\n              count += mask[yy * w + xx];\n            }\n          }\n        out[y * w + x] = roi[y * w + x] && count > n / 2 ? 1 : 0;\n      }\n    return out;\n  }\n  function segment(a, w, h, roi, p) {\n    const threshold = p.auto ? otsu(a, roi) : p.threshold;\n    let m = new Uint8Array(a.length);\n    for (let i = 0; i < a.length; i++) m[i] = roi[i] && a[i] > threshold !== !!p.invert ? 1 : 0;\n    if (p.smooth) m = smooth(m, w, h, roi);\n    if (p.fill) m = fillHoles(m, w, h, roi);\n    m = removeSmall(m, w, h, p.min || 0);\n    return { mask: m, threshold };\n  }\n  function perimeter(m, w, h) {\n    const p = new Uint8Array(m.length);\n    for (let i = 0; i < m.length; i++)\n      if (m[i]) {\n        if (i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) p[i] = 1;\n        else\n          neighbors(i, w, h, j => {\n            if (!m[j]) p[i] = 1;\n          });\n      }\n    return p;\n  }\n  /* Felzenszwalb/Huttenlocher separable lower envelope; pixel-centre Euclidean distances. */\n  function edt(seed, w, h) {\n    const n = Math.max(w, h),\n      f = new Float64Array(n),\n      d = new Float64Array(n),\n      v = new Int32Array(n),\n      z = new Float64Array(n + 1),\n      tmp = new Float64Array(w * h),\n      out = new Float64Array(w * h),\n      INF = 1e20;\n    if (!seed.some(x => x)) {\n      out.fill(Infinity);\n      return out;\n    }\n    function line(len) {\n      let k = 0;\n      v[0] = 0;\n      z[0] = -Infinity;\n      z[1] = Infinity;\n      for (let q = 1; q < len; q++) {\n        let s;\n        do {\n          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\n          if (s <= z[k]) k--;\n          else break;\n        } while (k >= 0);\n        if (k < 0) {\n          k = 0;\n          v[0] = q;\n          z[0] = -Infinity;\n          z[1] = Infinity;\n        } else {\n          k++;\n          v[k] = q;\n          z[k] = s;\n          z[k + 1] = Infinity;\n        }\n      }\n      k = 0;\n      for (let q = 0; q < len; q++) {\n        while (z[k + 1] < q) k++;\n        d[q] = (q - v[k]) ** 2 + f[v[k]];\n      }\n    }\n    for (let x = 0; x < w; x++) {\n      for (let y = 0; y < h; y++) f[y] = seed[y * w + x] ? 0 : INF;\n      line(h);\n      for (let y = 0; y < h; y++) tmp[y * w + x] = d[y];\n    }\n    for (let y = 0; y < h; y++) {\n      for (let x = 0; x < w; x++) f[x] = tmp[y * w + x];\n      line(w);\n      for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(d[x]);\n    }\n    return out;\n  }\n  function pearson(a, b, roi) {\n    let n = 0,\n      ma = 0,\n      mb = 0,\n      va = 0,\n      vb = 0,\n      c = 0;\n    for (let i = 0; i < a.length; i++)\n      if (roi[i]) {\n        n++;\n        const da = a[i] - ma,\n          db = b[i] - mb;\n        ma += da / n;\n        mb += db / n;\n        va += da * (a[i] - ma);\n        vb += db * (b[i] - mb);\n        c += da * (b[i] - mb);\n      }\n    return va > 0 && vb > 0 ? Math.max(-1, Math.min(1, c / Math.sqrt(va * vb))) : null;\n  }\n  function analyze({\n    w,\n    h,\n    roi,\n    nmc,\n    secondary,\n    f,\n    secondaryIntensity,\n    fIntensity,\n    grid = 5,\n    calibration = null,\n    binderRadius = 3,\n    view = 'top',\n    depthAxis = 'y',\n    depthReverse = false,\n  }) {\n    const nr = sum(roi),\n      nn = sum(nmc),\n      ns = sum(secondary);\n    if (!nr) throw Error('ROI 為空。');\n    if (!nn) throw Error('NMC mask 為空，請調整 threshold。');\n    if (!ns) throw Error('Secondary mask 為空，請調整 threshold。');\n    let ng = 0,\n      sg = 0,\n      overlap = 0,\n      nf = f ? sum(f) : 0;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        if (!nmc[i]) {\n          ng++;\n          sg += secondary[i];\n        }\n        if (f && f[i] && secondary[i]) overlap++;\n      }\n    let xmin = w,\n      xmax = -1,\n      ymin = h,\n      ymax = -1;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        xmin = Math.min(xmin, i % w);\n        xmax = Math.max(xmax, i % w);\n        ymin = Math.min(ymin, Math.floor(i / w));\n        ymax = Math.max(ymax, Math.floor(i / w));\n      }\n    const rw = xmax - xmin + 1,\n      rh = ymax - ymin + 1;\n    const tiles = [];\n    for (let gy = 0; gy < grid; gy++)\n      for (let gx = 0; gx < grid; gx++) {\n        let a = 0,\n          b = 0;\n        for (\n          let y = ymin + Math.floor((gy * rh) / grid);\n          y < ymin + Math.floor(((gy + 1) * rh) / grid);\n          y++\n        )\n          for (\n            let x = xmin + Math.floor((gx * rw) / grid);\n            x < xmin + Math.floor(((gx + 1) * rw) / grid);\n            x++\n          ) {\n            const i = y * w + x;\n            a += roi[i];\n            b += secondary[i];\n          }\n        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null });\n      }\n    const dist = edt(perimeter(nmc, w, h), w, h),\n      values = new Float64Array(ns),\n      scale = calibration || 1;\n    let k = 0,\n      total = 0;\n    for (let i = 0; i < dist.length; i++)\n      if (secondary[i]) {\n        values[k++] = dist[i] * scale;\n        total += dist[i] * scale;\n      }\n    values.sort();\n    const quantile = q => {\n      const p = q * (values.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return values[lo] + (values[hi] - values[lo]) * (p - lo);\n    };\n    const bins = [0, 0, 0, 0],\n      edges = calibration ? [0.5, 1, 2] : [1, 2, 3];\n    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;\n    const max = values[values.length - 1],\n      hist = new Array(20).fill(0);\n    for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;\n    let coverage = null;\n    if (f && nf) {\n      const sp = perimeter(secondary, w, h),\n        fd = edt(f, w, h);\n      let p = 0,\n        hit = 0;\n      for (let i = 0; i < sp.length; i++)\n        if (sp[i]) {\n          p++;\n          if (fd[i] * scale <= binderRadius) hit++;\n        }\n      coverage = fraction(hit, p);\n    } else if (f) coverage = 0;\n    let depth = null;\n    if (view === 'cross') {\n      let min = Infinity,\n        max = -Infinity;\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coordinate = depthAxis === 'x' ? i % w : Math.floor(i / w);\n          min = Math.min(min, coordinate);\n          max = Math.max(max, coordinate);\n        }\n      const zones = Array.from({ length: 3 }, (_, j) => ({\n        zone: ['Top', 'Middle', 'Bottom'][j],\n        area: 0,\n        secondary: 0,\n        f: 0,\n        overlap: 0,\n      }));\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coord = depthAxis === 'x' ? i % w : Math.floor(i / w),\n            norm = (coord - min + 0.5) / (max - min + 1);\n          let z = Math.min(2, Math.floor(norm * 3));\n          if (depthReverse) z = 2 - z;\n          const a = zones[z];\n          a.area++;\n          a.secondary += secondary[i];\n          a.f += f ? f[i] : 0;\n          a.overlap += f && f[i] && secondary[i] ? 1 : 0;\n        }\n      for (const a of zones) {\n        a.secondaryFraction = fraction(a.secondary, a.area);\n        a.fFraction = f ? fraction(a.f, a.area) : null;\n        a.overlapFraction = f ? fraction(a.overlap, a.area) : null;\n      }\n      depth = {\n        zones,\n        cv: cv(zones.filter(z => z.area).map(z => z.secondaryFraction)),\n        fCV: f ? cv(zones.filter(z => z.area).map(z => z.fFraction)) : null,\n      };\n    }\n    return {\n      roiPixels: nr,\n      nmcPixels: nn,\n      secondaryPixels: ns,\n      fPixels: f ? nf : null,\n      secondaryAreaFraction: ns / nr,\n      uniformityCV: cv(tiles.filter(t => t.area).map(t => t.fraction)),\n      interparticleOccupancy: fraction(sg, ng),\n      targetingEfficiency: sg / ns,\n      distance: {\n        unit: calibration ? 'μm' : 'px',\n        mean: total / ns,\n        median: quantile(0.5),\n        p90: quantile(0.9),\n        max,\n        bins,\n        edges,\n        histogram: hist,\n      },\n      pearson: f ? pearson(secondaryIntensity, fIntensity, roi) : null,\n      fWithSecondary: f ? fraction(overlap, nf) : null,\n      secondaryWithF: f ? overlap / ns : null,\n      binderCoverage: coverage,\n      depth,\n      tiles,\n      warnings: [\n        nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,\n        ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,\n        f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,\n        ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,\n      ].filter(Boolean),\n    };\n  }\n  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],\n    MAX_PIXELS = 16e6,\n    GRID_OPTIONS = [3, 5, 8];\n  /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI\n     mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */\n  function createPipeline() {\n    let channelCache = {},\n      roiKey = '',\n      roiCache = null,\n      segCache = {};\n    return function run(p) {\n      const { w, h, settings } = p;\n      if (p.channels) {\n        channelCache = p.channels;\n        segCache = {};\n      }\n      const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);\n      if (nextROIKey !== roiKey) {\n        roiCache = roiMask(w, h, p.rois, p.roiInvert);\n        roiKey = nextROIKey;\n        segCache = {};\n      }\n      const masks = {},\n        intensities = {},\n        thresholds = {};\n      for (const key of ANALYSIS_KEYS)\n        if (channelCache[key]) {\n          const param = p.seg[key],\n            signature = JSON.stringify([\n              param.auto,\n              param.auto ? null : param.threshold,\n              param.invert,\n              param.min,\n              param.fill,\n              param.smooth,\n              key === 'secondary' ? settings.ratio : false,\n              key === 'secondary' ? settings.epsilon : null,\n            ]);\n          if (segCache[key]?.signature !== signature) {\n            let data = channelCache[key].data;\n            if (key === 'secondary' && settings.ratio)\n              data = Float64Array.from(\n                data,\n                (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),\n              );\n            segCache[key] = { signature, ...segment(data, w, h, roiCache, param) };\n          }\n          masks[key] = segCache[key].mask;\n          intensities[key] = channelCache[key].data;\n          thresholds[key] = segCache[key].threshold;\n        }\n      const results = p.analyze\n        ? analyze({\n            w,\n            h,\n            roi: roiCache,\n            nmc: masks.nmc,\n            secondary: masks.secondary,\n            f: masks.f,\n            secondaryIntensity: intensities.secondary,\n            fIntensity: intensities.f,\n            ...settings,\n          })\n        : null;\n      return { roi: roiCache, masks, thresholds, results };\n    };\n  }\n  function process(p) {\n    return createPipeline()(p);\n  }\n  return {\n    sum,\n    fraction,\n    cv,\n    parseCSV,\n    range,\n    otsu,\n    roiMask,\n    segment,\n    perimeter,\n    edt,\n    pearson,\n    analyze,\n    process,\n    createPipeline,\n    ANALYSIS_KEYS,\n    MAX_PIXELS,\n    GRID_OPTIONS,\n  };\n})();\nif (typeof module !== 'undefined') module.exports = Core;\n\n/* Message plumbing only; the cached pipeline lives in Core so it can be unit tested. */\nconst run = Core.createPipeline();\nonmessage = event => {\n  try {\n    const { roi, masks, thresholds, results } = run(event.data.payload);\n    // Copies are transferred so the cached arrays stay usable for the next request.\n    const result = {\n      roi: new Uint8Array(roi),\n      masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),\n      thresholds,\n      results,\n    };\n    postMessage({ id: event.data.id, result }, [\n      result.roi.buffer,\n      ...Object.values(result.masks).map(x => x.buffer),\n    ]);\n  } catch (e) {\n    postMessage({ id: event.data.id, error: e.message });\n  }\n};\n"], { type: 'text/javascript' })),
 );
 let waiter = new Map();
 worker.onmessage = ({ data }) => {
@@ -1864,7 +1906,7 @@ async function compute(analyze = false) {
       workerSentVersion !== channelVersion
         ? Object.fromEntries(
             Object.entries(state.channels)
-              .filter(([k]) => ['nmc', 'secondary', 'f'].includes(k))
+              .filter(([k]) => ANALYSIS_KEYS.includes(k))
               .map(([k, ch]) => [k, { data: ch.data }]),
           )
         : null,
@@ -2075,228 +2117,237 @@ document.addEventListener('keydown', e => {
 });
 
 /* Left-hand step panels: Data, ROI, Segment and Analyze. */
+const STEP_RENDERERS = {
+  data: renderDataStep,
+  roi: renderROIStep,
+  segment: renderSegmentStep,
+  analyze: renderAnalyzeStep,
+};
 function renderControls() {
   document
     .querySelectorAll('[data-step]')
     .forEach(b => b.classList.toggle('active', b.dataset.step === step));
-  const c = $('#controls');
-  if (step === 'data') {
-    c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'].map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(
-      channelNames,
+  (STEP_RENDERERS[step] || renderAnalyzeStep)($('#controls'));
+  setupTooltips();
+}
+function renderDataStep(c) {
+  c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'].map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(
+    channelNames,
+  )
+    .map(
+      ([key, name]) =>
+        `<div class="drop ${pasteTarget === key ? 'paste-target' : ''}" data-drop="${key}"><strong>${t(name)} ${key === 'secondary' ? info('secondary') : info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="row"><button data-paste="${key}" type="button">${t('Paste / Ctrl+V')}</button>${state.channels[key]?.image ? `<button data-crop="${key}" type="button">${t('Crop / review')}</button>` : ''}</div><div class="filename">${esc(state.channels[key] ? state.channels[key].name + ' · ' + state.channels[key].w + '×' + state.channels[key].h : '—')}</div>${state.channels[key] ? `<button data-remove="${key}" class="compact">${t('Remove')}</button>` : ''}</div>`,
     )
-      .map(
-        ([key, name]) =>
-          `<div class="drop ${pasteTarget === key ? 'paste-target' : ''}" data-drop="${key}"><strong>${t(name)} ${key === 'secondary' ? info('secondary') : info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="row"><button data-paste="${key}" type="button">${t('Paste / Ctrl+V')}</button>${state.channels[key]?.image ? `<button data-crop="${key}" type="button">${t('Crop / review')}</button>` : ''}</div><div class="filename">${esc(state.channels[key] ? state.channels[key].name + ' · ' + state.channels[key].w + '×' + state.channels[key].h : '—')}</div>${state.channels[key] ? `<button data-remove="${key}" class="compact">${t('Remove')}</button>` : ''}</div>`,
-      )
-      .join(
-        '',
-      )}<div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
-    $('#view').value = state.view;
-    $('#material').value = state.material;
-    $('#view').onchange = e => {
-      state.view = e.target.value;
-      dirty();
-      renderControls();
-    };
-    $('#material').onchange = e => {
-      state.material = e.target.value;
-      dirty();
-      renderControls();
-    };
-    const mw = $('#materialWarning');
-    if (state.material === 'MnO2')
-      mw.innerHTML = `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>`;
-    if (state.material === 'Al2O3' && state.view === 'cross')
-      mw.innerHTML = `<div class="warning">${t('Exclude Al current collector')} ${info('al')}</div>`;
-    document
-      .querySelectorAll('[data-paste]')
-      .forEach(b => (b.onclick = () => preparePaste(b.dataset.paste)));
-    document
-      .querySelectorAll('[data-crop]')
-      .forEach(
-        b =>
-          (b.onclick = () => openImageImport(null, b.dataset.crop, state.channels[b.dataset.crop])),
-      );
-    document
-      .querySelectorAll('[data-file]')
-      .forEach(el => (el.onchange = () => loadFile(el.files[0], el.dataset.file)));
-    document.querySelectorAll('[data-drop]').forEach(el => {
-      el.ondragover = e => {
-        e.preventDefault();
-        el.classList.add('drag');
-      };
-      el.ondragleave = () => el.classList.remove('drag');
-      el.ondrop = e => {
-        e.preventDefault();
-        el.classList.remove('drag');
-        loadFile(e.dataTransfer.files[0], el.dataset.drop);
-      };
-    });
-    document.querySelectorAll('[data-remove]').forEach(
+    .join(
+      '',
+    )}<div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
+  $('#view').value = state.view;
+  $('#material').value = state.material;
+  $('#view').onchange = e => {
+    state.view = e.target.value;
+    dirty();
+    renderControls();
+  };
+  $('#material').onchange = e => {
+    state.material = e.target.value;
+    dirty();
+    renderControls();
+  };
+  const mw = $('#materialWarning');
+  if (state.material === 'MnO2')
+    mw.innerHTML = `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>`;
+  if (state.material === 'Al2O3' && state.view === 'cross')
+    mw.innerHTML = `<div class="warning">${t('Exclude Al current collector')} ${info('al')}</div>`;
+  document
+    .querySelectorAll('[data-paste]')
+    .forEach(b => (b.onclick = () => preparePaste(b.dataset.paste)));
+  document
+    .querySelectorAll('[data-crop]')
+    .forEach(
       b =>
-        (b.onclick = () => {
-          delete state.channels[b.dataset.remove];
-          channelVersion++;
-          dirty();
-          masks = {};
-          effectiveROI = null;
-          renderControls();
-          renderChannels();
-          draw();
-          preview();
-        }),
+        (b.onclick = () => openImageImport(null, b.dataset.crop, state.channels[b.dataset.crop])),
     );
-    $('#loadSession').onclick = () => $('#sessionFile').click();
-    $('#demo').onclick = loadDemo;
-  } else if (step === 'roi') {
-    c.innerHTML = `<h2>${t('ROI')} ${info('roi')}</h2><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div><h3>${t('Calibration')} ${info('cal')}</h3><label class="field">${t('μm / pixel')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}"></label><label class="field">${t('Scale bar length (\u03bcm)')}<input id="scaleLength" type="number" min="0" step="any" value="10"></label><button id="scaleBar">${t('Select scale bar endpoints')}</button>`;
-    $('#exclude').checked = exclude;
-    $('#roiInvert').checked = state.roiInvert;
-    $('#exclude').onchange = e => (exclude = e.target.checked);
-    $('#drawROI').onclick = () => {
-      drawMode = $('#roiMode').value;
-      pendingPolygon = [];
-      status(drawMode === 'rect' ? '拖曳 Rectangle。' : '點選 Polygon 頂點，完成後按完成。');
+  document
+    .querySelectorAll('[data-file]')
+    .forEach(el => (el.onchange = () => loadFile(el.files[0], el.dataset.file)));
+  document.querySelectorAll('[data-drop]').forEach(el => {
+    el.ondragover = e => {
+      e.preventDefault();
+      el.classList.add('drag');
     };
-    $('#finishPolygon').onclick = finishPolygon;
-    $('#cancelDraw').onclick = () => {
-      pendingPolygon = [];
-      dragStart = null;
-      drawMode = 'pan';
-      draw();
-      status('Ready');
+    el.ondragleave = () => el.classList.remove('drag');
+    el.ondrop = e => {
+      e.preventDefault();
+      el.classList.remove('drag');
+      loadFile(e.dataTransfer.files[0], el.dataset.drop);
     };
-    $('#clearROI').onclick = $('#fullROI').onclick = () => {
-      state.rois = [];
-      state.roiInvert = false;
+  });
+  document.querySelectorAll('[data-remove]').forEach(
+    b =>
+      (b.onclick = () => {
+        delete state.channels[b.dataset.remove];
+        channelVersion++;
+        dirty();
+        masks = {};
+        effectiveROI = null;
+        renderControls();
+        renderChannels();
+        draw();
+        preview();
+      }),
+  );
+  $('#loadSession').onclick = () => $('#sessionFile').click();
+  $('#demo').onclick = loadDemo;
+}
+function renderROIStep(c) {
+  c.innerHTML = `<h2>${t('ROI')} ${info('roi')}</h2><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div><h3>${t('Calibration')} ${info('cal')}</h3><label class="field">${t('μm / pixel')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}"></label><label class="field">${t('Scale bar length (\u03bcm)')}<input id="scaleLength" type="number" min="0" step="any" value="10"></label><button id="scaleBar">${t('Select scale bar endpoints')}</button>`;
+  $('#exclude').checked = exclude;
+  $('#roiInvert').checked = state.roiInvert;
+  $('#exclude').onchange = e => (exclude = e.target.checked);
+  $('#drawROI').onclick = () => {
+    drawMode = $('#roiMode').value;
+    pendingPolygon = [];
+    status(drawMode === 'rect' ? '拖曳 Rectangle。' : '點選 Polygon 頂點，完成後按完成。');
+  };
+  $('#finishPolygon').onclick = finishPolygon;
+  $('#cancelDraw').onclick = () => {
+    pendingPolygon = [];
+    dragStart = null;
+    drawMode = 'pan';
+    draw();
+    status('Ready');
+  };
+  $('#clearROI').onclick = $('#fullROI').onclick = () => {
+    state.rois = [];
+    state.roiInvert = false;
+    dirty();
+    renderControls();
+    preview();
+  };
+  $('#roiInvert').onchange = e => {
+    state.roiInvert = e.target.checked;
+    dirty();
+    preview();
+  };
+  document.querySelectorAll('[data-delroi]').forEach(
+    b =>
+      (b.onclick = () => {
+        state.rois.splice(+b.dataset.delroi, 1);
+        dirty();
+        renderControls();
+        preview();
+      }),
+  );
+  $('#calibration').onchange = e => setCalibration(+e.target.value);
+  $('#scaleBar').onclick = () => {
+    if (!(+$('#scaleLength').value > 0)) {
+      status('Scale bar length 必須 > 0。', true);
+      return;
+    }
+    scalePoints = [];
+    drawMode = 'scale';
+    status('點選 Scale bar 兩端。');
+  };
+}
+function renderSegmentStep(c) {
+  const p = state.seg[selected] || state.seg.secondary,
+    ch = state.channels[selected],
+    a = ch ? segIntensity(selected) : null,
+    r = a ? Core.range(a) : { min: 0, max: 255 };
+  c.innerHTML = `<h2>${t('Segmentation')} ${info('threshold')}</h2><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label>${selected === 'secondary' ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}`;
+  $('#segChannel').value = selected;
+  $('#segChannel').onchange = e => {
+    selected = e.target.value;
+    if (state.channels[selected]) $('#channel').value = selected;
+    renderControls();
+    draw();
+  };
+  $('#auto').onclick = () => {
+    p.auto = true;
+    dirty();
+    renderControls();
+    preview();
+  };
+  $('#manual').onclick = () => {
+    p.auto = false;
+    dirty();
+    renderControls();
+  };
+  function thresholdChange(value) {
+    if (!Number.isFinite(value)) {
+      status('Threshold 必須為有限數值。', true);
+      return;
+    }
+    p.threshold = value;
+    p.auto = false;
+    $('#thresholdNumber').value = value;
+    $('#thresholdSlider').value = value;
+    $('#manual').classList.add('active');
+    $('#auto').classList.remove('active');
+    dirty();
+    schedulePreview();
+  }
+  $('#thresholdNumber').onchange = e => thresholdChange(+e.target.value);
+  $('#thresholdSlider').oninput = e => thresholdChange(+e.target.value);
+  for (const key of ['invert', 'fill', 'smooth'])
+    $('#' + key).onchange = e => {
+      p[key] = e.target.checked;
       dirty();
-      renderControls();
       preview();
     };
-    $('#roiInvert').onchange = e => {
-      state.roiInvert = e.target.checked;
-      dirty();
-      preview();
-    };
-    document.querySelectorAll('[data-delroi]').forEach(
-      b =>
-        (b.onclick = () => {
-          state.rois.splice(+b.dataset.delroi, 1);
-          dirty();
-          renderControls();
-          preview();
-        }),
-    );
-    $('#calibration').onchange = e => setCalibration(+e.target.value);
-    $('#scaleBar').onclick = () => {
-      if (!(+$('#scaleLength').value > 0)) {
-        status('Scale bar length 必須 > 0。', true);
-        return;
-      }
-      scalePoints = [];
-      drawMode = 'scale';
-      status('點選 Scale bar 兩端。');
-    };
-  } else if (step === 'segment') {
-    const p = state.seg[selected] || state.seg.secondary,
-      ch = state.channels[selected],
-      a = ch ? segIntensity(selected) : null,
-      r = a ? Core.range(a) : { min: 0, max: 255 };
-    c.innerHTML = `<h2>${t('Segmentation')} ${info('threshold')}</h2><label class="field">${t('Channel')}<select id="segChannel">${['nmc', 'secondary', 'f'].map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label>${selected === 'secondary' ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}`;
-    $('#segChannel').value = selected;
-    $('#segChannel').onchange = e => {
-      selected = e.target.value;
-      if (state.channels[selected]) $('#channel').value = selected;
-      renderControls();
-      draw();
-    };
-    $('#auto').onclick = () => {
+  $('#minObject').onchange = e => {
+    p.min = Math.max(0, Math.floor(+e.target.value || 0));
+    dirty();
+    preview();
+  };
+  if ($('#ratio')) {
+    $('#ratio').onchange = e => {
+      state.settings.ratio = e.target.checked;
       p.auto = true;
       dirty();
       renderControls();
       preview();
     };
-    $('#manual').onclick = () => {
-      p.auto = false;
-      dirty();
-      renderControls();
-    };
-    function thresholdChange(value) {
-      if (!Number.isFinite(value)) {
-        status('Threshold 必須為有限數值。', true);
+    $('#epsilon').onchange = e => {
+      if (+e.target.value <= 0) {
+        status('ε 必須 > 0。', true);
         return;
       }
-      p.threshold = value;
-      p.auto = false;
-      $('#thresholdNumber').value = value;
-      $('#thresholdSlider').value = value;
-      $('#manual').classList.add('active');
-      $('#auto').classList.remove('active');
-      dirty();
-      schedulePreview();
-    }
-    $('#thresholdNumber').onchange = e => thresholdChange(+e.target.value);
-    $('#thresholdSlider').oninput = e => thresholdChange(+e.target.value);
-    for (const key of ['invert', 'fill', 'smooth'])
-      $('#' + key).onchange = e => {
-        p[key] = e.target.checked;
-        dirty();
-        preview();
-      };
-    $('#minObject').onchange = e => {
-      p.min = Math.max(0, Math.floor(+e.target.value || 0));
+      state.settings.epsilon = +e.target.value;
       dirty();
       preview();
     };
-    if ($('#ratio')) {
-      $('#ratio').onchange = e => {
-        state.settings.ratio = e.target.checked;
-        p.auto = true;
-        dirty();
-        renderControls();
-        preview();
-      };
-      $('#epsilon').onchange = e => {
-        if (+e.target.value <= 0) {
-          status('ε 必須 > 0。', true);
-          return;
-        }
-        state.settings.epsilon = +e.target.value;
-        dirty();
-        preview();
-      };
-    }
-  } else {
-    c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${[3, 5, 8].map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings"></div>`;
-    $('#grid').value = state.settings.grid;
-    $('#grid').onchange = e => {
-      state.settings.grid = +e.target.value;
-      dirty();
-    };
-    $('#radius').onchange = e => {
-      if (!Number.isFinite(+e.target.value) || +e.target.value < 0) {
-        status('距離必須 ≥ 0。', true);
-        return;
-      }
-      state.settings.binderRadius = +e.target.value;
-      dirty();
-    };
-    if ($('#depthAxis')) {
-      $('#depthAxis').value = state.settings.depthAxis;
-      $('#depthAxis').onchange = e => {
-        state.settings.depthAxis = e.target.value;
-        dirty();
-      };
-      $('#depthReverse').onchange = e => {
-        state.settings.depthReverse = e.target.checked;
-        dirty();
-      };
-    }
-    $('#analyze').onclick = () => compute(true);
-    $('#addComparison').onclick = addComparison;
-    $('#showComparison').onclick = showComparison;
   }
-  setupTooltips();
+}
+function renderAnalyzeStep(c) {
+  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings"></div>`;
+  $('#grid').value = state.settings.grid;
+  $('#grid').onchange = e => {
+    state.settings.grid = +e.target.value;
+    dirty();
+  };
+  $('#radius').onchange = e => {
+    if (!Number.isFinite(+e.target.value) || +e.target.value < 0) {
+      status('距離必須 ≥ 0。', true);
+      return;
+    }
+    state.settings.binderRadius = +e.target.value;
+    dirty();
+  };
+  if ($('#depthAxis')) {
+    $('#depthAxis').value = state.settings.depthAxis;
+    $('#depthAxis').onchange = e => {
+      state.settings.depthAxis = e.target.value;
+      dirty();
+    };
+    $('#depthReverse').onchange = e => {
+      state.settings.depthReverse = e.target.checked;
+      dirty();
+    };
+  }
+  $('#analyze').onclick = () => compute(true);
+  $('#addComparison').onclick = addComparison;
+  $('#showComparison').onclick = showComparison;
 }
 function setCalibration(value) {
   state.settings.calibration = value > 0 && Number.isFinite(value) ? value : null;
@@ -2354,7 +2405,7 @@ async function loadFile(file, key) {
         canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth || img.width;
       canvas.height = img.naturalHeight || img.height;
-      if (canvas.width * canvas.height > 16e6) {
+      if (canvas.width * canvas.height > MAX_PIXELS) {
         img.close?.();
         throw Error('Map 超過 1600 萬像素，請先縮小。');
       }
@@ -2373,7 +2424,7 @@ async function loadFile(file, key) {
       };
       img.close?.();
     } else throw Error('僅支援 PNG / JPG / CSV。');
-    if (ch.w * ch.h > 16e6) throw Error('Map 超過 1600 萬像素，請先縮小。');
+    if (ch.w * ch.h > MAX_PIXELS) throw Error('Map 超過 1600 萬像素，請先縮小。');
     ch.name = file.name;
     if (crypto.subtle) {
       const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
@@ -2442,7 +2493,6 @@ function loadDemo() {
   renderChannels();
   preview().then(fit);
 }
-
 
 /* Viewport drawing, zoom, pan and ROI / scale-bar pointer input. */
 function draw() {
@@ -2612,7 +2662,7 @@ $('#canvas').onpointerup = e => {
   panStart = null;
 };
 $('#channel').onchange = () => {
-  if (['nmc', 'secondary', 'f'].includes($('#channel').value)) selected = $('#channel').value;
+  if (ANALYSIS_KEYS.includes($('#channel').value)) selected = $('#channel').value;
   if (step === 'segment') renderControls();
   draw();
 };
@@ -2773,7 +2823,7 @@ $('#sessionFile').onchange = async e => {
     updateChrome();
     channelVersion++;
     revision++;
-    selected = ['nmc', 'secondary', 'f'].includes(s.workspace?.selected)
+    selected = ANALYSIS_KEYS.includes(s.workspace?.selected)
       ? s.workspace.selected
       : 'secondary';
     display = ['original', 'mask', 'overlay'].includes(s.workspace?.display)
@@ -2819,7 +2869,7 @@ function validateSession(s) {
       !Number.isInteger(c.h) ||
       c.w < 1 ||
       c.h < 1 ||
-      c.w * c.h > 16e6 ||
+      c.w * c.h > MAX_PIXELS ||
       !Array.isArray(c.data) ||
       c.data.length !== c.w * c.h ||
       c.data.some(x => !Number.isFinite(x))
@@ -2827,7 +2877,7 @@ function validateSession(s) {
       throw Error('Channel 資料不合法。');
   }
   if (
-    ![3, 5, 8].includes(s.settings.grid) ||
+    !GRID_OPTIONS.includes(s.settings.grid) ||
     !(s.settings.epsilon > 0) ||
     !Number.isFinite(s.settings.binderRadius) ||
     s.settings.binderRadius < 0 ||
@@ -2835,7 +2885,7 @@ function validateSession(s) {
       !(Number.isFinite(s.settings.calibration) && s.settings.calibration > 0))
   )
     throw Error('參數不合法。');
-  for (const k of ['nmc', 'secondary', 'f']) {
+  for (const k of ANALYSIS_KEYS) {
     const p = s.seg[k];
     if (!p || !Number.isFinite(p.threshold) || !Number.isFinite(p.min) || p.min < 0)
       throw Error('Segmentation 不合法。');

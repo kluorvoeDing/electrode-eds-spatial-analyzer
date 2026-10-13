@@ -83,7 +83,7 @@ async function openImageImport(file, key, existing = null) {
     }
     const w = input.naturalWidth || input.width,
       h = input.naturalHeight || input.height;
-    if (w * h > 16e6) {
+    if (w * h > MAX_PIXELS) {
       input.close?.();
       throw Error('Map 超過 1600 萬像素，請先縮小。');
     }
@@ -329,7 +329,7 @@ async function applyImageImport() {
     renderControls();
     renderChannels();
     $('#channel').value = p.key;
-    if (['nmc', 'secondary', 'f'].includes(p.key)) selected = p.key;
+    if (ANALYSIS_KEYS.includes(p.key)) selected = p.key;
     draw();
     if (sizeError()) status(sizeErrorMessage, true);
     else {

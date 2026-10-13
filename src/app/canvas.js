@@ -166,7 +166,7 @@ $('#canvas').onpointerup = e => {
   panStart = null;
 };
 $('#channel').onchange = () => {
-  if (['nmc', 'secondary', 'f'].includes($('#channel').value)) selected = $('#channel').value;
+  if (ANALYSIS_KEYS.includes($('#channel').value)) selected = $('#channel').value;
   if (step === 'segment') renderControls();
   draw();
 };

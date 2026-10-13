@@ -428,38 +428,75 @@ const Core = (() => {
       ].filter(Boolean),
     };
   }
-  function process(p) {
-    const { w, h, channels, settings } = p,
-      roi = roiMask(w, h, p.rois, p.roiInvert),
-      masks = {},
-      thresholds = {},
-      intensities = {};
-    for (const [key, ch] of Object.entries(channels))
-      if (key !== 'sem' && key !== 'other') {
-        let a = ch.data;
-        if (key === 'secondary' && settings.ratio) {
-          const ni = channels.nmc.data;
-          a = Float64Array.from(a, (x, i) => x / (ni[i] + settings.epsilon));
-        }
-        intensities[key] = ch.data;
-        const s = segment(a, w, h, roi, p.seg[key]);
-        masks[key] = s.mask;
-        thresholds[key] = s.threshold;
+  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],
+    MAX_PIXELS = 16e6,
+    GRID_OPTIONS = [3, 5, 8];
+  /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI
+     mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */
+  function createPipeline() {
+    let channelCache = {},
+      roiKey = '',
+      roiCache = null,
+      segCache = {};
+    return function run(p) {
+      const { w, h, settings } = p;
+      if (p.channels) {
+        channelCache = p.channels;
+        segCache = {};
       }
-    const results = p.analyze
-      ? analyze({
-          w,
-          h,
-          roi,
-          nmc: masks.nmc,
-          secondary: masks.secondary,
-          f: masks.f,
-          secondaryIntensity: intensities.secondary,
-          fIntensity: intensities.f,
-          ...settings,
-        })
-      : null;
-    return { roi, masks, thresholds, results };
+      const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);
+      if (nextROIKey !== roiKey) {
+        roiCache = roiMask(w, h, p.rois, p.roiInvert);
+        roiKey = nextROIKey;
+        segCache = {};
+      }
+      const masks = {},
+        intensities = {},
+        thresholds = {};
+      for (const key of ANALYSIS_KEYS)
+        if (channelCache[key]) {
+          const param = p.seg[key],
+            signature = JSON.stringify([
+              param.auto,
+              param.auto ? null : param.threshold,
+              param.invert,
+              param.min,
+              param.fill,
+              param.smooth,
+              key === 'secondary' ? settings.ratio : false,
+              key === 'secondary' ? settings.epsilon : null,
+            ]);
+          if (segCache[key]?.signature !== signature) {
+            let data = channelCache[key].data;
+            if (key === 'secondary' && settings.ratio)
+              data = Float64Array.from(
+                data,
+                (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),
+              );
+            segCache[key] = { signature, ...segment(data, w, h, roiCache, param) };
+          }
+          masks[key] = segCache[key].mask;
+          intensities[key] = channelCache[key].data;
+          thresholds[key] = segCache[key].threshold;
+        }
+      const results = p.analyze
+        ? analyze({
+            w,
+            h,
+            roi: roiCache,
+            nmc: masks.nmc,
+            secondary: masks.secondary,
+            f: masks.f,
+            secondaryIntensity: intensities.secondary,
+            fIntensity: intensities.f,
+            ...settings,
+          })
+        : null;
+      return { roi: roiCache, masks, thresholds, results };
+    };
+  }
+  function process(p) {
+    return createPipeline()(p);
   }
   return {
     sum,
@@ -475,6 +512,10 @@ const Core = (() => {
     pearson,
     analyze,
     process,
+    createPipeline,
+    ANALYSIS_KEYS,
+    MAX_PIXELS,
+    GRID_OPTIONS,
   };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

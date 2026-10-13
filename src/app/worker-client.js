@@ -62,7 +62,7 @@ async function compute(analyze = false) {
       workerSentVersion !== channelVersion
         ? Object.fromEntries(
             Object.entries(state.channels)
-              .filter(([k]) => ['nmc', 'secondary', 'f'].includes(k))
+              .filter(([k]) => ANALYSIS_KEYS.includes(k))
               .map(([k, ch]) => [k, { data: ch.data }]),
           )
         : null,

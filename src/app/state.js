@@ -1,5 +1,6 @@
 /* Shared application state, defaults and constants. */
 const VERSION = '/*VERSION*/';
+const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
     String(s).replace(

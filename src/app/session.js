@@ -66,7 +66,7 @@ $('#sessionFile').onchange = async e => {
     updateChrome();
     channelVersion++;
     revision++;
-    selected = ['nmc', 'secondary', 'f'].includes(s.workspace?.selected)
+    selected = ANALYSIS_KEYS.includes(s.workspace?.selected)
       ? s.workspace.selected
       : 'secondary';
     display = ['original', 'mask', 'overlay'].includes(s.workspace?.display)
@@ -112,7 +112,7 @@ function validateSession(s) {
       !Number.isInteger(c.h) ||
       c.w < 1 ||
       c.h < 1 ||
-      c.w * c.h > 16e6 ||
+      c.w * c.h > MAX_PIXELS ||
       !Array.isArray(c.data) ||
       c.data.length !== c.w * c.h ||
       c.data.some(x => !Number.isFinite(x))
@@ -120,7 +120,7 @@ function validateSession(s) {
       throw Error('Channel 資料不合法。');
   }
   if (
-    ![3, 5, 8].includes(s.settings.grid) ||
+    !GRID_OPTIONS.includes(s.settings.grid) ||
     !(s.settings.epsilon > 0) ||
     !Number.isFinite(s.settings.binderRadius) ||
     s.settings.binderRadius < 0 ||
@@ -128,7 +128,7 @@ function validateSession(s) {
       !(Number.isFinite(s.settings.calibration) && s.settings.calibration > 0))
   )
     throw Error('參數不合法。');
-  for (const k of ['nmc', 'secondary', 'f']) {
+  for (const k of ANALYSIS_KEYS) {
     const p = s.seg[k];
     if (!p || !Number.isFinite(p.threshold) || !Number.isFinite(p.min) || p.min < 0)
       throw Error('Segmentation 不合法。');
