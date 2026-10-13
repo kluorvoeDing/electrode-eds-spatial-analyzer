@@ -2358,7 +2358,7 @@ if (typeof module !== 'undefined')
   };
 
 /* Shared application state, defaults and constants. */
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
@@ -2803,7 +2803,7 @@ function renderControls() {
   if (next) {
     c.insertAdjacentHTML(
       'beforeend',
-      `<button id="nextStep" class="primary full" type="button">${t('Next')}: ${t(STEP_LABELS[next])}</button>`,
+      `<button id="nextStep" class="primary full" type="button">${t('Next')}${language === 'zh-Hant' ? '：' : ': '}${t(STEP_LABELS[next])}</button>`,
     );
     $('#nextStep').onclick = () => setStep(next);
   }

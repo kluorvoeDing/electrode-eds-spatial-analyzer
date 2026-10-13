@@ -29,7 +29,7 @@ function renderControls() {
   if (next) {
     c.insertAdjacentHTML(
       'beforeend',
-      `<button id="nextStep" class="primary full" type="button">${t('Next')}: ${t(STEP_LABELS[next])}</button>`,
+      `<button id="nextStep" class="primary full" type="button">${t('Next')}${language === 'zh-Hant' ? '：' : ': '}${t(STEP_LABELS[next])}</button>`,
     );
     $('#nextStep').onclick = () => setStep(next);
   }
