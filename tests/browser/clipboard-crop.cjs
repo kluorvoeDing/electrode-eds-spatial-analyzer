@@ -49,6 +49,10 @@ const { chromium } = require('playwright'),
     assert.equal(await p.locator('#cropApply').isEnabled(), false);
   }
   async function setCrop(x = 10, y = 15, w = 60, h = 60) {
+    // Free-form cropping: release the grid-size lock that later channels start with.
+    const lock = p.locator('#cropLockSize');
+    if ((await lock.count()) && (await lock.isChecked()) && (await lock.isEnabled()))
+      await lock.uncheck();
     for (const [k, v] of Object.entries({ x, y, w, h })) {
       await p.locator('#crop-' + k).fill(String(v));
     }
@@ -92,6 +96,14 @@ const { chromium } = require('playwright'),
   await p.locator('#dialog').waitFor({ state: 'hidden' });
   assert.equal(await p.evaluate(() => JSON.stringify(snapshot())), before);
   await paste('secondary', 'orange');
+  // The pasted report is cropped to its map automatically and held to the grid size.
+  assert.deepEqual(
+    await p.evaluate(() => [imageImport.rect, imageImport.target, imageImport.detected]),
+    [{ x: 10, y: 15, w: 60, h: 60 }, { w: 60, h: 60 }, true],
+  );
+  assert.equal(await p.locator('#cropLockSize').isChecked(), true);
+  assert.equal(await p.locator('#crop-w').isDisabled(), true);
+  assert.ok((await p.locator('#cropSizeStatus').innerText()).includes('Equal dimensions'));
   await setCrop(10, 15, 59, 60);
   assert.ok((await p.locator('#cropSizeStatus').innerText()).includes('Dimensions differ'));
   await p.locator('#cropMatch').click();
@@ -163,7 +175,19 @@ const { chromium } = require('playwright'),
   // Pointer selection, reverse dragging and bilingual responsive editor.
   await p.locator('[data-crop="f"]').click();
   await p.locator('#cropSource').waitFor();
+  // Size-locked, dragging only moves the box; it follows the pointer by its centre.
   let box = await p.locator('#cropSource').boundingBox();
+  await p.mouse.move(box.x + (50 / 100) * box.width, box.y + (40 / 90) * box.height);
+  await p.mouse.down();
+  await p.mouse.move(box.x + (60 / 100) * box.width, box.y + (45 / 90) * box.height);
+  await p.mouse.up();
+  assert.deepEqual(await p.evaluate(() => imageImport.rect), { x: 30, y: 15, w: 60, h: 60 });
+  await p.mouse.move(box.x + (99 / 100) * box.width, box.y + (89 / 90) * box.height);
+  await p.mouse.down();
+  await p.mouse.up();
+  assert.deepEqual(await p.evaluate(() => imageImport.rect), { x: 40, y: 30, w: 60, h: 60 });
+  await p.locator('#cropLockSize').uncheck();
+  box = await p.locator('#cropSource').boundingBox();
   await p.mouse.move(box.x + (80 / 100) * box.width, box.y + (75 / 90) * box.height);
   await p.mouse.down();
   await p.mouse.move(box.x + (10 / 100) * box.width, box.y + (15 / 90) * box.height);

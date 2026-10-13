@@ -1,11 +1,54 @@
 /* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
-  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${['data', 'roi', 'segment', 'analyze'].map((s, i) => `<button data-step="${s}">${i + 1} ${t(s === 'roi' ? 'ROI' : s[0].toUpperCase() + s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${['original', 'mask', 'overlay'].map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${['data', 'roi', 'segment', 'analyze'].map((s, i) => `<button data-step="${s}">${i + 1} ${t(s === 'roi' ? 'ROI' : s[0].toUpperCase() + s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><span id="maskLabel" class="compact muted"></span><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="elementChips" class="chips hidden"></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
 function status(message, error = false) {
   lastStatus = message;
   lastStatusError = error;
   $('#status').textContent = messageText(typeof message === 'function' ? message() : message);
   $('#status').classList.toggle('error', error);
+  renderNotice();
+}
+/* Channels whose size differs from the analysis grid, with the grid they should match. */
+function gridMismatch() {
+  const grid = gridTarget();
+  if (!grid) {
+    const first = Object.values(state.channels)[0];
+    return first
+      ? {
+          grid: { w: first.w, h: first.h },
+          offenders: Object.keys(state.channels).filter(
+            k => state.channels[k].w !== first.w || state.channels[k].h !== first.h,
+          ),
+        }
+      : null;
+  }
+  return {
+    grid,
+    offenders: Object.keys(state.channels).filter(
+      k => state.channels[k].w !== grid.w || state.channels[k].h !== grid.h,
+    ),
+  };
+}
+/* Problems that stop the workflow are shown above the image, not only in the footer. A size
+   mismatch names the channel to fix and offers the way there. */
+function renderNotice() {
+  const el = $('#notice'),
+    mismatch = sizeError() ? gridMismatch() : null;
+  if (mismatch?.offenders.length) {
+    el.innerHTML = `<strong>${t('Calculation is paused: channel sizes differ.')}</strong> <span>${t('Analysis grid')} ${mismatch.grid.w} × ${mismatch.grid.h} px</span>${mismatch.offenders
+      .map(k => {
+        const ch = state.channels[k],
+          size = `${t(channelNames[k])} ${ch.w} × ${ch.h}`;
+        return ch.image
+          ? `<button type="button" data-fix="${k}">${t('Fix')} ${esc(size)}</button>`
+          : `<span>${esc(size)} · ${t('Re-import this channel at the grid size, or remove it.')}</span>`;
+      })
+      .join('')}`;
+    el.querySelectorAll('[data-fix]').forEach(
+      b => (b.onclick = () => openImageImport(null, b.dataset.fix, state.channels[b.dataset.fix])),
+    );
+  } else if (lastStatusError) el.textContent = $('#status').textContent;
+  el.classList.toggle('hidden', !(mismatch?.offenders.length || lastStatusError));
 }
 function dirty() {
   revision++;
@@ -54,6 +97,31 @@ function renderChannels() {
       ? selected
       : Object.keys(state.channels)[0] || '';
   $('#dimensions').textContent = dimensions() ? `${dimensions().w} × ${dimensions().h} px` : '';
+  renderElementChips();
+  renderNotice();
+}
+/* Element maps available to the element view, and the ones currently laid over the backdrop. */
+function shownElements() {
+  const loaded = Object.keys(state.channels).filter(k => k !== 'sem'),
+    chosen = elementsShown || (loaded.includes('secondary') ? ['secondary'] : loaded);
+  return { loaded, shown: loaded.filter(k => [...chosen].includes(k)) };
+}
+function renderElementChips() {
+  const { loaded, shown } = shownElements(),
+    el = $('#elementChips');
+  el.innerHTML = `<span>${t('Show elements')}</span>${loaded.map(k => `<label><input type="checkbox" data-element="${k}" ${shown.includes(k) ? 'checked' : ''}> ${t(channelNames[k])}</label>`).join('')}`;
+  el.querySelectorAll('[data-element]').forEach(
+    box =>
+      (box.onchange = () => {
+        elementsShown = new Set(
+          [...el.querySelectorAll('[data-element]')]
+            .filter(b => b.checked)
+            .map(b => b.dataset.element),
+        );
+        draw();
+      }),
+  );
+  el.classList.toggle('hidden', display !== 'elements' || !loaded.length);
 }
 $('#settings').onclick = () =>
   showDialog(
@@ -70,6 +138,7 @@ $('#dialogbody').addEventListener('input', e => {
 $('#dialogbody').addEventListener('click', e => {
   if (e.target.id === 'clearData') {
     state = initialState();
+    elementsShown = null;
     channelVersion++;
     revision++;
     masks = {};

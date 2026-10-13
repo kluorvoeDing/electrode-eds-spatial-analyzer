@@ -38,11 +38,18 @@ const { chromium } = require('playwright'),
   await page.evaluate(() => {
     state.rois = [{ type: 'rect', x: 0, y: 0, w: 240, h: 240 }];
   });
-  const before = await page.evaluate(() =>
-    JSON.stringify({ state, revision, selected, display, opacity, masks, roi: effectiveROI }),
-  );
+  const capture = () =>
+    page.evaluate(() =>
+      JSON.stringify({ state, revision, selected, display, opacity, masks, roi: effectiveROI }),
+    );
   for (const step of ['data', 'roi', 'segment', 'analyze']) {
     await page.locator(`[data-step="${step}"]`).click();
+    // Each step opens on its own view; switching language must not change it or anything else.
+    assert.equal(
+      await page.evaluate(() => display),
+      step === 'data' || step === 'roi' ? 'elements' : 'overlay',
+    );
+    const before = await capture();
     for (const lang of ['zh-Hant', 'en']) {
       await page.locator('#language').selectOption(lang);
       assert.equal(

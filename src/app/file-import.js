@@ -20,14 +20,7 @@ function sizeErrorMessage() {
   const sizes = Object.entries(state.channels)
     .map(([k, c]) => `${t(channelNames[k])}: ${c.w}×${c.h}`)
     .join(' · ');
-  // An SEM image at its own magnification is expected; point at the tool that fits it.
-  const grid = gridChannel(),
-    sem = state.channels.sem,
-    semHint =
-      sem?.image && grid !== sem && (sem.w !== grid.w || sem.h !== grid.h)
-        ? ` · ${t('Use Crop / review on SEM to scale it to the map grid.')}`
-        : '';
-  return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}${semHint}`;
+  return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}`;
 }
 /* The analysis grid is set by the analysis channels; display-only channels define it only while
    no analysis channel is loaded. */
@@ -80,6 +73,18 @@ async function loadFile(file, key) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
       const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      // Report-style images (title, scale bar) and images off the analysis grid go through the
+      // crop review, exactly like a pasted image; a clean map on the grid is imported directly.
+      const grid = gridTarget(key),
+        framed =
+          key === 'sem'
+            ? detectFrame(rgba, canvas.width, canvas.height)
+            : detectMapRegion(rgba, canvas.width, canvas.height);
+      if (framed || (grid && (grid.w !== canvas.width || grid.h !== canvas.height))) {
+        img.close?.();
+        status(() => `${t('Review the crop')} · ${t(channelNames[key])}`);
+        return openImageImport(file, key, null, { kind: 'file', name: file.name });
+      }
       ch = {
         w: canvas.width,
         h: canvas.height,

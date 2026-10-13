@@ -80,14 +80,13 @@ fs.mkdirSync('qa', { recursive: true });
   const baseline = await analyze();
   assert.ok(baseline.secondaryPixels > 0 && baseline.distance.unit === 'μm');
 
-  // An SEM at its own magnification blocks analysis, keeps the grid state and points at the fix.
+  // An SEM at its own magnification goes straight to the review dialog, set up to scale it onto
+  // the analysis grid. Nothing is imported, and the grid state is untouched, until it is confirmed.
   await p.evaluate(() => loadFile(window.semFile, 'sem'));
-  assert.match(await statusText(), /Channel dimensions differ.*Use Crop \/ review on SEM/);
-  assert.deepEqual(await gridState(), { rois: 1, calibration: 0.25 });
-
-  await p.locator('#import').click();
-  await p.locator('[data-crop="sem"]').click();
   await p.locator('#cropSource').waitFor();
+  assert.equal(await p.evaluate(() => 'sem' in state.channels), false);
+  assert.deepEqual(await gridState(), { rois: 1, calibration: 0.25 });
+  assert.deepEqual(await p.evaluate(() => imageImport.target), { w: 60, h: 40 });
   assert.equal(await p.locator('#cropFit').isChecked(), true);
   assert.equal(await p.locator('#cropLock').isChecked(), true);
   assert.equal(await p.locator('#cropReference').inputValue(), 'nmc');
@@ -285,7 +284,12 @@ fs.mkdirSync('qa', { recursive: true });
     imageImport.fit = true;
     imageImport.reference = 'sem';
   });
-  // Whole-pixel nudging of an analysis channel: crop one column narrower, shift it, restore.
+  // Analysis channels are held to the grid size: only the position can change.
+  assert.equal(await p.locator('#cropLockSize').isChecked(), true);
+  assert.equal(await p.locator('#crop-w').isDisabled(), true);
+  assert.equal(await p.locator('#cropFull').isDisabled(), true);
+  // Whole-pixel nudging of an analysis channel: unlock, crop one column narrower, shift, restore.
+  await p.locator('#cropLockSize').uncheck();
   await setField('w', 59);
   await p.locator('[data-nudge="1,0"]').click();
   assert.deepEqual(await rect(), { x: 1, y: 0, w: 59, h: 40 });

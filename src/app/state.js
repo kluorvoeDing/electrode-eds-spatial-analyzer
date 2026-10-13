@@ -18,6 +18,17 @@ const defaults = () => ({
   fill: false,
   smooth: false,
 });
+// 'elements' lays the element maps over SEM in their own colours; 'overlay' shows a mask.
+const DISPLAY_MODES = ['original', 'elements', 'overlay', 'mask'],
+  ELEMENT_TINT = {
+    nmc: [224, 64, 251],
+    secondary: [255, 152, 0],
+    f: [41, 121, 255],
+    other: [255, 235, 59],
+  };
+// Element maps laid over SEM in the element view. Null until the user picks: the phase under
+// study if it is loaded, otherwise every loaded element.
+let elementsShown = null;
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',
@@ -43,7 +54,7 @@ const initialState = () => ({
 let state = initialState();
 let step = 'data',
   selected = 'secondary',
-  display = 'overlay',
+  display = 'elements',
   zoom = 1,
   opacity = 0.45,
   masks = {},

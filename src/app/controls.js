@@ -1,4 +1,13 @@
 /* Left-hand step panels: Data, ROI, Segment and Analyze. */
+const STEP_ORDER = ['data', 'roi', 'segment', 'analyze'],
+  STEP_LABELS = { data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' },
+  STEP_HINTS = {
+    data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
+    roi: 'Optional. Skip this step to analyse the whole image.',
+    segment:
+      'Check that the mask of each channel covers the right areas; adjust the threshold if not.',
+    analyze: 'Run the analysis. Change a setting and run it again to compare.',
+  };
 const STEP_RENDERERS = {
   data: renderDataStep,
   roi: renderROIStep,
@@ -9,7 +18,21 @@ function renderControls() {
   document
     .querySelectorAll('[data-step]')
     .forEach(b => b.classList.toggle('active', b.dataset.step === step));
-  (STEP_RENDERERS[step] || renderAnalyzeStep)($('#controls'));
+  const c = $('#controls');
+  (STEP_RENDERERS[step] || renderAnalyzeStep)(c);
+  // One line on what this step is for, and the way on to the next one.
+  c.querySelector('h2').insertAdjacentHTML(
+    'afterend',
+    `<p class="hint">${t(STEP_HINTS[step])}</p>`,
+  );
+  const next = STEP_ORDER[STEP_ORDER.indexOf(step) + 1];
+  if (next) {
+    c.insertAdjacentHTML(
+      'beforeend',
+      `<button id="nextStep" class="primary full" type="button">${t('Next')}: ${t(STEP_LABELS[next])}</button>`,
+    );
+    $('#nextStep').onclick = () => setStep(next);
+  }
   setupTooltips();
 }
 function renderDataStep(c) {
@@ -229,6 +252,12 @@ function renderAnalyzeStep(c) {
       dirty();
     };
   }
+  const blocked = sizeError()
+    ? 'Channel sizes differ; fix them with the notice above the image.'
+    : !state.channels.nmc || !state.channels.secondary
+      ? 'Load the main-phase and secondary-phase maps first.'
+      : '';
+  if (blocked) $('#analysisWarnings').innerHTML = `<div class="warning">${t(blocked)}</div>`;
   $('#analyze').onclick = () => compute(true);
   $('#addComparison').onclick = addComparison;
   $('#showComparison').onclick = showComparison;

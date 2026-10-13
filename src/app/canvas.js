@@ -17,13 +17,33 @@ function draw() {
   const r = Core.range(ch.data),
     image = ctx.createImageData(ch.w, ch.h),
     key = $('#channel').value,
-    mask = masks[key] || masks[selected];
+    maskKey = masks[key] ? key : selected,
+    mask = masks[maskKey],
+    layers = display === 'elements' ? elementLayers(ch) : null;
+  $('#elementChips').classList.toggle(
+    'hidden',
+    display !== 'elements' || !shownElements().loaded.length,
+  );
+  $('#maskLabel').textContent =
+    mask && (display === 'overlay' || display === 'mask')
+      ? `${t('Mask')}: ${t(channelNames[maskKey])}`
+      : '';
   for (let i = 0; i < ch.data.length; i++) {
     let g = r.max === r.min ? 0 : Math.round(((ch.data[i] - r.min) / (r.max - r.min)) * 255),
       rr = ch.rgba ? ch.rgba[i * 4] : g,
       gg = ch.rgba ? ch.rgba[i * 4 + 1] : g,
       bb = ch.rgba ? ch.rgba[i * 4 + 2] : g;
-    if (display === 'mask') {
+    if (layers) {
+      [rr, gg, bb] = layers.base ? layers.base(i) : [0, 0, 0];
+      for (const layer of layers.elements) {
+        const [lr, lg, lb, strength] = layer(i);
+        if (!strength) continue;
+        const alpha = strength * layers.gain;
+        rr = rr * (1 - alpha) + lr * alpha;
+        gg = gg * (1 - alpha) + lg * alpha;
+        bb = bb * (1 - alpha) + lb * alpha;
+      }
+    } else if (display === 'mask') {
       rr = gg = bb = mask?.[i] ? 255 : 0;
     } else if (display === 'overlay' && mask?.[i]) {
       rr = rr * (1 - opacity) + 7 * opacity;
@@ -80,6 +100,47 @@ function draw() {
   document
     .querySelectorAll('[data-display]')
     .forEach(b => b.classList.toggle('active', b.dataset.display === display));
+}
+/* Pixel readers for the element view: SEM (when it shares the grid) as the grey backdrop and the
+   ticked element maps on top in their own colours, brightness setting how strongly each shows. */
+function elementLayers(ch) {
+  const onGrid = c => !!c && c.w === ch.w && c.h === ch.h,
+    sem = onGrid(state.channels.sem) ? state.channels.sem : null,
+    reader = c => {
+      if (c.rgba) return i => [c.rgba[i * 4], c.rgba[i * 4 + 1], c.rgba[i * 4 + 2]];
+      const range = Core.range(c.data),
+        span = range.max - range.min || 1;
+      return i => Array(3).fill(Math.round(((c.data[i] - range.min) / span) * 255));
+    },
+    keys = shownElements().shown.filter(k => onGrid(state.channels[k]));
+  return {
+    base: sem ? reader(sem) : null,
+    gain: Math.min(1, opacity * 2),
+    elements: keys.map(k => {
+      const c = state.channels[k],
+        read = reader(c),
+        tint = ELEMENT_TINT[k];
+      return i => {
+        const [r, g, b] = read(i),
+          peak = Math.max(r, g, b);
+        if (!peak) return [0, 0, 0, 0];
+        // Images keep their own hue at full brightness; numeric maps use the channel tint.
+        return c.rgba
+          ? [(r * 255) / peak, (g * 255) / peak, (b * 255) / peak, peak / 255]
+          : [...tint, peak / 255];
+      };
+    }),
+  };
+}
+/* Each step opens on the view that suits it: element colours while importing and drawing the
+   ROI, the mask while segmenting and analysing. Any view can still be picked by hand. */
+function setStep(next) {
+  step = next;
+  drawMode = 'pan';
+  if ((step === 'data' || step === 'roi') && display === 'overlay') display = 'elements';
+  if ((step === 'segment' || step === 'analyze') && display === 'elements') display = 'overlay';
+  renderControls();
+  draw();
 }
 function fit() {
   const ch = state.channels[$('#channel').value] || baseChannel();
@@ -192,19 +253,9 @@ document.querySelectorAll('[data-display]').forEach(
       draw();
     }),
 );
-document.querySelectorAll('[data-step]').forEach(
-  b =>
-    (b.onclick = () => {
-      step = b.dataset.step;
-      drawMode = 'pan';
-      renderControls();
-    }),
-);
+document.querySelectorAll('[data-step]').forEach(b => (b.onclick = () => setStep(b.dataset.step)));
 $('#sample').oninput = e => {
   state.sample = e.target.value;
   dirty();
 };
-$('#import').onclick = () => {
-  step = 'data';
-  renderControls();
-};
+$('#import').onclick = () => setStep('data');

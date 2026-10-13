@@ -98,13 +98,53 @@ aside.right {
 }
 nav {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
-  margin-bottom: 22px;
+  margin: -16px -16px 14px;
+  padding: 12px 16px 10px;
+  position: sticky;
+  top: -16px;
+  z-index: 2;
+  background: #fafbfc;
+  border-bottom: 1px solid var(--line);
 }
 nav button {
-  padding: 12px;
+  padding: 9px 10px;
   text-align: left;
+}
+.hint {
+  margin: -6px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+#nextStep {
+  margin-top: 16px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.chips span {
+  color: var(--muted);
+}
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background: #fff4e0;
+  border-bottom: 1px solid #e3b25f;
+  color: #6b4200;
+}
+.notice button {
+  border-color: #c98a1e;
+  font-weight: 600;
 }
 h2 {
   font-size: 14px;
@@ -1107,7 +1147,8 @@ const UI_ZH = {
   Analyze: '分析',
   Original: '原圖',
   Mask: '遮罩',
-  Overlay: '疊圖',
+  Overlay: '遮罩疊圖',
+  Elements: '元素疊圖',
   Opacity: '透明度',
   'Overlay opacity': '疊圖透明度',
   Zoom: '縮放',
@@ -1435,8 +1476,27 @@ Object.assign(UI_ZH, {
   'Display only, resampled': '僅供顯示，已重採樣',
   'Only the SEM display channel can be resampled': '只有 SEM 顯示通道可以重採樣。',
   'Invalid target size': '目標尺寸不合法。',
-  'Use Crop / review on SEM to scale it to the map grid.':
-    '請在 SEM 通道按「裁切／確認」，將 SEM 縮放到元素圖格點。',
+  'Detect map region': '自動偵測有效區域',
+  'Keep the analysis grid size': '鎖定為分析格點尺寸',
+  'Region suggested automatically; please check it.': '已自動框選有效區域，請確認。',
+  'Review the crop': '請確認裁切範圍',
+  'Calculation is paused: channel sizes differ.': '計算已暫停：通道尺寸不一致。',
+  'Analysis grid': '分析格點',
+  Fix: '修正',
+  'Re-import this channel at the grid size, or remove it.':
+    '請以格點尺寸重新匯入此通道，或將其移除。',
+  Next: '下一步',
+  'Show elements': '顯示元素',
+  'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.':
+    '為每個通道貼上或選擇影像。工具會自動框出有效區域，並讓各通道保持相同尺寸。',
+  'Optional. Skip this step to analyse the whole image.': '可略過：不設定時分析整張影像。',
+  'Check that the mask of each channel covers the right areas; adjust the threshold if not.':
+    '逐一檢查各通道的遮罩是否蓋住正確區域；不對時調整閾值。',
+  'Run the analysis. Change a setting and run it again to compare.':
+    '按「分析」取得結果；更動設定後需重新分析。',
+  'Channel sizes differ; fix them with the notice above the image.':
+    '通道尺寸不一致；請用影像上方的提示修正。',
+  'Load the main-phase and secondary-phase maps first.': '請先載入主相與次要相影像。',
 });
 HELP_ZH.nudge =
   '以整數像素移動裁切框，寬高不變、不重採樣。也可點選左側影像後使用方向鍵；按住 Shift 一次移動 10 px。用混合、差異或按住顯示參考圖來檢查對位。';
@@ -1446,6 +1506,10 @@ HELP_ZH.semFit =
   'SEM 只作為顯示底圖，不進入任何指標，因此可以縮放。在 SEM 上框出元素圖實際掃描的區域（例如標示 Map Data 的白框），工具會把該區重採樣為參考通道的尺寸；縮小採面積平均、放大採雙線性內插。縮放比例與方式會記錄在 trace。Ni、次要相與 F 等分析通道永遠不重採樣。';
 HELP_EN.semFit =
   'SEM is a display backdrop and never enters the metrics, so it may be scaled. Select the area the element maps actually scanned (for example the white Map Data box); it is resampled to the reference channel size using area averaging when shrinking and bilinear interpolation when enlarging. Scale and method are recorded in the trace. Analysis channels (Ni, secondary phase, F) are never resampled.';
+HELP_ZH.lockSize =
+  '所有通道必須是相同的像素尺寸才能計算。勾選時，裁切框固定為已載入分析通道的尺寸，拖曳只會移動位置，因此不會出現差一兩個像素的情況。只有在要重新決定整組影像的尺寸時才取消勾選。';
+HELP_EN.lockSize =
+  'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
 function t(key) {
   return language === 'zh-Hant' ? (UI_ZH[key] ?? key) : (UI_EN[key] ?? key);
 }
@@ -1585,6 +1649,123 @@ function importPixels(key, rgba, w, h, r, target) {
     },
   };
 }
+/* Longest run of consecutive indices in [0, length) that satisfy `accept`, as [first, last]. */
+function longestRun(length, accept) {
+  let best = null,
+    start = -1;
+  for (let i = 0; i <= length; i++) {
+    if (i < length && accept(i)) {
+      if (start < 0) start = i;
+    } else if (start >= 0) {
+      if (!best || i - start > best[1] - best[0] + 1) best = [start, i - 1];
+      start = -1;
+    }
+  }
+  return best;
+}
+/* Finds the map on a report-style image: a dark rectangle carrying coloured counts on a light
+   page, with title, label and scale bar around it. Returns the rectangle, or null when nothing
+   convincing stands out (the caller then keeps the whole image). Only a starting suggestion: the
+   user still reviews and confirms the crop. */
+function detectMapRegion(rgba, w, h) {
+  const inMap = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const r = rgba[i * 4],
+      g = rgba[i * 4 + 1],
+      b = rgba[i * 4 + 2],
+      high = Math.max(r, g, b);
+    inMap[i] = high < 70 || high - Math.min(r, g, b) > 70 ? 1 : 0;
+  }
+  const rowCount = (y, x0, x1) => {
+      let n = 0;
+      for (let x = x0; x <= x1; x++) n += inMap[y * w + x];
+      return n;
+    },
+    columnCount = (x, y0, y1) => {
+      let n = 0;
+      for (let y = y0; y <= y1; y++) n += inMap[y * w + x];
+      return n;
+    };
+  // Seed with the rows that are about as full as the fullest row, then tighten each side in turn.
+  let widest = 0;
+  for (let y = 0; y < h; y++) widest = Math.max(widest, rowCount(y, 0, w - 1));
+  if (widest < 16) return null;
+  let rows = longestRun(h, y => rowCount(y, 0, w - 1) >= 0.8 * widest),
+    columns = null;
+  for (let pass = 0; pass < 2 && rows; pass++) {
+    const [y0, y1] = rows;
+    columns = longestRun(w, x => columnCount(x, y0, y1) >= 0.8 * (y1 - y0 + 1));
+    if (!columns) return null;
+    const [x0, x1] = columns;
+    rows = longestRun(h, y => rowCount(y, x0, x1) >= 0.8 * (x1 - x0 + 1));
+  }
+  if (!rows || !columns) return null;
+  const region = {
+    x: columns[0],
+    y: rows[0],
+    w: columns[1] - columns[0] + 1,
+    h: rows[1] - rows[0] + 1,
+  };
+  let filled = 0;
+  for (let y = region.y; y < region.y + region.h; y++)
+    filled += rowCount(y, region.x, region.x + region.w - 1);
+  const whole = region.w === w && region.h === h,
+    plausible =
+      region.w >= 16 &&
+      region.h >= 16 &&
+      region.w * region.h >= 0.04 * w * h &&
+      filled >= 0.9 * region.w * region.h;
+  return plausible && !whole ? region : null;
+}
+/* Finds the thin bright frame an EDS report draws on the micrograph around the mapped area, and
+   returns the rectangle inside it; null when no such frame is found. A line must be clearly
+   brighter than the image two pixels to either side (or border the page), so a brightness step
+   between materials does not count. */
+function detectFrame(rgba, w, h) {
+  if (w < 32 || h < 32) return null;
+  const LINE = 40,
+    PAGE = 225,
+    gray = (x, y) =>
+      Math.max(rgba[(y * w + x) * 4], rgba[(y * w + x) * 4 + 1], rgba[(y * w + x) * 4 + 2]),
+    mean = (from, to, value) => {
+      let sum = 0;
+      for (let i = from; i <= to; i++) sum += value(i);
+      return sum / (to - from + 1);
+    };
+  // Walks outwards from `start`; `direction` is +1 or -1.
+  const findLine = (start, direction, length, level) => {
+    for (let i = start; i >= 2 && i < length - 2; i += direction) {
+      const here = level(i),
+        outside = level(i + 2 * direction);
+      if (here - level(i - 2 * direction) >= LINE && (here - outside >= LINE || outside >= PAGE))
+        return i;
+    }
+    return -1;
+  };
+  const x0 = Math.floor(w * 0.2),
+    x1 = Math.ceil(w * 0.8),
+    rowLevel = y => mean(x0, x1, x => gray(x, y)),
+    top = findLine(Math.floor(h / 2) - 8, -1, h, rowLevel),
+    bottom = findLine(Math.floor(h / 2) + 8, 1, h, rowLevel);
+  if (top < 0 || bottom < 0 || bottom - top < 18) return null;
+  const columnLevel = x => mean(top + 2, bottom - 2, y => gray(x, y)),
+    left = findLine(Math.floor(w / 2) - 8, -1, w, columnLevel),
+    right = findLine(Math.floor(w / 2) + 8, 1, w, columnLevel);
+  if (left < 0 || right < 0 || right - left < 18) return null;
+  return { x: left + 1, y: top + 1, w: right - left - 1, h: bottom - top - 1 };
+}
+/* A crop of exactly the grid size, centred on `region` (or on the image) and kept inside the
+   image; null when the grid is larger than the image. */
+function placeLocked(region, target, w, h) {
+  if (target.w > w || target.h > h) return null;
+  const centre = region ? [region.x + region.w / 2, region.y + region.h / 2] : [w / 2, h / 2];
+  return {
+    x: Math.max(0, Math.min(w - target.w, Math.round(centre[0] - target.w / 2))),
+    y: Math.max(0, Math.min(h - target.h, Math.round(centre[1] - target.h / 2))),
+    w: target.w,
+    h: target.h,
+  };
+}
 function selectPasteTarget(key) {
   pasteTarget = key;
   document
@@ -1626,7 +1807,41 @@ async function hashBytes(bytes) {
   const hash = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(hash), x => x.toString(16).padStart(2, '0')).join('');
 }
-async function openImageImport(file, key, existing = null) {
+/* Size the analysis channels share: the grid every channel has to match. `exceptKey` leaves out
+   the channel being (re)imported. Null until an analysis channel defines it. When loaded channels
+   disagree, the size most of them use wins, analysis channels counting first. */
+function gridTarget(exceptKey = null) {
+  const scores = new Map();
+  for (const [key, ch] of Object.entries(state.channels)) {
+    if (key === exceptKey) continue;
+    const size = `${ch.w}x${ch.h}`,
+      entry = scores.get(size) || { w: ch.w, h: ch.h, analysis: 0, all: 0 };
+    entry.analysis += ANALYSIS_KEYS.includes(key) ? 1 : 0;
+    entry.all++;
+    scores.set(size, entry);
+  }
+  const ranked = [...scores.values()]
+    .filter(entry => entry.analysis)
+    .sort((a, b) => b.analysis - a.analysis || b.all - a.all);
+  return ranked.length ? { w: ranked[0].w, h: ranked[0].h } : null;
+}
+/* Starting selection for a freshly opened image: the detected map (or the frame on a micrograph),
+   adjusted to the grid when the dialog is going to enforce it. */
+function suggestCrop(p) {
+  const region =
+    p.key === 'sem' ? detectFrame(p.rgba, p.w, p.h) : detectMapRegion(p.rgba, p.w, p.h);
+  p.detected = !!region;
+  if (p.fit && p.target) {
+    if (!region) return lockAspect({ x: 0, y: 0, w: p.w, h: p.h }, p.target, 'w', p.w, p.h);
+    // Use the frame as drawn unless its shape is far from the grid's.
+    const skew = Math.abs(p.target.w / region.w / (p.target.h / region.h) - 1);
+    p.lockAspect = skew > 0.02;
+    return p.lockAspect ? lockAspect(region, p.target, 'w', p.w, p.h) : region;
+  }
+  if (p.lockSize) return placeLocked(region, p.target, p.w, p.h);
+  return region || { x: 0, y: 0, w: p.w, h: p.h };
+}
+async function openImageImport(file, key, existing = null, origin = {}) {
   const ticket = ++imageImportTicket;
   try {
     let source;
@@ -1666,14 +1881,22 @@ async function openImageImport(file, key, existing = null) {
     if (ticket !== imageImportTicket) return;
     awaitingPaste = false;
     const others = Object.keys(state.channels).filter(k => k !== key),
+      target = gridTarget(key),
+      onGrid = k =>
+        !!target && state.channels[k].w === target.w && state.channels[k].h === target.h,
       remembered = existing?.importInfo?.reference,
+      // The reference only drives the comparison preview; sizes always follow the grid.
       reference =
-        (others.includes(remembered) && remembered) ||
-        others.find(k => state.channels[k].w === w && state.channels[k].h === h) ||
-        (key === 'sem' && ANALYSIS_KEYS.find(k => others.includes(k))) ||
+        (others.includes(remembered) && onGrid(remembered) && remembered) ||
+        ANALYSIS_KEYS.find(k => others.includes(k) && onGrid(k)) ||
+        others.find(onGrid) ||
         others[0] ||
         '',
-      target = state.channels[reference];
+      savedCrop = existing?.sourceImage && existing.importInfo?.crop,
+      fit =
+        key === 'sem' &&
+        !!target &&
+        (existing?.importInfo?.displayOnly === true || w !== target.w || h !== target.h);
     imageImport = {
       key,
       w,
@@ -1682,31 +1905,39 @@ async function openImageImport(file, key, existing = null) {
       rgba,
       name: existing
         ? existing.name
-        : `clipboard-${key}-${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
+        : origin.name || `clipboard-${key}-${new Date().toISOString().replace(/[:.]/g, '-')}.png`,
       sourceImage: canvas.toDataURL('image/png'),
       sourceSha,
-      kind: existing ? existing.importInfo?.kind || 'file' : 'clipboard',
-      rect:
-        existing?.sourceImage && existing.importInfo?.crop
-          ? { ...existing.importInfo.crop }
-          : { x: 0, y: 0, w, h },
+      kind: existing ? existing.importInfo?.kind || 'file' : origin.kind || 'clipboard',
+      rect: null,
       reference,
-      // Resampling onto the reference grid is offered for SEM only; see importPixels.
-      fit:
-        key === 'sem' &&
-        !!target &&
-        (existing?.importInfo?.displayOnly === true || w !== target.w || h !== target.h),
+      target,
+      // Resampling onto the grid is offered for SEM only; see importPixels.
+      fit,
       lockAspect: existing?.importInfo?.lockAspect ?? true,
+      // Every other import is held to the grid size, so channels cannot end up a pixel apart.
+      lockSize: !fit && !!target && target.w <= w && target.h <= h,
+      detected: false,
       view: 'blend',
       flip: false,
       reviewed: false,
     };
+    // A stored crop is reused when it still fits the grid. Otherwise the region is detected
+    // again, falling back to the stored position, and the box takes the grid size.
+    const p = imageImport,
+      saved = savedCrop ? { ...existing.importInfo.crop } : null;
+    if (saved && (!p.lockSize || (saved.w === target.w && saved.h === target.h))) p.rect = saved;
+    else {
+      p.rect = suggestCrop(p);
+      if (saved && p.lockSize && !p.detected) p.rect = placeLocked(saved, target, w, h);
+      p.rect = p.rect || { x: 0, y: 0, w, h };
+    }
     renderImageImport();
   } catch (e) {
     if (ticket !== imageImportTicket) return;
     status(
       () =>
-        `${t('Import failed')}: ${existing?.name || t('Clipboard image')} · ${messageText(e.message)}`,
+        `${t('Import failed')}: ${existing?.name || origin.name || t('Clipboard image')} · ${messageText(e.message)}`,
       true,
     );
     if (awaitingPaste && $('#pasteWell'))
@@ -1718,12 +1949,13 @@ function renderImageImport() {
   const p = imageImport;
   if (!p) return;
   const others = Object.keys(state.channels).filter(k => k !== p.key),
-    canFit = p.key === 'sem' && others.length > 0;
+    canFit = p.key === 'sem' && !!p.target,
+    gridLabel = p.target ? `${p.target.w} × ${p.target.h}` : '';
   const nudge = (dx, dy, label, arrow) =>
     `<button type="button" data-nudge="${dx},${dy}" aria-label="${t(label)}" title="${t(label)}">${arrow}</button>`;
   showDialog(
     'Crop and review',
-    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div>${canFit ? `<div class="crop-fit"><label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label></div>` : ''}</div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button></div>`,
+    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropDetect">${t('Detect map region')}</button><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div><div class="crop-fit">${p.target ? `<label><input id="cropLockSize" type="checkbox" ${p.lockSize ? 'checked' : ''}> ${t('Keep the analysis grid size')} (${gridLabel}) ${info('lockSize')}</label>` : ''}${canFit ? `<label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label>` : ''}</div></div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button></div>`,
   );
   $('#cropSource').width = p.w;
   $('#cropSource').height = p.h;
@@ -1736,6 +1968,33 @@ function renderImageImport() {
   const locked = driver => {
     const ref = fitTarget(p);
     if (ref && p.lockAspect) p.rect = lockAspect(p.rect, ref, driver, p.w, p.h);
+  };
+  // Size-locked: the box has the grid size and can only be moved.
+  const sizeLocked = () => p.lockSize && !fitTarget(p);
+  const syncLockControls = () => {
+    const fixed = sizeLocked();
+    for (const k of ['w', 'h']) $('#crop-' + k).disabled = fixed;
+    $('#cropFull').disabled = fixed;
+    if ($('#cropMatch')) $('#cropMatch').disabled = fixed;
+    if ($('#cropLockSize')) {
+      $('#cropLockSize').checked = p.lockSize;
+      $('#cropLockSize').disabled = !!fitTarget(p) || p.target.w > p.w || p.target.h > p.h;
+    }
+    if ($('#cropLock')) $('#cropLock').disabled = !fitTarget(p);
+  };
+  if ($('#cropLockSize'))
+    $('#cropLockSize').onchange = e => {
+      p.lockSize = e.target.checked;
+      if (sizeLocked())
+        p.rect = placeLocked(cropRectValid(p.rect, p.w, p.h) ? p.rect : null, p.target, p.w, p.h);
+      syncLockControls();
+      changed();
+    };
+  $('#cropDetect').onclick = () => {
+    const wasLocked = p.lockAspect;
+    p.rect = suggestCrop(p) || { x: 0, y: 0, w: p.w, h: p.h };
+    if ($('#cropLock') && wasLocked !== p.lockAspect) $('#cropLock').checked = p.lockAspect;
+    changed();
   };
   if ($('#cropReference')) {
     $('#cropReference').value = p.reference;
@@ -1763,7 +2022,11 @@ function renderImageImport() {
   if ($('#cropFit')) {
     $('#cropFit').onchange = e => {
       p.fit = e.target.checked;
+      // Without scaling, SEM is held to the grid like any other channel.
+      p.lockSize = !p.fit && p.target.w <= p.w && p.target.h <= p.h;
+      if (sizeLocked()) p.rect = placeLocked(p.rect, p.target, p.w, p.h);
       locked('w');
+      syncLockControls();
       changed();
     };
     $('#cropLock').onchange = e => {
@@ -1853,19 +2116,31 @@ function renderImageImport() {
     if (p.rect.w > 0) locked('w');
     changed(fast);
   };
+  // Size-locked boxes follow the pointer by their centre.
+  const moveLocked = e => {
+    const [x, y] = point(e);
+    p.rect = placeLocked({ x, y, w: 0, h: 0 }, p.target, p.w, p.h);
+    changed();
+  };
   c.onpointerdown = e => {
     start = point(e);
     c.setPointerCapture(e.pointerId);
     resetCropReview();
+    if (sizeLocked()) moveLocked(e);
   };
-  c.onpointermove = e => move(e, true);
+  c.onpointermove = e => {
+    if (!start) return;
+    if (sizeLocked()) moveLocked(e);
+    else move(e, true);
+  };
   c.onpointerup = e => {
-    move(e, false);
+    if (start && !sizeLocked()) move(e, false);
     start = null;
   };
   c.onpointercancel = () => {
     start = null;
   };
+  syncLockControls();
   drawImageImport();
   setupTooltips();
 }
@@ -1876,9 +2151,9 @@ function resetCropReview() {
   imageImport.reviewed = false;
   $('#cropReviewed').checked = false;
 }
-/* Reference channel whose grid the selection is resampled onto, or null for an exact crop. */
+/* Grid size the SEM selection is resampled onto, or null for an exact crop. */
 function fitTarget(p) {
-  return p.fit && p.key === 'sem' ? state.channels[p.reference] || null : null;
+  return p.fit && p.key === 'sem' ? p.target : null;
 }
 function referenceCanvas(p) {
   if (p.referenceCache?.key !== p.reference)
@@ -1958,8 +2233,9 @@ function drawImageImport(fast = false) {
     label.textContent = `${r.w} × ${r.h} → ${outW} × ${outH} px · ${t('Scale')} ×${sx.toFixed(3)} / ×${sy.toFixed(3)} · ${t(skewed ? 'Horizontal and vertical scale differ by more than 2%; check the selected region.' : 'SEM is display-only; resampled pixels never enter the metrics.')}`;
     return;
   }
-  label.classList.toggle('warning', !!ref && !match);
-  label.textContent = `${r.w} × ${r.h} px · ${t(!ref ? 'First channel: select only the map region.' : match ? 'Equal dimensions; check alignment using the blend slider.' : 'Dimensions differ. Adjust the crop or crop the other channels before analysis.')}`;
+  const offGrid = !!p.target && (r.w !== p.target.w || r.h !== p.target.h);
+  label.classList.toggle('warning', offGrid);
+  label.textContent = `${r.w} × ${r.h} px · ${t(offGrid ? 'Dimensions differ. Adjust the crop or crop the other channels before analysis.' : p.target ? 'Equal dimensions; check alignment using the blend slider.' : 'First channel: select only the map region.')}${p.detected ? ' · ' + t('Region suggested automatically; please check it.') : ''}`;
 }
 async function applyImageImport() {
   const p = imageImport;
@@ -2004,6 +2280,11 @@ async function applyImageImport() {
           reviewedAt: new Date().toISOString(),
         },
       };
+    // The close event is dispatched later and cancels whatever review is open at that moment, so
+    // anything that opens a new one has to wait for it.
+    const closed = new Promise(resolve =>
+      $('#dialog').addEventListener('close', resolve, { once: true }),
+    );
     $('#dialog').close();
     const cleared = replaceChannel(p.key, ch);
     renderControls();
@@ -2011,8 +2292,20 @@ async function applyImageImport() {
     $('#channel').value = p.key;
     if (ANALYSIS_KEYS.includes(p.key)) selected = p.key;
     draw();
-    if (sizeError()) status(sizeErrorMessage, true);
-    else {
+    if (sizeError()) {
+      status(sizeErrorMessage, true);
+      // A micrograph loaded before the maps now has a grid to match: go straight to scaling it.
+      const offenders = gridMismatch().offenders;
+      if (
+        p.key !== 'sem' &&
+        offenders.length === 1 &&
+        offenders[0] === 'sem' &&
+        state.channels.sem.image
+      ) {
+        await closed;
+        await openImageImport(null, 'sem', state.channels.sem);
+      }
+    } else {
       await preview();
       fit();
       status(
@@ -2059,6 +2352,9 @@ if (typeof module !== 'undefined')
     resampleRGBA,
     resamplingMode,
     importPixels,
+    detectMapRegion,
+    detectFrame,
+    placeLocked,
   };
 
 /* Shared application state, defaults and constants. */
@@ -2081,6 +2377,17 @@ const defaults = () => ({
   fill: false,
   smooth: false,
 });
+// 'elements' lays the element maps over SEM in their own colours; 'overlay' shows a mask.
+const DISPLAY_MODES = ['original', 'elements', 'overlay', 'mask'],
+  ELEMENT_TINT = {
+    nmc: [224, 64, 251],
+    secondary: [255, 152, 0],
+    f: [41, 121, 255],
+    other: [255, 235, 59],
+  };
+// Element maps laid over SEM in the element view. Null until the user picks: the phase under
+// study if it is loaded, otherwise every loaded element.
+let elementsShown = null;
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',
@@ -2106,7 +2413,7 @@ const initialState = () => ({
 let state = initialState();
 let step = 'data',
   selected = 'secondary',
-  display = 'overlay',
+  display = 'elements',
   zoom = 1,
   opacity = 0.45,
   masks = {},
@@ -2264,12 +2571,55 @@ async function compute(analyze = false) {
 
 /* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
-  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${['data', 'roi', 'segment', 'analyze'].map((s, i) => `<button data-step="${s}">${i + 1} ${t(s === 'roi' ? 'ROI' : s[0].toUpperCase() + s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${['original', 'mask', 'overlay'].map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${['data', 'roi', 'segment', 'analyze'].map((s, i) => `<button data-step="${s}">${i + 1} ${t(s === 'roi' ? 'ROI' : s[0].toUpperCase() + s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><span id="maskLabel" class="compact muted"></span><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="elementChips" class="chips hidden"></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
 function status(message, error = false) {
   lastStatus = message;
   lastStatusError = error;
   $('#status').textContent = messageText(typeof message === 'function' ? message() : message);
   $('#status').classList.toggle('error', error);
+  renderNotice();
+}
+/* Channels whose size differs from the analysis grid, with the grid they should match. */
+function gridMismatch() {
+  const grid = gridTarget();
+  if (!grid) {
+    const first = Object.values(state.channels)[0];
+    return first
+      ? {
+          grid: { w: first.w, h: first.h },
+          offenders: Object.keys(state.channels).filter(
+            k => state.channels[k].w !== first.w || state.channels[k].h !== first.h,
+          ),
+        }
+      : null;
+  }
+  return {
+    grid,
+    offenders: Object.keys(state.channels).filter(
+      k => state.channels[k].w !== grid.w || state.channels[k].h !== grid.h,
+    ),
+  };
+}
+/* Problems that stop the workflow are shown above the image, not only in the footer. A size
+   mismatch names the channel to fix and offers the way there. */
+function renderNotice() {
+  const el = $('#notice'),
+    mismatch = sizeError() ? gridMismatch() : null;
+  if (mismatch?.offenders.length) {
+    el.innerHTML = `<strong>${t('Calculation is paused: channel sizes differ.')}</strong> <span>${t('Analysis grid')} ${mismatch.grid.w} × ${mismatch.grid.h} px</span>${mismatch.offenders
+      .map(k => {
+        const ch = state.channels[k],
+          size = `${t(channelNames[k])} ${ch.w} × ${ch.h}`;
+        return ch.image
+          ? `<button type="button" data-fix="${k}">${t('Fix')} ${esc(size)}</button>`
+          : `<span>${esc(size)} · ${t('Re-import this channel at the grid size, or remove it.')}</span>`;
+      })
+      .join('')}`;
+    el.querySelectorAll('[data-fix]').forEach(
+      b => (b.onclick = () => openImageImport(null, b.dataset.fix, state.channels[b.dataset.fix])),
+    );
+  } else if (lastStatusError) el.textContent = $('#status').textContent;
+  el.classList.toggle('hidden', !(mismatch?.offenders.length || lastStatusError));
 }
 function dirty() {
   revision++;
@@ -2318,6 +2668,31 @@ function renderChannels() {
       ? selected
       : Object.keys(state.channels)[0] || '';
   $('#dimensions').textContent = dimensions() ? `${dimensions().w} × ${dimensions().h} px` : '';
+  renderElementChips();
+  renderNotice();
+}
+/* Element maps available to the element view, and the ones currently laid over the backdrop. */
+function shownElements() {
+  const loaded = Object.keys(state.channels).filter(k => k !== 'sem'),
+    chosen = elementsShown || (loaded.includes('secondary') ? ['secondary'] : loaded);
+  return { loaded, shown: loaded.filter(k => [...chosen].includes(k)) };
+}
+function renderElementChips() {
+  const { loaded, shown } = shownElements(),
+    el = $('#elementChips');
+  el.innerHTML = `<span>${t('Show elements')}</span>${loaded.map(k => `<label><input type="checkbox" data-element="${k}" ${shown.includes(k) ? 'checked' : ''}> ${t(channelNames[k])}</label>`).join('')}`;
+  el.querySelectorAll('[data-element]').forEach(
+    box =>
+      (box.onchange = () => {
+        elementsShown = new Set(
+          [...el.querySelectorAll('[data-element]')]
+            .filter(b => b.checked)
+            .map(b => b.dataset.element),
+        );
+        draw();
+      }),
+  );
+  el.classList.toggle('hidden', display !== 'elements' || !loaded.length);
 }
 $('#settings').onclick = () =>
   showDialog(
@@ -2334,6 +2709,7 @@ $('#dialogbody').addEventListener('input', e => {
 $('#dialogbody').addEventListener('click', e => {
   if (e.target.id === 'clearData') {
     state = initialState();
+    elementsShown = null;
     channelVersion++;
     revision++;
     masks = {};
@@ -2397,6 +2773,15 @@ document.addEventListener('keydown', e => {
 });
 
 /* Left-hand step panels: Data, ROI, Segment and Analyze. */
+const STEP_ORDER = ['data', 'roi', 'segment', 'analyze'],
+  STEP_LABELS = { data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' },
+  STEP_HINTS = {
+    data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
+    roi: 'Optional. Skip this step to analyse the whole image.',
+    segment:
+      'Check that the mask of each channel covers the right areas; adjust the threshold if not.',
+    analyze: 'Run the analysis. Change a setting and run it again to compare.',
+  };
 const STEP_RENDERERS = {
   data: renderDataStep,
   roi: renderROIStep,
@@ -2407,7 +2792,21 @@ function renderControls() {
   document
     .querySelectorAll('[data-step]')
     .forEach(b => b.classList.toggle('active', b.dataset.step === step));
-  (STEP_RENDERERS[step] || renderAnalyzeStep)($('#controls'));
+  const c = $('#controls');
+  (STEP_RENDERERS[step] || renderAnalyzeStep)(c);
+  // One line on what this step is for, and the way on to the next one.
+  c.querySelector('h2').insertAdjacentHTML(
+    'afterend',
+    `<p class="hint">${t(STEP_HINTS[step])}</p>`,
+  );
+  const next = STEP_ORDER[STEP_ORDER.indexOf(step) + 1];
+  if (next) {
+    c.insertAdjacentHTML(
+      'beforeend',
+      `<button id="nextStep" class="primary full" type="button">${t('Next')}: ${t(STEP_LABELS[next])}</button>`,
+    );
+    $('#nextStep').onclick = () => setStep(next);
+  }
   setupTooltips();
 }
 function renderDataStep(c) {
@@ -2627,6 +3026,12 @@ function renderAnalyzeStep(c) {
       dirty();
     };
   }
+  const blocked = sizeError()
+    ? 'Channel sizes differ; fix them with the notice above the image.'
+    : !state.channels.nmc || !state.channels.secondary
+      ? 'Load the main-phase and secondary-phase maps first.'
+      : '';
+  if (blocked) $('#analysisWarnings').innerHTML = `<div class="warning">${t(blocked)}</div>`;
   $('#analyze').onclick = () => compute(true);
   $('#addComparison').onclick = addComparison;
   $('#showComparison').onclick = showComparison;
@@ -2694,14 +3099,7 @@ function sizeErrorMessage() {
   const sizes = Object.entries(state.channels)
     .map(([k, c]) => `${t(channelNames[k])}: ${c.w}×${c.h}`)
     .join(' · ');
-  // An SEM image at its own magnification is expected; point at the tool that fits it.
-  const grid = gridChannel(),
-    sem = state.channels.sem,
-    semHint =
-      sem?.image && grid !== sem && (sem.w !== grid.w || sem.h !== grid.h)
-        ? ` · ${t('Use Crop / review on SEM to scale it to the map grid.')}`
-        : '';
-  return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}${semHint}`;
+  return `${t('Channel dimensions differ')} · ${sizes} · ${t('Crop labels and scale bars; use aligned map regions of equal size.')}`;
 }
 /* The analysis grid is set by the analysis channels; display-only channels define it only while
    no analysis channel is loaded. */
@@ -2754,6 +3152,18 @@ async function loadFile(file, key) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
       const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      // Report-style images (title, scale bar) and images off the analysis grid go through the
+      // crop review, exactly like a pasted image; a clean map on the grid is imported directly.
+      const grid = gridTarget(key),
+        framed =
+          key === 'sem'
+            ? detectFrame(rgba, canvas.width, canvas.height)
+            : detectMapRegion(rgba, canvas.width, canvas.height);
+      if (framed || (grid && (grid.w !== canvas.width || grid.h !== canvas.height))) {
+        img.close?.();
+        status(() => `${t('Review the crop')} · ${t(channelNames[key])}`);
+        return openImageImport(file, key, null, { kind: 'file', name: file.name });
+      }
       ch = {
         w: canvas.width,
         h: canvas.height,
@@ -2847,13 +3257,33 @@ function draw() {
   const r = Core.range(ch.data),
     image = ctx.createImageData(ch.w, ch.h),
     key = $('#channel').value,
-    mask = masks[key] || masks[selected];
+    maskKey = masks[key] ? key : selected,
+    mask = masks[maskKey],
+    layers = display === 'elements' ? elementLayers(ch) : null;
+  $('#elementChips').classList.toggle(
+    'hidden',
+    display !== 'elements' || !shownElements().loaded.length,
+  );
+  $('#maskLabel').textContent =
+    mask && (display === 'overlay' || display === 'mask')
+      ? `${t('Mask')}: ${t(channelNames[maskKey])}`
+      : '';
   for (let i = 0; i < ch.data.length; i++) {
     let g = r.max === r.min ? 0 : Math.round(((ch.data[i] - r.min) / (r.max - r.min)) * 255),
       rr = ch.rgba ? ch.rgba[i * 4] : g,
       gg = ch.rgba ? ch.rgba[i * 4 + 1] : g,
       bb = ch.rgba ? ch.rgba[i * 4 + 2] : g;
-    if (display === 'mask') {
+    if (layers) {
+      [rr, gg, bb] = layers.base ? layers.base(i) : [0, 0, 0];
+      for (const layer of layers.elements) {
+        const [lr, lg, lb, strength] = layer(i);
+        if (!strength) continue;
+        const alpha = strength * layers.gain;
+        rr = rr * (1 - alpha) + lr * alpha;
+        gg = gg * (1 - alpha) + lg * alpha;
+        bb = bb * (1 - alpha) + lb * alpha;
+      }
+    } else if (display === 'mask') {
       rr = gg = bb = mask?.[i] ? 255 : 0;
     } else if (display === 'overlay' && mask?.[i]) {
       rr = rr * (1 - opacity) + 7 * opacity;
@@ -2910,6 +3340,47 @@ function draw() {
   document
     .querySelectorAll('[data-display]')
     .forEach(b => b.classList.toggle('active', b.dataset.display === display));
+}
+/* Pixel readers for the element view: SEM (when it shares the grid) as the grey backdrop and the
+   ticked element maps on top in their own colours, brightness setting how strongly each shows. */
+function elementLayers(ch) {
+  const onGrid = c => !!c && c.w === ch.w && c.h === ch.h,
+    sem = onGrid(state.channels.sem) ? state.channels.sem : null,
+    reader = c => {
+      if (c.rgba) return i => [c.rgba[i * 4], c.rgba[i * 4 + 1], c.rgba[i * 4 + 2]];
+      const range = Core.range(c.data),
+        span = range.max - range.min || 1;
+      return i => Array(3).fill(Math.round(((c.data[i] - range.min) / span) * 255));
+    },
+    keys = shownElements().shown.filter(k => onGrid(state.channels[k]));
+  return {
+    base: sem ? reader(sem) : null,
+    gain: Math.min(1, opacity * 2),
+    elements: keys.map(k => {
+      const c = state.channels[k],
+        read = reader(c),
+        tint = ELEMENT_TINT[k];
+      return i => {
+        const [r, g, b] = read(i),
+          peak = Math.max(r, g, b);
+        if (!peak) return [0, 0, 0, 0];
+        // Images keep their own hue at full brightness; numeric maps use the channel tint.
+        return c.rgba
+          ? [(r * 255) / peak, (g * 255) / peak, (b * 255) / peak, peak / 255]
+          : [...tint, peak / 255];
+      };
+    }),
+  };
+}
+/* Each step opens on the view that suits it: element colours while importing and drawing the
+   ROI, the mask while segmenting and analysing. Any view can still be picked by hand. */
+function setStep(next) {
+  step = next;
+  drawMode = 'pan';
+  if ((step === 'data' || step === 'roi') && display === 'overlay') display = 'elements';
+  if ((step === 'segment' || step === 'analyze') && display === 'elements') display = 'overlay';
+  renderControls();
+  draw();
 }
 function fit() {
   const ch = state.channels[$('#channel').value] || baseChannel();
@@ -3022,22 +3493,12 @@ document.querySelectorAll('[data-display]').forEach(
       draw();
     }),
 );
-document.querySelectorAll('[data-step]').forEach(
-  b =>
-    (b.onclick = () => {
-      step = b.dataset.step;
-      drawMode = 'pan';
-      renderControls();
-    }),
-);
+document.querySelectorAll('[data-step]').forEach(b => (b.onclick = () => setStep(b.dataset.step)));
 $('#sample').oninput = e => {
   state.sample = e.target.value;
   dirty();
 };
-$('#import').onclick = () => {
-  step = 'data';
-  renderControls();
-};
+$('#import').onclick = () => setStep('data');
 
 /* Results panel and its charts. */
 function fmt(v, percent = false) {
@@ -3143,9 +3604,7 @@ $('#sessionFile').onchange = async e => {
     channelVersion++;
     revision++;
     selected = ANALYSIS_KEYS.includes(s.workspace?.selected) ? s.workspace.selected : 'secondary';
-    display = ['original', 'mask', 'overlay'].includes(s.workspace?.display)
-      ? s.workspace.display
-      : 'overlay';
+    display = DISPLAY_MODES.includes(s.workspace?.display) ? s.workspace.display : 'overlay';
     zoom = Number.isFinite(s.workspace?.zoom) && s.workspace.zoom > 0 ? s.workspace.zoom : 1;
     opacity = Number.isFinite(s.workspace?.opacity)
       ? Math.min(1, Math.max(0, s.workspace.opacity))

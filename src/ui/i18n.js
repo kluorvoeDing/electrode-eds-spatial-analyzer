@@ -15,7 +15,8 @@ const UI_ZH = {
   Analyze: '分析',
   Original: '原圖',
   Mask: '遮罩',
-  Overlay: '疊圖',
+  Overlay: '遮罩疊圖',
+  Elements: '元素疊圖',
   Opacity: '透明度',
   'Overlay opacity': '疊圖透明度',
   Zoom: '縮放',
@@ -343,8 +344,27 @@ Object.assign(UI_ZH, {
   'Display only, resampled': '僅供顯示，已重採樣',
   'Only the SEM display channel can be resampled': '只有 SEM 顯示通道可以重採樣。',
   'Invalid target size': '目標尺寸不合法。',
-  'Use Crop / review on SEM to scale it to the map grid.':
-    '請在 SEM 通道按「裁切／確認」，將 SEM 縮放到元素圖格點。',
+  'Detect map region': '自動偵測有效區域',
+  'Keep the analysis grid size': '鎖定為分析格點尺寸',
+  'Region suggested automatically; please check it.': '已自動框選有效區域，請確認。',
+  'Review the crop': '請確認裁切範圍',
+  'Calculation is paused: channel sizes differ.': '計算已暫停：通道尺寸不一致。',
+  'Analysis grid': '分析格點',
+  Fix: '修正',
+  'Re-import this channel at the grid size, or remove it.':
+    '請以格點尺寸重新匯入此通道，或將其移除。',
+  Next: '下一步',
+  'Show elements': '顯示元素',
+  'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.':
+    '為每個通道貼上或選擇影像。工具會自動框出有效區域，並讓各通道保持相同尺寸。',
+  'Optional. Skip this step to analyse the whole image.': '可略過：不設定時分析整張影像。',
+  'Check that the mask of each channel covers the right areas; adjust the threshold if not.':
+    '逐一檢查各通道的遮罩是否蓋住正確區域；不對時調整閾值。',
+  'Run the analysis. Change a setting and run it again to compare.':
+    '按「分析」取得結果；更動設定後需重新分析。',
+  'Channel sizes differ; fix them with the notice above the image.':
+    '通道尺寸不一致；請用影像上方的提示修正。',
+  'Load the main-phase and secondary-phase maps first.': '請先載入主相與次要相影像。',
 });
 HELP_ZH.nudge =
   '以整數像素移動裁切框，寬高不變、不重採樣。也可點選左側影像後使用方向鍵；按住 Shift 一次移動 10 px。用混合、差異或按住顯示參考圖來檢查對位。';
@@ -354,6 +374,10 @@ HELP_ZH.semFit =
   'SEM 只作為顯示底圖，不進入任何指標，因此可以縮放。在 SEM 上框出元素圖實際掃描的區域（例如標示 Map Data 的白框），工具會把該區重採樣為參考通道的尺寸；縮小採面積平均、放大採雙線性內插。縮放比例與方式會記錄在 trace。Ni、次要相與 F 等分析通道永遠不重採樣。';
 HELP_EN.semFit =
   'SEM is a display backdrop and never enters the metrics, so it may be scaled. Select the area the element maps actually scanned (for example the white Map Data box); it is resampled to the reference channel size using area averaging when shrinking and bilinear interpolation when enlarging. Scale and method are recorded in the trace. Analysis channels (Ni, secondary phase, F) are never resampled.';
+HELP_ZH.lockSize =
+  '所有通道必須是相同的像素尺寸才能計算。勾選時，裁切框固定為已載入分析通道的尺寸，拖曳只會移動位置，因此不會出現差一兩個像素的情況。只有在要重新決定整組影像的尺寸時才取消勾選。';
+HELP_EN.lockSize =
+  'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
 function t(key) {
   return language === 'zh-Hant' ? (UI_ZH[key] ?? key) : (UI_EN[key] ?? key);
 }

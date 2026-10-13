@@ -53,9 +53,7 @@ $('#sessionFile').onchange = async e => {
     channelVersion++;
     revision++;
     selected = ANALYSIS_KEYS.includes(s.workspace?.selected) ? s.workspace.selected : 'secondary';
-    display = ['original', 'mask', 'overlay'].includes(s.workspace?.display)
-      ? s.workspace.display
-      : 'overlay';
+    display = DISPLAY_MODES.includes(s.workspace?.display) ? s.workspace.display : 'overlay';
     zoom = Number.isFinite(s.workspace?.zoom) && s.workspace.zoom > 0 ? s.workspace.zoom : 1;
     opacity = Number.isFinite(s.workspace?.opacity)
       ? Math.min(1, Math.max(0, s.workspace.opacity))
