@@ -29,6 +29,8 @@ const DISPLAY_MODES = ['original', 'elements', 'overlay', 'mask'],
 // Element maps laid over SEM in the element view. Null until the user picks: the phase under
 // study if it is loaded, otherwise every loaded element.
 let elementsShown = null;
+// Whether the user has opened the less common segmentation options.
+let segAdvancedOpen = false;
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',

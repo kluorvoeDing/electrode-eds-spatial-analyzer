@@ -212,6 +212,26 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#nextStep').click();
   assert.deepEqual(await p.evaluate(() => [step, display]), ['segment', 'overlay']);
   assert.match(await p.locator('#maskLabel').textContent(), /^Mask: /);
+  // The segmentation panel shows channel, auto / manual and threshold; the rest is folded away.
+  assert.equal(await p.locator('#thresholdNumber').isVisible(), true);
+  assert.equal(await p.locator('#segAdvanced summary').textContent(), 'Advanced');
+  for (const id of ['invert', 'fill', 'smooth', 'minObject'])
+    assert.equal(await p.locator('#' + id).isVisible(), false, id);
+  assert.equal(await p.locator('#ratio').count(), 0);
+  await p.locator('#segAdvanced summary').click();
+  await p.locator('#smooth').check();
+  await p.waitForFunction(() => !busy);
+  // An option in use keeps the section open and says so, also after coming back to the step.
+  assert.equal(await p.locator('#segAdvanced summary').textContent(), 'Advanced (in use)');
+  await p.locator('[data-step="roi"]').click();
+  await p.locator('[data-step="segment"]').click();
+  assert.equal(await p.locator('#smooth').isVisible(), true);
+  await p.locator('#smooth').uncheck();
+  await p.waitForFunction(() => !busy);
+  await p.locator('#segAdvanced summary').click();
+  assert.equal(await p.locator('#smooth').isVisible(), false);
+  await p.locator('#segChannel').selectOption('nmc');
+  assert.equal(await p.locator('#smooth').isVisible(), false);
   await p.locator('#nextStep').click();
   assert.equal(await p.evaluate(() => step), 'analyze');
   assert.equal(await p.locator('#nextStep').count(), 0);

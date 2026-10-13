@@ -354,6 +354,8 @@ Object.assign(UI_ZH, {
   'Re-import this channel at the grid size, or remove it.':
     '請以格點尺寸重新匯入此通道，或將其移除。',
   Next: '下一步',
+  Advanced: '進階',
+  'in use': '已啟用',
   'Show elements': '顯示元素',
   'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.':
     '為每個通道貼上或選擇影像。工具會自動框出有效區域，並讓各通道保持相同尺寸。',

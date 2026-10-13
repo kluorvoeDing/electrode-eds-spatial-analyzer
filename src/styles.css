@@ -112,6 +112,17 @@ nav button {
   padding: 9px 10px;
   text-align: left;
 }
+details {
+  margin: 14px 0 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
 .hint {
   margin: -6px 0 12px;
   color: var(--muted);

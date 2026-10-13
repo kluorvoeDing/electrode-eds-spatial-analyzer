@@ -97,11 +97,25 @@ fs.mkdirSync('qa', { recursive: true });
   assert.ok(Math.abs((await p.evaluate(() => state.settings.calibration)) - 0.5) < 1e-9);
   await p.getByRole('button', { name: '3 Segment', exact: true }).click();
   await p.locator('#segChannel').selectOption('secondary');
+  // The ratio map is only offered for the Mn-based additive.
+  assert.equal(await p.locator('#ratio').count(), 0);
+  await p.evaluate(() => {
+    state.material = 'MnO2';
+    renderControls();
+  });
   await p.locator('#ratio').check();
   await waitMask();
   assert.equal(await p.evaluate(() => state.settings.ratio), true);
   await p.locator('#ratio').uncheck();
   await waitMask();
+  await p.evaluate(() => {
+    state.material = 'TiO2';
+    renderControls();
+  });
+  assert.equal(await p.locator('#ratio').count(), 0);
+  // Clean-up options are folded under Advanced until opened or in use.
+  assert.equal(await p.locator('#fill').isVisible(), false);
+  await p.locator('#segAdvanced summary').click();
   await p.locator('#fill').check();
   await waitMask();
   await p.locator('#smooth').check();

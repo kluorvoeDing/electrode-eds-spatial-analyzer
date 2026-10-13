@@ -154,13 +154,25 @@ function renderROIStep(c) {
     status('點選 Scale bar 兩端。');
   };
 }
+const advancedInUse = p => p.invert || p.fill || p.smooth || p.min > 0,
+  advancedLabel = p => t('Advanced') + (advancedInUse(p) ? ` (${t('in use')})` : '');
 function renderSegmentStep(c) {
   const p = state.seg[selected] || state.seg.secondary,
     ch = state.channels[selected],
     a = ch ? segIntensity(selected) : null,
-    r = a ? Core.range(a) : { min: 0, max: 255 };
-  c.innerHTML = `<h2>${t('Segmentation')} ${info('threshold')}</h2><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label>${selected === 'secondary' ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}`;
+    r = a ? Core.range(a) : { min: 0, max: 255 },
+    // Clean-up options stay folded away unless one is in use, so an active setting is never hidden.
+    advancedUsed = advancedInUse(p),
+    // The Mn / Ni ratio only applies to Mn-based additives.
+    showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio);
+  c.innerHTML = `<h2>${t('Segmentation')} ${info('threshold')}</h2><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}`;
   $('#segChannel').value = selected;
+  // Recorded on the click itself (the toggle event arrives later and also fires for a section
+  // that is merely rendered open), so a re-render keeps the section as the user left it.
+  $('#segAdvanced summary').onclick = () => {
+    // No return value: returning false from a click handler would cancel the toggle itself.
+    segAdvancedOpen = !$('#segAdvanced').open;
+  };
   $('#segChannel').onchange = e => {
     selected = e.target.value;
     if (state.channels[selected]) $('#channel').value = selected;
@@ -197,11 +209,13 @@ function renderSegmentStep(c) {
   for (const key of ['invert', 'fill', 'smooth'])
     $('#' + key).onchange = e => {
       p[key] = e.target.checked;
+      $('#segAdvanced summary').textContent = advancedLabel(p);
       dirty();
       preview();
     };
   $('#minObject').onchange = e => {
     p.min = Math.max(0, Math.floor(+e.target.value || 0));
+    $('#segAdvanced summary').textContent = advancedLabel(p);
     dirty();
     preview();
   };
