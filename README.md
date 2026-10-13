@@ -8,8 +8,9 @@
 
 整個工具只有一個檔案：[`dist/Electrode_EDS_Analyzer.html`](dist/Electrode_EDS_Analyzer.html)（約 170 KB）。
 
-1. 下載這個檔案，兩種方式擇一：
-   - 點上面的連結開啟檔案頁，按右上角的 **Download raw file**（下載圖示）。只會下載這一個 HTML。
+1. 下載這個檔案，方式擇一：
+   - **建議**：到 [Releases](https://github.com/kluorvoeDing/electrode-eds-spatial-analyzer/releases) 頁，在最新版本的 Assets 下點 `Electrode_EDS_Analyzer_vX.Y.Z.html`。檔名帶版本號，內容與 `dist/` 裡的相同。
+   - 或點上面的連結開啟檔案頁，按右上角的 **Download raw file**（下載圖示）。
    - 或在 repo 首頁按 **Code → Download ZIP**，解壓縮後取出 `electrode-eds-spatial-analyzer-main/dist/Electrode_EDS_Analyzer.html`。請先解壓縮，不要直接在壓縮檔檢視視窗裡開啟。
 2. 把這個 HTML 傳進 VDI（其餘檔案都是原始碼與測試，使用時不需要）。
 3. 雙擊，以 Chrome 或 Edge 開啟。右下角會顯示版本號。
