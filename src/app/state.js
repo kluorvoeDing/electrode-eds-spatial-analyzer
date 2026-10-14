@@ -47,7 +47,7 @@ const initialState = () => ({
   view: 'top',
   material: 'TiO2',
   channels: {},
-  seg: { nmc: defaults(), secondary: defaults(), f: defaults() },
+  seg: { nmc: defaults(), secondary: defaults(), f: defaults(), c: defaults() },
   rois: [],
   roiInvert: false,
   settings: {

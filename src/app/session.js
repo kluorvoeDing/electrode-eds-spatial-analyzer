@@ -124,7 +124,13 @@ function normalizeSession(s) {
     channels: Object.fromEntries(
       Object.entries(s.channels).map(([k, c]) => [k, normalizeChannel(k, c)]),
     ),
-    seg: Object.fromEntries(ANALYSIS_KEYS.map(k => [k, normalizeSegmentation(s.seg[k])])),
+    // Carbon became an analysis channel later; sessions from before it have no settings for it.
+    seg: Object.fromEntries(
+      ANALYSIS_KEYS.map(k => [
+        k,
+        k === 'c' && s.seg.c == null ? defaults() : normalizeSegmentation(s.seg[k]),
+      ]),
+    ),
     rois: s.rois.map(normalizeROI),
     roiInvert,
     settings: normalizeSettings(s.settings),
@@ -265,7 +271,8 @@ function normalizeComparison(c) {
     !isRecord(c) ||
     !isText(c.sample) ||
     !isRecord(c.metrics) ||
-    !isRecord(c.metrics.distance) ||
+    // Null when the sample had no secondary-phase map.
+    !(c.metrics.distance === null || isRecord(c.metrics.distance)) ||
     !isRecord(c.trace) ||
     !isRecord(c.trace.parameters)
   )

@@ -154,7 +154,7 @@ function loadDemo() {
   applyCalibration(null);
   // Noise-free reference maps: thresholded as they are, so the expected values stay exact.
   const exact = () => ({ ...defaults(), denoise: 0 });
-  state.seg = { nmc: exact(), secondary: exact(), f: exact() };
+  state.seg = { nmc: exact(), secondary: exact(), f: exact(), c: exact() };
   dirty();
   renderControls();
   renderChannels();

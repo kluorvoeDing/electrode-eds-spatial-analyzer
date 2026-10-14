@@ -296,6 +296,7 @@ const Core = (() => {
     nmc,
     secondary,
     f,
+    c,
     secondaryIntensity,
     fIntensity,
     grid = 5,
@@ -305,12 +306,15 @@ const Core = (() => {
     depthAxis = 'y',
     depthReverse = false,
   }) {
+    // The secondary phase is optional: a reference electrode without additive still has binder
+    // and carbon to measure. Its measures are then null.
     const nr = sum(roi),
       nn = sum(nmc),
-      ns = sum(secondary);
+      ns = secondary ? sum(secondary) : 0;
     if (!nr) throw Error('ROI 為空。');
     if (!nn) throw Error('NMC mask 為空，請調整 threshold。');
-    if (!ns) throw Error('Secondary mask 為空，請調整 threshold。');
+    if (secondary && !ns) throw Error('Secondary mask 為空，請調整 threshold。');
+    if (!secondary && !f && !c) throw Error('請至少載入次要相、F 或 C 其中一張。');
     let ng = 0,
       sg = 0,
       overlap = 0,
@@ -319,9 +323,9 @@ const Core = (() => {
       if (roi[i]) {
         if (!nmc[i]) {
           ng++;
-          sg += secondary[i];
+          if (secondary) sg += secondary[i];
         }
-        if (f && f[i] && secondary[i]) overlap++;
+        if (f && secondary && f[i] && secondary[i]) overlap++;
       }
     let xmin = w,
       xmax = -1,
@@ -346,25 +350,43 @@ const Core = (() => {
           y0 = edge(ymin, rh, gy),
           y1 = edge(ymin, rh, gy + 1);
         let a = 0,
-          b = 0;
+          b = 0,
+          bf = 0,
+          bc = 0;
         for (let y = y0; y < y1; y++)
           for (let x = x0; x < x1; x++) {
             const i = y * w + x;
             a += roi[i];
-            b += secondary[i];
+            if (secondary) b += secondary[i];
+            if (f && roi[i]) bf += f[i];
+            if (c && roi[i]) bc += c[i];
           }
-        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null, x0, y0, x1, y1 });
+        tiles.push({
+          x: gx,
+          y: gy,
+          area: a,
+          fraction: secondary && a ? b / a : null,
+          x0,
+          y0,
+          x1,
+          y1,
+          fPixels: f ? bf : null,
+          fFraction: f && a ? bf / a : null,
+          cPixels: c ? bc : null,
+          cFraction: c && a ? bc / a : null,
+        });
       }
-    const dist = edt(perimeter(nmc, w, h), w, h),
+    const dist = secondary ? edt(perimeter(nmc, w, h), w, h) : null,
       values = new Float64Array(ns),
       scale = calibration || 1;
     let k = 0,
       total = 0;
-    for (let i = 0; i < dist.length; i++)
-      if (secondary[i]) {
-        values[k++] = dist[i] * scale;
-        total += dist[i] * scale;
-      }
+    if (secondary)
+      for (let i = 0; i < dist.length; i++)
+        if (secondary[i]) {
+          values[k++] = dist[i] * scale;
+          total += dist[i] * scale;
+        }
     // The same measures inside each tile. Distances come from the whole-image fields above, so a
     // tile is not treated as if nothing existed beyond its edge.
     const medianOf = list => {
@@ -375,9 +397,18 @@ const Core = (() => {
         hi = Math.ceil(p);
       return sorted[lo] + (sorted[hi] - sorted[lo]) * (p - lo);
     };
-    const secondaryEdge = f && nf ? perimeter(secondary, w, h) : null,
-      binderDistance = f && nf ? edt(f, w, h) : null;
+    const secondaryEdge = secondary && f && nf ? perimeter(secondary, w, h) : null,
+      binderDistance = secondary && f && nf ? edt(f, w, h) : null;
     for (const tile of tiles) {
+      if (!secondary) {
+        tile.secondaryPixels = null;
+        tile.interparticleOccupancy = null;
+        tile.targetingEfficiency = null;
+        tile.distanceMedian = null;
+        tile.distanceMean = null;
+        tile.binderCoverage = null;
+        continue;
+      }
       const distances = [];
       let gap = 0,
         inGap = 0,
@@ -424,7 +455,8 @@ const Core = (() => {
       hist = new Array(20).fill(0);
     for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;
     let coverage = null;
-    if (f && nf) {
+    if (!secondary) coverage = null;
+    else if (f && nf) {
       const sp = secondaryEdge,
         fd = binderDistance;
       let p = 0,
@@ -451,6 +483,7 @@ const Core = (() => {
         area: 0,
         secondary: 0,
         f: 0,
+        c: 0,
         overlap: 0,
       }));
       for (let i = 0; i < roi.length; i++)
@@ -461,43 +494,94 @@ const Core = (() => {
           if (depthReverse) z = 2 - z;
           const a = zones[z];
           a.area++;
-          a.secondary += secondary[i];
+          a.secondary += secondary ? secondary[i] : 0;
           a.f += f ? f[i] : 0;
-          a.overlap += f && f[i] && secondary[i] ? 1 : 0;
+          a.c += c ? c[i] : 0;
+          a.overlap += f && secondary && f[i] && secondary[i] ? 1 : 0;
         }
       for (const a of zones) {
-        a.secondaryFraction = fraction(a.secondary, a.area);
+        a.secondaryFraction = secondary ? fraction(a.secondary, a.area) : null;
         a.fFraction = f ? fraction(a.f, a.area) : null;
-        a.overlapFraction = f ? fraction(a.overlap, a.area) : null;
+        a.cFraction = c ? fraction(a.c, a.area) : null;
+        a.overlapFraction = f && secondary ? fraction(a.overlap, a.area) : null;
       }
+      const used = zones.filter(z => z.area);
       depth = {
         zones,
-        cv: cv(zones.filter(z => z.area).map(z => z.secondaryFraction)),
-        fCV: f ? cv(zones.filter(z => z.area).map(z => z.fFraction)) : null,
+        cv: secondary ? cv(used.map(z => z.secondaryFraction)) : null,
+        fCV: f ? cv(used.map(z => z.fFraction)) : null,
+        cCV: c ? cv(used.map(z => z.cFraction)) : null,
       };
     }
+    // Per element: its share of the area, how evenly it spreads over the grid, and the share in
+    // each grid column and row (pixels over area, so a column is weighted by what it holds).
+    const elementStats = (mask, key) => {
+      if (!mask) return null;
+      let pixels = 0,
+        between = 0;
+      for (let i = 0; i < roi.length; i++)
+        if (roi[i] && mask[i]) {
+          pixels++;
+          if (!nmc[i]) between++;
+        }
+      const count = tile =>
+          key === 'secondary' ? tile.secondaryPixels : key === 'f' ? tile.fPixels : tile.cPixels,
+        local = tile => (tile.area ? count(tile) / tile.area : null),
+        profile = axis =>
+          Array.from({ length: grid }, (_, g) => {
+            let n = 0,
+              area = 0;
+            for (const tile of tiles)
+              if (tile[axis] === g) {
+                n += count(tile);
+                area += tile.area;
+              }
+            return area ? n / area : null;
+          }),
+        columns = profile('x'),
+        rows = profile('y'),
+        present = list => list.filter(v => v != null);
+      return {
+        pixels,
+        areaFraction: pixels / nr,
+        uniformityCV: cv(present(tiles.map(local))),
+        columns,
+        rows,
+        columnCV: cv(present(columns)),
+        rowCV: cv(present(rows)),
+        betweenParticles: fraction(between, pixels),
+      };
+    };
     return {
       roiPixels: nr,
       nmcPixels: nn,
-      secondaryPixels: ns,
+      secondaryPixels: secondary ? ns : null,
       fPixels: f ? nf : null,
-      secondaryAreaFraction: ns / nr,
-      uniformityCV: cv(tiles.filter(t => t.area).map(t => t.fraction)),
-      interparticleOccupancy: fraction(sg, ng),
-      targetingEfficiency: sg / ns,
-      distance: {
-        unit: calibration ? 'μm' : 'px',
-        mean: total / ns,
-        median: quantile(0.5),
-        p90: quantile(0.9),
-        max,
-        bins,
-        edges,
-        histogram: hist,
+      cPixels: c ? sum(c) : null,
+      secondaryAreaFraction: secondary ? ns / nr : null,
+      uniformityCV: secondary ? cv(tiles.filter(t => t.area).map(t => t.fraction)) : null,
+      interparticleOccupancy: secondary ? fraction(sg, ng) : null,
+      targetingEfficiency: secondary ? sg / ns : null,
+      elements: {
+        secondary: elementStats(secondary, 'secondary'),
+        f: elementStats(f, 'f'),
+        c: elementStats(c, 'c'),
       },
-      pearson: f ? pearson(secondaryIntensity, fIntensity, roi) : null,
-      fWithSecondary: f ? fraction(overlap, nf) : null,
-      secondaryWithF: f ? overlap / ns : null,
+      distance: !secondary
+        ? null
+        : {
+            unit: calibration ? 'μm' : 'px',
+            mean: total / ns,
+            median: quantile(0.5),
+            p90: quantile(0.9),
+            max,
+            bins,
+            edges,
+            histogram: hist,
+          },
+      pearson: f && secondary ? pearson(secondaryIntensity, fIntensity, roi) : null,
+      fWithSecondary: f && secondary ? fraction(overlap, nf) : null,
+      secondaryWithF: f && secondary ? overlap / ns : null,
       binderCoverage: coverage,
       depth,
       tiles,
@@ -505,11 +589,12 @@ const Core = (() => {
         nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,
         ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,
         f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,
-        ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,
+        c && sum(c) / nr > 0.95 ? 'C mask 超過 ROI 95%。' : null,
+        secondary && ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,
       ].filter(Boolean),
     };
   }
-  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],
+  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f', 'c'],
     MAX_PIXELS = 16e6,
     GRID_OPTIONS = [3, 5, 8],
     BINDER_DEFAULT = { px: 3, um: 0.5 },
@@ -589,6 +674,7 @@ const Core = (() => {
             nmc: masks.nmc,
             secondary: masks.secondary,
             f: masks.f,
+            c: masks.c,
             secondaryIntensity: intensities.secondary,
             fIntensity: intensities.f,
             ...settings,

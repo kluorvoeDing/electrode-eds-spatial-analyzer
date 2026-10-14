@@ -60,7 +60,7 @@ test('changing the ROI invalidates every cached mask', () => {
     );
   assert.notEqual(second.roi, first.roi);
   assert.equal(Array.from(second.roi).join(''), '11110000');
-  for (const key of C.ANALYSIS_KEYS) assert.notEqual(second.masks[key], first.masks[key]);
+  for (const key of Object.keys(first.masks)) assert.notEqual(second.masks[key], first.masks[key]);
   assert.equal(second.masks.secondary.join(''), '00100000');
   const inverted = run(
     withoutChannels(
@@ -103,7 +103,7 @@ test('ratio and epsilon only affect the secondary channel signature', () => {
   assert.equal(third.masks.nmc, first.masks.nmc);
 });
 test('shared constants are exported once', () => {
-  assert.deepEqual(C.ANALYSIS_KEYS, ['nmc', 'secondary', 'f']);
+  assert.deepEqual(C.ANALYSIS_KEYS, ['nmc', 'secondary', 'f', 'c']);
   assert.equal(C.MAX_PIXELS, 16e6);
   assert.deepEqual(C.GRID_OPTIONS, [3, 5, 8]);
 });

@@ -155,10 +155,16 @@ fs.writeFileSync('qa/legacy-v0.1.3.html', legacyHTML);
   const current = await metrics(page);
   assert.ok(current.tiles.every(t => t.x1 > t.x0 && 'interparticleOccupancy' in t));
   current.tiles = current.tiles.map(({ x, y, area, fraction }) => ({ x, y, area, fraction }));
+  // Later versions add a block per element and a carbon count; the fields v0.1.3 had are equal.
+  assert.ok(current.elements.secondary && current.elements.f && current.elements.c === null);
+  assert.equal(current.cPixels, null);
+  delete current.elements;
+  delete current.cPixels;
   assert.deepEqual(current, expected);
   assert.deepEqual(
     await page.evaluate(() => ANALYSIS_KEYS.map(k => state.seg[k].denoise)),
-    [0, 0, 0],
+    // Carbon did not exist then; a carbon map added later gets the current default.
+    [0, 0, 0, 2],
   );
   // The stored crop can be reopened and the comparison table still renders and exports.
   await page.locator('#import').click();
