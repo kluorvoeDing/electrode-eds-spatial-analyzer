@@ -67,6 +67,7 @@ Grid 使用有效 ROI 的 bounding rectangle 切為 3×3、5×5、8×8；第 g �
 - `columnCV`、`rowCV`：上述非空值的母體 CV，對應左右與上下方向的差異。截面影像以 Y 為厚度方向時，`rows` 即沿厚度的比例（影像上方為第 1 列，與 `depthReverse` 無關，截面時圖名標示「影像上方 → 下方」；Top／Middle／Bottom 表則依設定方向）。
 - `betweenParticles = |E ∩ G| / |E|`，次要相的值等於 Targeting Efficiency。
 - 每格新增 `fPixels`、`fFraction`、`cPixels`、`cFraction`；截面三層新增 `cFraction` 與 `depth.cCV`。
+- `thirds`（v0.4.1）：`columns`、`rows` 各三個值，為影像左／中／右與上／中／下三段的 `|E| / |ROI|`；`columnCV`、`rowCV` 為三值的母體 CV。分段方式與 Depth 完全相同（ROI bounding extent、像素中心、`floor(norm × 3)`），因此 `thirds.rows` 等於 `depthAxis = 'y'` 且不反轉時的 `depth.zones`，`thirds.columns` 等於 `depthAxis = 'x'` 時的值（單元測試核對）。三等分不隨網格大小改變。
 
 畫面上的趨勢圖直接使用這些值：每一條細線是一列（欄）各格的 `fraction`，粗線是 `columns`（`rows`）。
 
@@ -99,6 +100,8 @@ Binder Coverage：Secondary boundary 的所有像素中，最近 F mask pixel ce
 `binderRadius` 預設 3 px（未校正）或 0.5 μm（已校正）。使用者未更動時，隨校正狀態切換預設值；已自訂時，設定比例尺以 `半徑 × μm/px` 換算為 μm，清除比例尺以 `半徑 ÷ μm/px` 換算回 px，比例尺數值改變但單位不變時保留原值。換算結果取 6 位有效數字。
 
 ## Depth
+
+介面自 v0.4.1 起不再提供厚度方向與反轉的選項，改以影像位置顯示左中右與上中下三等分（`thirds`）；`depthAxis`、`depthReverse` 仍保存在 Session，`depth` 與 CSV 的 `DepthCV`、`FDepthCV`、`CDepthCV`、`DepthZones` 照舊依這兩個設定計算，舊專案的匯出值不變。
 
 Cross Section：沿所選 X/Y 軸，以有效 ROI bounding extent 作 0–100% 三等分，reverse 決定 Top 的方向。分母為該區有效 ROI 像素；輸出 S/ROI、F/ROI、S∩F/ROI，各區等權 population CV。Top 表示使用者設定方向，不自動識別電極表面或集流體。
 

@@ -25,6 +25,9 @@ fs.mkdirSync('qa', { recursive: true });
   // The empty page says where to start and offers the example, labelled as generated data.
   assert.match(await p.locator('#empty').textContent(), /Start with the first element map/);
   assert.match(await p.locator('#empty').textContent(), /not a measurement/);
+  // Nothing to check before the main-phase map is in: the way on waits and says why.
+  assert.equal(await p.locator('#nextStep').isDisabled(), true);
+  assert.match(await p.locator('.foot-hint').textContent(), /Load the main-phase map/);
   await p.locator('#demo').click();
   await p.waitForFunction(() => !busy && Object.keys(masks).length === 4);
   assert.equal(await p.locator('#empty').isVisible(), false);
@@ -45,7 +48,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.locator('#maskLabel .swatch').count(), 4);
   await p.locator('[data-maskshow="c"]').uncheck();
   await p.locator('[data-maskshow="f"]').uncheck();
-  assert.equal(await p.locator('#maskLabel').textContent(), 'NiSecondary phase');
+  assert.equal(await p.locator('#maskLabel').textContent(), 'Ni2nd phase');
   await p.locator('[data-maskshow="c"]').check();
   await p.locator('[data-maskshow="f"]').check();
   await p.locator('[data-step="data"]').click();
@@ -107,7 +110,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.locator('[data-axis="columns"] .mean-dot').count(), 5);
   const caption = () => p.locator('[data-axis="columns"] .val-label').textContent(),
     valueRow = () => p.locator('[data-axis="columns"] .val').allTextContents();
-  assert.equal(await caption(), 'Whole columns');
+  assert.equal(await caption(), 'All');
   assert.deepEqual(
     await valueRow(),
     carbon.columns.map(v => (v * 100).toFixed(1)),
@@ -131,10 +134,20 @@ fs.mkdirSync('qa', { recursive: true });
     await p.locator('[data-axis="rows"] figcaption').textContent(),
     new RegExp(`Thirds CV ${carbon.thirds.rowCV.toFixed(3)}`),
   );
-  // Pointing at a thin line names it and lists its values.
+  // The image says what the numbers in its cells are.
+  assert.equal(
+    await p.locator('#gridCaption').textContent(),
+    'Numbers in the cells: Carbon C Area fraction (%)',
+  );
+  // Pointing at a thin line names it, lists its values and marks its cells on the image.
   await p.locator('[data-axis="columns"] .series[data-series="2"]').dispatchEvent('mouseenter');
+  assert.deepEqual(
+    await p.locator('#gridOverlay .tile.hot').evaluateAll(t => t.map(e => e.dataset.row)),
+    ['2', '2', '2', '2', '2'],
+  );
   assert.match(await caption(), /^Row 3$/);
   await p.locator('[data-axis="columns"] .series[data-series="2"]').dispatchEvent('mouseleave');
+  assert.equal(await p.locator('#gridOverlay .tile.hot').count(), 0);
   // Picking a cell marks its row and column in the charts and shows that cell's share.
   const box = await tiles.nth(7).boundingBox();
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -169,6 +182,9 @@ fs.mkdirSync('qa', { recursive: true });
   assert.doesNotMatch(await p.locator('#results').textContent(), /With the secondary phase/);
   // Results, CSV and comparison all accept the missing secondary phase.
   await p.locator('#addComparison').click();
+  // The same result is not added twice.
+  await p.locator('#addComparison').click();
+  assert.match(await p.locator('#status').textContent(), /already in the comparison/);
   await p.locator('#showComparison').click();
   assert.equal(await p.locator('#dialog table tr').count(), 2);
   await p.locator('#closeDialog').click();

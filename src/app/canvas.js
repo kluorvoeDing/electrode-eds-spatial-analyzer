@@ -49,7 +49,7 @@ function draw() {
           )
           .join('')
       : mask && display === 'mask'
-        ? `${t('Mask')}: ${esc(t(channelNames[maskKey]))}`
+        ? `<span><span class="swatch" style="background:rgb(${ELEMENT_TINT[maskKey]})"></span>${esc(t(SHORT_NAMES[maskKey]))}</span><span class="aside">${t('switch with the menu on the left')}</span>`
         : '';
   for (let i = 0; i < ch.data.length; i++) {
     let g = r.max === r.min ? 0 : Math.round(((ch.data[i] - r.min) / (r.max - r.min)) * 255),
@@ -150,6 +150,11 @@ function renderGridOverlay() {
       !!state.results.elements?.[metric] &&
       !!baseChannel();
   el.classList.toggle('hidden', !show);
+  // What the numbers in the cells are, said under the image.
+  $('#gridCaption').classList.toggle('hidden', !show);
+  if (show)
+    $('#gridCaption').innerHTML =
+      `<span class="swatch" style="background:rgb(${ELEMENT_TINT[metric]})"></span>${t('Numbers in the cells')}: ${esc(t(METRIC_LABELS[metric]))} ${t('Area fraction')} (%)`;
   el.innerHTML = show
     ? tiles
         .map((tile, i) => {
@@ -158,7 +163,7 @@ function renderGridOverlay() {
             size = Math.min(14, width / 4.2, height / 1.7),
             share = tileShare(tile, metric),
             label = tile.area && share != null && size >= 7 ? (share * 100).toFixed(1) : '';
-          return `<div class="tile${i === regionTile ? ' selected' : ''}" title="${esc(t(METRIC_LABELS[metric]))} ${label}%" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
+          return `<div class="tile${i === regionTile ? ' selected' : ''}" data-row="${tile.y}" data-col="${tile.x}" title="${esc(t(METRIC_LABELS[metric]))} ${label}%" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
         })
         .join('')
     : '';
@@ -327,6 +332,10 @@ document.querySelectorAll('[data-display]').forEach(
   b =>
     (b.onclick = () => {
       display = b.dataset.display;
+      // The single-mask view shows the channel picked beside it, so that menu is the way to
+      // switch between masks.
+      if (display === 'mask' && !masks[$('#channel').value] && masks[selected])
+        $('#channel').value = selected;
       draw();
     }),
 );

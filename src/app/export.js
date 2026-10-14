@@ -41,6 +41,18 @@ function download(name, content, type = 'application/json') {
 const safeName = () => state.sample.replace(/[^\p{L}\p{N}._-]/gu, '_') || 'sample';
 function addComparison() {
   if (!state.results) return;
+  // Rows are told apart by sample name, so an unnamed sample is named first; the same result
+  // is never added twice.
+  if (!state.sample.trim() || state.sample === 'Untitled') {
+    $('#sample').focus();
+    $('#sample').select();
+    status('Name the sample at the top first, then add it.', true);
+    return;
+  }
+  if (state.comparison.some(c => c.metrics.analyzedAt === state.results.analyzedAt)) {
+    status('This result is already in the comparison.', true);
+    return;
+  }
   state.comparison.push({
     sample: state.sample,
     view: state.view,
@@ -56,7 +68,7 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('CV')}</th><th>${t('Occupancy')}</th><th>${t('Targeting')}</th><th>${t('Median')}</th><th>${t('Binder')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
   );
   document
     .querySelectorAll('[data-comp]')
@@ -241,9 +253,19 @@ function exportPNG() {
     12,
     imageHeight + 55,
   );
+  // Colour key of the masks drawn, then the scope of the numbers.
+  let keyX = 12;
+  for (const k of ['nmc', key]) {
+    ctx.fillStyle = `rgb(${ELEMENT_TINT[k]})`;
+    ctx.fillRect(keyX, imageHeight + 80 - size * 0.7, size * 0.7, size * 0.7);
+    ctx.fillStyle = '#242b35';
+    const name = t(SHORT_NAMES[k]);
+    ctx.fillText(name, keyX + size, imageHeight + 80);
+    keyX += size * 1.6 + ctx.measureText(name).width;
+  }
   ctx.fillText(
-    `${t('2D image quantification')} · ${t(state.settings.calibration ? 'calibrated' : 'uncalibrated (px)')}`,
-    12,
+    `· ${t('Grid labels')}: ${t('Area fraction')} % · ${t('2D image quantification')} · ${t(state.settings.calibration ? 'calibrated' : 'uncalibrated (px)')}`,
+    keyX,
     imageHeight + 80,
   );
   out.toBlob(b => download(safeName() + '.overlay.png', b), 'image/png');

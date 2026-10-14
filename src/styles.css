@@ -745,11 +745,34 @@ details[open] > summary {
   border: 2px solid #fff;
   box-shadow: inset 0 0 0 2px #18181b99;
 }
+.under-image {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+}
+#gridCaption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--viewer-ink);
+  font-size: 11px;
+}
+#gridOverlay .tile.hot {
+  background: #ffffff38;
+  border-color: #fff;
+}
+.base-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-4);
+}
 #scaleMark {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
   color: var(--viewer-ink);
   font: 11px var(--mono);
 }
@@ -1332,6 +1355,24 @@ dialog h2 {
   margin-top: 10px;
   color: var(--ink-2);
 }
+.crop-footer {
+  position: sticky;
+  bottom: -22px;
+  margin: 0 -22px -22px;
+  padding: 2px 22px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.crop-footer .crop-confirm {
+  margin-top: 12px;
+}
+.foot-hint {
+  margin: 6px 0 0;
+  text-align: center;
+}
+.legend-inline .aside {
+  color: var(--ink-3);
+}
 .crop-confirm {
   display: flex;
   align-items: center;
@@ -1352,6 +1393,9 @@ dialog.image-editor {
 @media (max-width: 1500px) {
   #opacityLabel {
     display: none;
+  }
+  .toolbar select#channel {
+    max-width: 118px;
   }
 }
 @media (max-width: 1280px) {

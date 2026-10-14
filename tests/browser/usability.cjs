@@ -99,7 +99,10 @@ fs.mkdirSync('qa', { recursive: true });
     );
 
   // 1. The first report opens the review with its map already selected; nothing is imported yet.
-  assert.match(await p.locator('.hint').textContent(), /map area and the scale bar are found/);
+  assert.match(
+    await p.locator('.hint').first().textContent(),
+    /map area and the scale bar are found/,
+  );
   await choose('nmc', 'report-ni.png');
   assert.equal(await p.evaluate(() => Object.keys(state.channels).length), 0);
   assert.deepEqual(await rect(), { x: 12, y: 40, w: 100, h: 50 });
@@ -341,7 +344,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(await p.evaluate(() => [step, display]), ['segment', 'overlay']);
   assert.match(await p.locator('.hint').first().textContent(), /where each element is counted/);
   // Every mask is shown at once, in its channel colour, with the share of the area it covers.
-  const ALL_MASKS = 'NiSecondary phaseF';
+  const ALL_MASKS = 'Ni2nd phaseF';
   assert.equal(await p.locator('#maskLabel').textContent(), ALL_MASKS);
   assert.equal(await p.locator('#maskLabel .swatch').count(), 3);
   assert.equal(await p.locator('.legend [data-coverage]').count(), 3);

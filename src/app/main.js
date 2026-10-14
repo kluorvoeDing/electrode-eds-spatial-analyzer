@@ -14,6 +14,7 @@ function updateChrome() {
     pan: 'Pan',
     closeDialog: 'Close',
     opacityLabel: 'Opacity',
+    baseLabel: 'Base',
   }))
     $('#' + id).textContent = t(key);
   for (const [id, key] of Object.entries({

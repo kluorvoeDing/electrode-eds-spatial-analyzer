@@ -745,11 +745,34 @@ details[open] > summary {
   border: 2px solid #fff;
   box-shadow: inset 0 0 0 2px #18181b99;
 }
+.under-image {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 10px;
+}
+#gridCaption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--viewer-ink);
+  font-size: 11px;
+}
+#gridOverlay .tile.hot {
+  background: #ffffff38;
+  border-color: #fff;
+}
+.base-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-4);
+}
 #scaleMark {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
   color: var(--viewer-ink);
   font: 11px var(--mono);
 }
@@ -1332,6 +1355,24 @@ dialog h2 {
   margin-top: 10px;
   color: var(--ink-2);
 }
+.crop-footer {
+  position: sticky;
+  bottom: -22px;
+  margin: 0 -22px -22px;
+  padding: 2px 22px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.crop-footer .crop-confirm {
+  margin-top: 12px;
+}
+.foot-hint {
+  margin: 6px 0 0;
+  text-align: center;
+}
+.legend-inline .aside {
+  color: var(--ink-3);
+}
 .crop-confirm {
   display: flex;
   align-items: center;
@@ -1352,6 +1393,9 @@ dialog.image-editor {
 @media (max-width: 1500px) {
   #opacityLabel {
     display: none;
+  }
+  .toolbar select#channel {
+    max-width: 118px;
   }
 }
 @media (max-width: 1280px) {
@@ -2622,6 +2666,11 @@ HELP_EN.semFit =
 HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
 Object.assign(UI_EN, {
+  'already set': 'using the current scale',
+  'Secondary (short)': '2nd phase',
+  'Add to Comparison': 'Add result',
+  'All rows': 'All',
+  'All columns': 'All',
   'Left third': 'Left',
   'Middle third': 'Middle',
   'Right third': 'Right',
@@ -2719,17 +2768,28 @@ Object.assign(UI_ZH, {
   'Columns, image left to right': '各欄 · 影像左 → 右',
   'Row {n}': '第 {n} 列',
   'Column {n}': '第 {n} 欄',
-  'Whole columns': '整欄',
-  'Whole rows': '整列',
   '{element}: share in each column and row': '{element} · 各欄與各列的面積比例',
   'Whole column / row': '整欄／整列',
   'Grid labels': '格內數字',
+  'The crop is outside the image.': '裁切範圍超出影像',
+  'Tick the check above first.': '請先勾選上方的確認',
+  'While this is open, only the mask of the channel below is shown.':
+    '展開時只顯示下方所選通道的遮罩。',
+  'switch with the menu on the left': '用左側選單切換',
+  'Secondary (short)': '次要相',
+  Base: '底圖',
+  'Numbers in the cells': '格內數字',
+  max: '最大',
+  'All rows': '整欄',
+  'All columns': '整列',
+  'Name the sample at the top first, then add it.': '請先在頂端填入樣品名稱，再加入比較。',
+  'This result is already in the comparison.': '這個結果已經在比較表中。',
   'Spread by direction': '方向差異',
   'Left / right': '左右',
   'Top / bottom': '上下',
   'Thirds CV': '三等分 CV',
   'Column / row CV': '逐欄／逐列 CV',
-  'Thirds of the image': '影像三等分',
+  'Thirds of the image': '影像三等分（各段內的比例）',
   'Left third': '左',
   'Middle third': '中',
   'Right third': '右',
@@ -2737,7 +2797,7 @@ Object.assign(UI_ZH, {
   'Bottom third': '下',
   Show: '顯示',
   'Each row / column of cells': '單一列／欄',
-  'already set': '已設定',
+  'already set': '沿用目前尺度',
   'First channel: select only the map region.': '第一個通道：只框選元素圖本身',
   'Equal dimensions; check alignment using the blend slider.': '尺寸一致；拖曳混合比例檢查對位',
   'Dimensions differ. Adjust the crop or crop the other channels before analysis.':
@@ -3255,7 +3315,7 @@ function renderImageImport() {
     `<button type="button" data-nudge="${dx},${dy}" aria-label="${t(label)}" title="${t(label)}">${arrow}</button>`;
   showDialog(
     'Crop and review',
-    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropDetect">${t('Detect map region')}</button><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div><div class="crop-fit">${p.target ? `<label><input id="cropLockSize" type="checkbox" ${p.lockSize ? 'checked' : ''}> ${t('Keep the analysis grid size')} (${gridLabel}) ${info('lockSize')}</label>` : ''}${canFit ? `<label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label>` : ''}</div>${p.key === 'sem' ? '' : `<div class="crop-scale"><strong>${t('Scale bar')} ${info('scaleBar')}</strong><div id="cropScaleStatus" class="compact"></div><div class="row"><label>${t('Length printed on the image (μm)')}<input id="cropScaleUm" type="number" min="0" step="any" value="${p.scaleUm ?? ''}" placeholder="${state.settings.calibration && (p.reopened || !state.channels[p.key] || !ANALYSIS_KEYS.includes(p.key)) ? t('already set') : ''}"></label><button id="cropScalePick" type="button">${t('Click the two ends')}</button></div></div>`}</div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button></div>`,
+    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropDetect">${t('Detect map region')}</button><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div><div class="crop-fit">${p.target ? `<label><input id="cropLockSize" type="checkbox" ${p.lockSize ? 'checked' : ''}> ${t('Keep the analysis grid size')} (${gridLabel}) ${info('lockSize')}</label>` : ''}${canFit ? `<label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label>` : ''}</div>${p.key === 'sem' ? '' : `<div class="crop-scale"><strong>${t('Scale bar')} ${info('scaleBar')}</strong><div id="cropScaleStatus" class="compact"></div><div class="row"><label>${t('Length printed on the image (μm)')}<input id="cropScaleUm" type="number" min="0" step="any" value="${p.scaleUm ?? ''}" placeholder="${state.settings.calibration && (p.reopened || !state.channels[p.key] || !ANALYSIS_KEYS.includes(p.key)) ? t('already set') : ''}"></label><button id="cropScalePick" type="button">${t('Click the two ends')}</button></div></div>`}</div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><div class="crop-footer"><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button><span id="cropApplyHint" class="muted compact"></span></div></div>`,
   );
   $('#cropSource').width = p.w;
   $('#cropSource').height = p.h;
@@ -3494,6 +3554,12 @@ function drawImageImport(fast = false) {
   ctx.drawImage(p.canvas, 0, 0);
   const valid = cropRectValid(r, p.w, p.h);
   $('#cropApply').disabled = !valid || !p.reviewed;
+  // Say why the button is waiting, next to it.
+  $('#cropApplyHint').textContent = !valid
+    ? t('The crop is outside the image.')
+    : p.reviewed
+      ? ''
+      : t('Tick the check above first.');
   if ($('#cropScaleStatus')) {
     const status = scaleBarStatus(p);
     $('#cropScaleStatus').textContent = status.text;
@@ -3778,7 +3844,7 @@ if (typeof module !== 'undefined')
   };
 
 /* Shared application state, defaults and constants. */
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
@@ -3893,7 +3959,7 @@ let step = 'data',
 // Names short enough for the legend above the image.
 const SHORT_NAMES = {
   nmc: 'Ni',
-  secondary: 'Secondary phase',
+  secondary: 'Secondary (short)',
   f: 'F',
   c: 'C',
   other: 'Other',
@@ -4042,7 +4108,7 @@ async function compute(analyze = false) {
 
 /* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
-  `<header class="topbar"><div class="brand"><svg class="mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><rect x="1" y="1" width="16" height="16" rx="4"/><circle cx="6.5" cy="7" r="2.2" fill="#e040fb"/><circle cx="11.5" cy="11.2" r="2.2" fill="#ff9800"/><circle cx="12" cy="5.4" r="1.3" fill="#2979ff"/><circle cx="5.6" cy="12.3" r="1" fill="#f2d200"/></svg><strong id="appName">${t('Electrode EDS Analyzer')}</strong><span class="sep"></span><input id="sample" aria-label="${t('Sample name')}" value="Untitled" spellcheck="false"></div><nav class="stepper" aria-label="${t('Steps')}">${STEP_ORDER.map((s, i) => `${i ? '<span class="link"></span>' : ''}<button data-step="${s}"><span class="n">${i + 1}</span><span class="label">${t(STEP_LABELS[s])}</span></button>`).join('')}</nav><div class="actions"><select id="language" class="quiet" aria-label="Language / 介面語言"><option value="zh-Hant">中文</option><option value="en">English</option></select><button id="loadSession" class="ghost">${t('Open project')}</button><button id="save">${t('Save Session')}</button><button id="export" class="primary">${t('Export')}</button><div class="menu-wrap"><button id="more" class="ghost icon-only" aria-label="${t('More')}" aria-haspopup="true" aria-expanded="false">${icon('more')}</button><div id="moreMenu" class="menu hidden" role="menu"><button id="demoMenu" role="menuitem">${t('Load the synthetic example')}</button><button id="settings" role="menuitem">${t('Settings')}</button><button id="about" role="menuitem">${t('About')}</button></div></div></div></header><main><aside class="left"><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><div class="seg dark" role="group" aria-label="${t('View')}">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(DISPLAY_LABELS[x])}</button>`).join('')}</div><select id="channel" aria-label="Display channel"></select><div class="layer-slot"><span id="maskLabel" class="legend-inline"></span><div id="elementChips" class="chips hidden"></div></div><label class="range"><span id="opacityLabel">${t('Opacity')}</span><input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" class="hidden" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div id="scaleMark" class="hidden"></div></div><div class="empty" id="empty"></div></div><div id="trends" class="trends hidden"></div></section><aside class="right"><button id="collapse" class="ghost icon-only" aria-label="Toggle results">${icon('panel')}</button><div id="results"></div></aside></main><footer><span class="dot-status"></span><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog" class="ghost">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+  `<header class="topbar"><div class="brand"><svg class="mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><rect x="1" y="1" width="16" height="16" rx="4"/><circle cx="6.5" cy="7" r="2.2" fill="#e040fb"/><circle cx="11.5" cy="11.2" r="2.2" fill="#ff9800"/><circle cx="12" cy="5.4" r="1.3" fill="#2979ff"/><circle cx="5.6" cy="12.3" r="1" fill="#f2d200"/></svg><strong id="appName">${t('Electrode EDS Analyzer')}</strong><span class="sep"></span><input id="sample" aria-label="${t('Sample name')}" value="Untitled" spellcheck="false"></div><nav class="stepper" aria-label="${t('Steps')}">${STEP_ORDER.map((s, i) => `${i ? '<span class="link"></span>' : ''}<button data-step="${s}"><span class="n">${i + 1}</span><span class="label">${t(STEP_LABELS[s])}</span></button>`).join('')}</nav><div class="actions"><select id="language" class="quiet" aria-label="Language / 介面語言"><option value="zh-Hant">中文</option><option value="en">English</option></select><button id="loadSession" class="ghost">${t('Open project')}</button><button id="save">${t('Save Session')}</button><button id="export" class="primary">${t('Export')}</button><div class="menu-wrap"><button id="more" class="ghost icon-only" title="${t('More')}" aria-label="${t('More')}" aria-haspopup="true" aria-expanded="false">${icon('more')}</button><div id="moreMenu" class="menu hidden" role="menu"><button id="demoMenu" role="menuitem">${t('Load the synthetic example')}</button><button id="settings" role="menuitem">${t('Settings')}</button><button id="about" role="menuitem">${t('About')}</button></div></div></div></header><main><aside class="left"><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><div class="seg dark" role="group" aria-label="${t('View')}">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(DISPLAY_LABELS[x])}</button>`).join('')}</div><label class="base-pick"><span id="baseLabel">${t('Base')}</span><select id="channel" aria-label="Display channel"></select></label><div class="layer-slot"><span id="maskLabel" class="legend-inline"></span><div id="elementChips" class="chips hidden"></div></div><label class="range"><span id="opacityLabel">${t('Opacity')}</span><input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" class="hidden" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div class="under-image"><div id="scaleMark" class="hidden"></div><div id="gridCaption" class="hidden"></div></div></div><div class="empty" id="empty"></div></div><div id="trends" class="trends hidden"></div></section><aside class="right"><button id="collapse" class="ghost icon-only" aria-label="Toggle results">${icon('panel')}</button><div id="results"></div></aside></main><footer><span class="dot-status"></span><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog" class="ghost">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
 /* What the image area shows before anything is loaded: where to start, and the two other ways in. */
 function renderEmpty() {
   $('#empty').innerHTML =
@@ -4313,6 +4379,14 @@ function renderControls() {
       `<div class="panel-foot"><button id="nextStep" class="primary full" type="button">${t('Next')}${language === 'zh-Hant' ? '：' : ': '}${t(STEP_LABELS[next])}</button></div>`,
     );
     $('#nextStep').onclick = () => setStep(next);
+    // Nothing can be checked or measured before the main-phase map and one other are loaded.
+    if (step === 'data' && analysisBlocked().startsWith('Load')) {
+      $('#nextStep').disabled = true;
+      $('#nextStep').insertAdjacentHTML(
+        'afterend',
+        `<p class="hint foot-hint">${t('Load the main-phase map and at least one of the secondary phase, F or C.')}</p>`,
+      );
+    }
   }
   setupTooltips();
 }
@@ -4488,7 +4562,7 @@ function renderSegmentStep(c) {
     // The Mn / Ni ratio only applies to Mn-based additives.
     showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio),
     loaded = ANALYSIS_KEYS.filter(k => state.channels[k]);
-  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<label class="legend-row"><input type="checkbox" data-maskshow="${k}" ${maskHidden.has(k) ? '' : 'checked'} aria-label="${t('Show')} ${t(channelNames[k])}"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="coverage" data-coverage="${k}"></span></label>`).join('') || `<div class="warning">${t('Load the main-phase map and at least one of the secondary phase, F or C.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="seg"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label class="check"><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label class="check"><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label class="check"><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label class="check"><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
+  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<label class="legend-row"><input type="checkbox" data-maskshow="${k}" ${maskHidden.has(k) ? '' : 'checked'} aria-label="${t('Show')} ${t(channelNames[k])}"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="coverage" data-coverage="${k}"></span></label>`).join('') || `<div class="warning">${t('Load the main-phase map and at least one of the secondary phase, F or C.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><p class="hint">${t('While this is open, only the mask of the channel below is shown.')}</p><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="seg"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label class="check"><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label class="check"><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label class="check"><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label class="check"><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
   updateMaskLegend();
   // Overlapping masks blend; unticking some lets each be checked against its own map.
   document.querySelectorAll('[data-maskshow]').forEach(
@@ -4873,7 +4947,7 @@ function draw() {
           )
           .join('')
       : mask && display === 'mask'
-        ? `${t('Mask')}: ${esc(t(channelNames[maskKey]))}`
+        ? `<span><span class="swatch" style="background:rgb(${ELEMENT_TINT[maskKey]})"></span>${esc(t(SHORT_NAMES[maskKey]))}</span><span class="aside">${t('switch with the menu on the left')}</span>`
         : '';
   for (let i = 0; i < ch.data.length; i++) {
     let g = r.max === r.min ? 0 : Math.round(((ch.data[i] - r.min) / (r.max - r.min)) * 255),
@@ -4974,6 +5048,11 @@ function renderGridOverlay() {
       !!state.results.elements?.[metric] &&
       !!baseChannel();
   el.classList.toggle('hidden', !show);
+  // What the numbers in the cells are, said under the image.
+  $('#gridCaption').classList.toggle('hidden', !show);
+  if (show)
+    $('#gridCaption').innerHTML =
+      `<span class="swatch" style="background:rgb(${ELEMENT_TINT[metric]})"></span>${t('Numbers in the cells')}: ${esc(t(METRIC_LABELS[metric]))} ${t('Area fraction')} (%)`;
   el.innerHTML = show
     ? tiles
         .map((tile, i) => {
@@ -4982,7 +5061,7 @@ function renderGridOverlay() {
             size = Math.min(14, width / 4.2, height / 1.7),
             share = tileShare(tile, metric),
             label = tile.area && share != null && size >= 7 ? (share * 100).toFixed(1) : '';
-          return `<div class="tile${i === regionTile ? ' selected' : ''}" title="${esc(t(METRIC_LABELS[metric]))} ${label}%" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
+          return `<div class="tile${i === regionTile ? ' selected' : ''}" data-row="${tile.y}" data-col="${tile.x}" title="${esc(t(METRIC_LABELS[metric]))} ${label}%" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
         })
         .join('')
     : '';
@@ -5151,6 +5230,10 @@ document.querySelectorAll('[data-display]').forEach(
   b =>
     (b.onclick = () => {
       display = b.dataset.display;
+      // The single-mask view shows the channel picked beside it, so that menu is the way to
+      // switch between masks.
+      if (display === 'mask' && !masks[$('#channel').value] && masks[selected])
+        $('#channel').value = selected;
       draw();
     }),
 );
@@ -5283,7 +5366,7 @@ function drawHistogram(r) {
   ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
   ctx.fillText('0', 4, 90);
   ctx.textAlign = 'right';
-  ctx.fillText(`${fmt(r.distance.max)} ${r.distance.unit}`, w - 4, 90);
+  ctx.fillText(`${t('max')} ${fmt(r.distance.max)} ${r.distance.unit}`, w - 4, 90);
   // One band per line, value aligned on the right.
   const e = r.distance.edges,
     bands = [`< ${e[0]}`, `${e[0]}–${e[1]}`, `${e[1]}–${e[2]}`, `> ${e[2]}`];
@@ -5333,7 +5416,7 @@ function renderTrends() {
         series: lines('columns'),
         mean: e.columns,
         each: 'Row {n}',
-        whole: 'Whole columns',
+        whole: 'All rows',
         picked: picked?.y,
         thirds: e.thirds.columns,
         thirdsCV: e.thirds.columnCV,
@@ -5345,7 +5428,7 @@ function renderTrends() {
         series: lines('rows'),
         mean: e.rows,
         each: 'Column {n}',
-        whole: 'Whole rows',
+        whole: 'All columns',
         picked: picked?.x,
         thirds: e.thirds.rows,
         thirdsCV: e.thirds.rowCV,
@@ -5423,12 +5506,19 @@ function drawTrend(figure, c, scale, key, n) {
   rest();
   plot.querySelectorAll('.series').forEach(g => {
     const i = +g.dataset.series;
+    // The line under the pointer is also marked on the image, row (or column) of cells.
+    const cells = () =>
+      document.querySelectorAll(
+        `#gridOverlay .tile[data-${c.axis === 'columns' ? 'row' : 'col'}="${i}"]`,
+      );
     g.onmouseenter = () => {
       g.classList.add('hot');
+      cells().forEach(cell => cell.classList.add('hot'));
       show(t(c.each).replace('{n}', i + 1), c.series[i], true);
     };
     g.onmouseleave = () => {
       g.classList.remove('hot');
+      cells().forEach(cell => cell.classList.remove('hot'));
       rest();
     };
   });
@@ -5775,6 +5865,18 @@ function download(name, content, type = 'application/json') {
 const safeName = () => state.sample.replace(/[^\p{L}\p{N}._-]/gu, '_') || 'sample';
 function addComparison() {
   if (!state.results) return;
+  // Rows are told apart by sample name, so an unnamed sample is named first; the same result
+  // is never added twice.
+  if (!state.sample.trim() || state.sample === 'Untitled') {
+    $('#sample').focus();
+    $('#sample').select();
+    status('Name the sample at the top first, then add it.', true);
+    return;
+  }
+  if (state.comparison.some(c => c.metrics.analyzedAt === state.results.analyzedAt)) {
+    status('This result is already in the comparison.', true);
+    return;
+  }
   state.comparison.push({
     sample: state.sample,
     view: state.view,
@@ -5790,7 +5892,7 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('CV')}</th><th>${t('Occupancy')}</th><th>${t('Targeting')}</th><th>${t('Median')}</th><th>${t('Binder')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
   );
   document
     .querySelectorAll('[data-comp]')
@@ -5975,9 +6077,19 @@ function exportPNG() {
     12,
     imageHeight + 55,
   );
+  // Colour key of the masks drawn, then the scope of the numbers.
+  let keyX = 12;
+  for (const k of ['nmc', key]) {
+    ctx.fillStyle = `rgb(${ELEMENT_TINT[k]})`;
+    ctx.fillRect(keyX, imageHeight + 80 - size * 0.7, size * 0.7, size * 0.7);
+    ctx.fillStyle = '#242b35';
+    const name = t(SHORT_NAMES[k]);
+    ctx.fillText(name, keyX + size, imageHeight + 80);
+    keyX += size * 1.6 + ctx.measureText(name).width;
+  }
   ctx.fillText(
-    `${t('2D image quantification')} · ${t(state.settings.calibration ? 'calibrated' : 'uncalibrated (px)')}`,
-    12,
+    `· ${t('Grid labels')}: ${t('Area fraction')} % · ${t('2D image quantification')} · ${t(state.settings.calibration ? 'calibrated' : 'uncalibrated (px)')}`,
+    keyX,
     imageHeight + 80,
   );
   out.toBlob(b => download(safeName() + '.overlay.png', b), 'image/png');
@@ -6001,6 +6113,7 @@ function updateChrome() {
     pan: 'Pan',
     closeDialog: 'Close',
     opacityLabel: 'Opacity',
+    baseLabel: 'Base',
   }))
     $('#' + id).textContent = t(key);
   for (const [id, key] of Object.entries({

@@ -114,7 +114,7 @@ let step = 'data',
 // Names short enough for the legend above the image.
 const SHORT_NAMES = {
   nmc: 'Ni',
-  secondary: 'Secondary phase',
+  secondary: 'Secondary (short)',
   f: 'F',
   c: 'C',
   other: 'Other',

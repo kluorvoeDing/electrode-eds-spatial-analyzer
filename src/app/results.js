@@ -121,7 +121,7 @@ function drawHistogram(r) {
   ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
   ctx.fillText('0', 4, 90);
   ctx.textAlign = 'right';
-  ctx.fillText(`${fmt(r.distance.max)} ${r.distance.unit}`, w - 4, 90);
+  ctx.fillText(`${t('max')} ${fmt(r.distance.max)} ${r.distance.unit}`, w - 4, 90);
   // One band per line, value aligned on the right.
   const e = r.distance.edges,
     bands = [`< ${e[0]}`, `${e[0]}–${e[1]}`, `${e[1]}–${e[2]}`, `> ${e[2]}`];
@@ -171,7 +171,7 @@ function renderTrends() {
         series: lines('columns'),
         mean: e.columns,
         each: 'Row {n}',
-        whole: 'Whole columns',
+        whole: 'All rows',
         picked: picked?.y,
         thirds: e.thirds.columns,
         thirdsCV: e.thirds.columnCV,
@@ -183,7 +183,7 @@ function renderTrends() {
         series: lines('rows'),
         mean: e.rows,
         each: 'Column {n}',
-        whole: 'Whole rows',
+        whole: 'All columns',
         picked: picked?.x,
         thirds: e.thirds.rows,
         thirdsCV: e.thirds.rowCV,
@@ -261,12 +261,19 @@ function drawTrend(figure, c, scale, key, n) {
   rest();
   plot.querySelectorAll('.series').forEach(g => {
     const i = +g.dataset.series;
+    // The line under the pointer is also marked on the image, row (or column) of cells.
+    const cells = () =>
+      document.querySelectorAll(
+        `#gridOverlay .tile[data-${c.axis === 'columns' ? 'row' : 'col'}="${i}"]`,
+      );
     g.onmouseenter = () => {
       g.classList.add('hot');
+      cells().forEach(cell => cell.classList.add('hot'));
       show(t(c.each).replace('{n}', i + 1), c.series[i], true);
     };
     g.onmouseleave = () => {
       g.classList.remove('hot');
+      cells().forEach(cell => cell.classList.remove('hot'));
       rest();
     };
   });
