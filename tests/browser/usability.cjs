@@ -262,12 +262,38 @@ fs.mkdirSync('qa', { recursive: true });
   await p.screenshot({ path: 'qa/usability-elements.png' });
 
   // 4b. Micrograph first, maps second: confirming the first map leads straight into scaling SEM.
-  // Re-cropping the channel that carried the scale bar keeps the scale: its length is remembered.
+  // Re-cropping keeps the scale, whichever channel it is: the length typed for one image is
+  // remembered there, and an image cropped again from the same source cannot change μm / pixel.
   await p.locator('#import').click();
   await p.locator('[data-crop="nmc"]').click();
   await p.locator('#cropSource').waitFor();
   assert.equal(await p.locator('#cropScaleUm').inputValue(), '13.5');
   await p.locator('[data-nudge="1,0"]').click();
+  await confirm();
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
+  await p.locator('[data-crop="secondary"]').click();
+  await p.locator('#cropSource').waitFor();
+  assert.equal(await p.locator('#cropScaleUm').inputValue(), '');
+  await p.locator('[data-nudge="0,1"]').click();
+  await confirm();
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
+  assert.equal(await p.locator('#scaleMark').isVisible(), true);
+  // A different image put in the same channel is new evidence: without its own bar length the
+  // scale is dropped rather than assumed.
+  await choose('secondary', 'report-f.png');
+  assert.match(
+    await p.locator('#cropScaleStatus').textContent(),
+    /≈ 13\.5 μm .* Replacing this image clears the scale; type the length to keep it\.$/,
+  );
+  assert.equal(
+    await p.locator('#cropScaleStatus').evaluate(e => e.classList.contains('warning')),
+    true,
+  );
+  await confirm();
+  assert.equal(await p.evaluate(() => state.settings.calibration), null);
+  // Typing the length keeps it.
+  await choose('secondary', 'report-fe.png');
+  await p.locator('#cropScaleUm').fill('13.5');
   await confirm();
   assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
   // The micrograph is resampled, so its own bar says nothing about the grid: not offered there.

@@ -366,6 +366,9 @@ Object.assign(UI_ZH, {
   'Click a cell on the image to see its values.': '點影像上的格子，可看該格的數值。',
   'whole region only': '只有全區才有',
   'already set': '已設定，可不填',
+  'Analysed-area limits cleared; the scale is unchanged.': '分析範圍已清除；尺度不變。',
+  'Replacing this image clears the scale; type the length to keep it.':
+    '換成另一張影像會清除尺度；請填入長度以保留。',
 });
 HELP_ZH.scaleBar =
   '比例尺還在這張原圖上，裁切後就看不到了。工具會標出找到的比例尺（橘線），請輸入旁邊標示的長度，即可換算 μm／像素。位置不對時按「點選比例尺兩端」自行指定。長度以兩端刻度的中心計算，誤差約 ±1 像素。';

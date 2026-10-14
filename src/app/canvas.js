@@ -201,7 +201,11 @@ function setStep(next) {
   if (step !== 'data' && display === 'elements') display = 'overlay';
   renderControls();
   draw();
-  if (step === 'analyze' && !state.results && !busy) analyzeIfReady();
+  // A mask refresh still pending or running is superseded: only the latest request is applied.
+  if (step === 'analyze' && !state.results) {
+    clearTimeout(previewTimer);
+    analyzeIfReady();
+  }
 }
 function fit() {
   const ch = state.channels[$('#channel').value] || baseChannel();

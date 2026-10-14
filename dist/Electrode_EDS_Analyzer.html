@@ -1698,6 +1698,9 @@ Object.assign(UI_ZH, {
   'Click a cell on the image to see its values.': '點影像上的格子，可看該格的數值。',
   'whole region only': '只有全區才有',
   'already set': '已設定，可不填',
+  'Analysed-area limits cleared; the scale is unchanged.': '分析範圍已清除；尺度不變。',
+  'Replacing this image clears the scale; type the length to keep it.':
+    '換成另一張影像會清除尺度；請填入長度以保留。',
 });
 HELP_ZH.scaleBar =
   '比例尺還在這張原圖上，裁切後就看不到了。工具會標出找到的比例尺（橘線），請輸入旁邊標示的長度，即可換算 μm／像素。位置不對時按「點選比例尺兩端」自行指定。長度以兩端刻度的中心計算，誤差約 ±1 像素。';
@@ -2233,6 +2236,8 @@ async function openImageImport(file, key, existing = null, origin = {}) {
       // Every other import is held to the grid size, so channels cannot end up a pixel apart.
       lockSize: !fit && !!target && target.w <= w && target.h <= h,
       detected: false,
+      // Opened from a channel already in the workspace, so the source image is the same one.
+      reopened: !!existing,
       view: 'blend',
       flip: false,
       reviewed: false,
@@ -2282,7 +2287,7 @@ function renderImageImport() {
     `<button type="button" data-nudge="${dx},${dy}" aria-label="${t(label)}" title="${t(label)}">${arrow}</button>`;
   showDialog(
     'Crop and review',
-    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropDetect">${t('Detect map region')}</button><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div><div class="crop-fit">${p.target ? `<label><input id="cropLockSize" type="checkbox" ${p.lockSize ? 'checked' : ''}> ${t('Keep the analysis grid size')} (${gridLabel}) ${info('lockSize')}</label>` : ''}${canFit ? `<label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label>` : ''}</div>${p.key === 'sem' ? '' : `<div class="crop-scale"><strong>${t('Scale bar')} ${info('scaleBar')}</strong><div id="cropScaleStatus" class="compact"></div><div class="row"><label>${t('Length printed on the image (μm)')}<input id="cropScaleUm" type="number" min="0" step="any" value="${p.scaleUm ?? ''}" placeholder="${state.settings.calibration ? t('already set') : ''}"></label><button id="cropScalePick" type="button">${t('Click the two ends')}</button></div></div>`}</div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button></div>`,
+    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropDetect">${t('Detect map region')}</button><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div><div class="crop-fit">${p.target ? `<label><input id="cropLockSize" type="checkbox" ${p.lockSize ? 'checked' : ''}> ${t('Keep the analysis grid size')} (${gridLabel}) ${info('lockSize')}</label>` : ''}${canFit ? `<label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label>` : ''}</div>${p.key === 'sem' ? '' : `<div class="crop-scale"><strong>${t('Scale bar')} ${info('scaleBar')}</strong><div id="cropScaleStatus" class="compact"></div><div class="row"><label>${t('Length printed on the image (μm)')}<input id="cropScaleUm" type="number" min="0" step="any" value="${p.scaleUm ?? ''}" placeholder="${state.settings.calibration && (p.reopened || !state.channels[p.key] || !ANALYSIS_KEYS.includes(p.key)) ? t('already set') : ''}"></label><button id="cropScalePick" type="button">${t('Click the two ends')}</button></div></div>`}</div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button></div>`,
   );
   $('#cropSource').width = p.w;
   $('#cropSource').height = p.h;
@@ -2607,11 +2612,24 @@ function scaleBarStatus(p) {
     };
   const pixels = scaleBarPixels(p.scaleBar),
     current = state.settings.calibration,
-    measured = scaleFromBar(p);
+    measured = scaleFromBar(p),
+    // A different image taking the place of an analysis channel resets the scale unless its own
+    // bar length is typed; say so here rather than after the fact.
+    resets =
+      !!current &&
+      !measured &&
+      !p.reopened &&
+      ANALYSIS_KEYS.includes(p.key) &&
+      !!state.channels[p.key],
+    caution = resets
+      ? ` · ${t('Replacing this image clears the scale; type the length to keep it.')}`
+      : '';
   if (!pixels)
     return {
-      text: t('No scale bar found. Click its two ends, or enter μm / pixel on the Data step.'),
-      warning: false,
+      text:
+        t('No scale bar found. Click its two ends, or enter μm / pixel on the Data step.') +
+        caution,
+      warning: resets,
     };
   const length = `${t('Scale bar')}: ${Number(pixels.toFixed(1))} px`;
   if (measured) {
@@ -2627,9 +2645,9 @@ function scaleBarStatus(p) {
   }
   return {
     text: current
-      ? `${length} ≈ ${(pixels * current).toPrecision(3)} μm · ${t('at the scale already set')} (${current.toPrecision(4)} μm / ${t('pixel')})`
+      ? `${length} ≈ ${(pixels * current).toPrecision(3)} μm · ${t('at the scale already set')} (${current.toPrecision(4)} μm / ${t('pixel')})${caution}`
       : `${length} · ${t('enter the length printed next to it.')}`,
-    warning: false,
+    warning: resets,
   };
 }
 function drawScaleBar(p, ctx) {
@@ -2708,10 +2726,16 @@ async function applyImageImport() {
       $('#dialog').addEventListener('close', resolve, { once: true }),
     );
     $('#dialog').close();
-    const cleared = replaceChannel(p.key, ch);
-    // After replaceChannel, which clears the scale when the grid changes.
-    if (measured) {
-      applyCalibration(measured);
+    // Analysis channels are never resampled, so cropping the same source image again cannot
+    // change μm per pixel: the scale set earlier is kept even though this channel is replaced.
+    const sameSource = !target && !!original?.sourceImage && original.sourceImage === p.sourceImage,
+      keptScale = !measured && sameSource ? state.settings.calibration : null,
+      hadLimits = state.rois.length > 0 || state.roiInvert,
+      cleared = replaceChannel(p.key, ch),
+      scale = measured || keptScale;
+    // After replaceChannel, which clears the scale when an analysis channel is replaced.
+    if (scale) {
+      applyCalibration(scale);
       dirty();
     }
     renderControls();
@@ -2737,7 +2761,7 @@ async function applyImageImport() {
       fit();
       status(
         () =>
-          `${t('Image applied')} · ${t(channelNames[p.key])} · ${ch.w}×${ch.h}${target ? ' · ' + t('Display only, resampled') : ''}${measured ? ` · ${measured.toPrecision(4)} μm / ${t('pixel')}` : cleared ? ' · ' + t('ROI and calibration cleared; recalibrate cropped screenshots.') : state.settings.calibration === null ? ' · ' + t('Calibrate screenshots before using micrometres.') : ''}`,
+          `${t('Image applied')} · ${t(channelNames[p.key])} · ${ch.w}×${ch.h}${target ? ' · ' + t('Display only, resampled') : ''}${measured ? ` · ${measured.toPrecision(4)} μm / ${t('pixel')}` : keptScale ? (cleared && hadLimits ? ' · ' + t('Analysed-area limits cleared; the scale is unchanged.') : '') : cleared ? ' · ' + t('ROI and calibration cleared; recalibrate cropped screenshots.') : state.settings.calibration === null ? ' · ' + t('Calibrate screenshots before using micrometres.') : ''}`,
       );
     }
   } catch (e) {
@@ -3957,7 +3981,11 @@ function setStep(next) {
   if (step !== 'data' && display === 'elements') display = 'overlay';
   renderControls();
   draw();
-  if (step === 'analyze' && !state.results && !busy) analyzeIfReady();
+  // A mask refresh still pending or running is superseded: only the latest request is applied.
+  if (step === 'analyze' && !state.results) {
+    clearTimeout(previewTimer);
+    analyzeIfReady();
+  }
 }
 function fit() {
   const ch = state.channels[$('#channel').value] || baseChannel();

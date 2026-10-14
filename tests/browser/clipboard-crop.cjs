@@ -118,7 +118,9 @@ const { chromium } = require('playwright'),
   assert.equal(await p.locator('#cropApply').isEnabled(), false);
   await p.locator('#crop-h').fill('60');
   await apply('secondary');
-  // Same-size replacement invalidates results/ROI/calibration, and preserves exact crop origin when reopened.
+  // Cropping the same source image again invalidates results and the ROI and preserves the exact
+  // crop origin when reopened. The scale stays: analysis pixels are never resampled, so μm per
+  // pixel of an unchanged source cannot have changed.
   await p.evaluate(() => {
     state.rois = [{ type: 'rect', x: 0, y: 0, w: 60, h: 60 }];
     state.settings.calibration = 0.5;
@@ -129,8 +131,9 @@ const { chromium } = require('playwright'),
   await p.locator('#cropReviewed').check();
   await p.locator('#cropApply').click();
   await p.waitForFunction(() => !busy && !document.querySelector('#dialog').open);
-  assert.equal(await p.evaluate(() => state.settings.calibration), null);
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
   assert.equal(await p.evaluate(() => state.rois.length), 0);
+  assert.match(await p.locator('#status').textContent(), /limits cleared; the scale is unchanged/);
   await p.locator('[data-step="analyze"]').click();
   await p.locator('#analyze').click();
   await p.waitForFunction(() => state.results !== null && !busy);
@@ -217,7 +220,7 @@ const { chromium } = require('playwright'),
   assert.deepEqual(external, []);
   await b.close();
   console.log(
-    'Real Ctrl+V, channel targeting, crop/overlay review, cancel, invalid crops, exact pixels, ROI/calibration reset, session and responsive layouts passed',
+    'Real Ctrl+V, channel targeting, crop/overlay review, cancel, invalid crops, exact pixels, ROI reset with the scale kept, session and responsive layouts passed',
   );
 })().catch(e => {
   console.error(e);
