@@ -1199,6 +1199,10 @@ dialog h2 {
   font-size: 11px;
   color: var(--ink-3);
 }
+.crop-coordinates input,
+.crop-scale input {
+  color: var(--ink);
+}
 .crop-coordinates input {
   width: 100%;
   min-width: 0;
@@ -2245,6 +2249,8 @@ const HELP_ZH = {
     'SEM 只當底圖，不參與任何計算，所以可以縮放。請框出元素圖實際掃描的範圍（例如標示 Map Data 的白框），工具會把它縮放成與元素圖相同的尺寸。分析用影像永遠不縮放。',
   lockSize:
     '所有通道必須是相同的像素尺寸才能計算。勾選時裁切框固定為已載入影像的尺寸，拖曳只移動位置。只有要重新決定整組尺寸時才取消勾選。',
+  carbon:
+    'C 遮罩佔分析範圍的面積比例。注意 C 訊號不只來自導電碳：PVDF 黏結劑與 LFP 的碳包覆也含碳，判讀導電碳分散時請一併參考 F 與次要相的分布。',
   comparison:
     '把目前的結果加入比較表，換下一個樣品分析後再加入。比較表可以填入剝離強度等實驗值，並匯出 CSV。',
 };
@@ -2513,6 +2519,8 @@ HELP_EN.semFit =
 HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
 Object.assign(HELP_EN, {
+  carbon:
+    'Share of the analysed area covered by the C mask. C counts do not come from conductive carbon alone: PVDF binder and the carbon coating of LFP contain carbon too, so read carbon dispersion together with the F and secondary-phase maps.',
   area: 'Mask pixels divided by the pixels of the analysed area: the share of the image the element covers.',
   profileCV:
     'Cells in the same column (or row) are pooled into one share, and the columns (or rows) are compared. A large column spread means left and right differ; a large row spread means top and bottom differ, which on a cross section is the change through the thickness.',
@@ -3644,7 +3652,7 @@ if (typeof module !== 'undefined')
   };
 
 /* Shared application state, defaults and constants. */
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
@@ -4012,6 +4020,7 @@ function renderChannels() {
       ? selected
       : Object.keys(state.channels)[0] || '';
   $('#dimensions').textContent = dimensions() ? `${dimensions().w} × ${dimensions().h} px` : '';
+  $('#channel').classList.toggle('hidden', !Object.keys(state.channels).length);
   renderElementChips();
   renderNotice();
 }
@@ -5043,7 +5052,7 @@ function wholeRegionFigures(r, key) {
   const e = r.elements[key],
     spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}<div class="kpi-pair">${kpi('Column CV', fmt(e.columnCV), { help: 'profileCV', note: 'Left to right' })}${kpi('Row CV', fmt(e.rowCV), { help: 'profileCV', note: 'Top to bottom' })}</div>`;
   let html = kpi('Area fraction', fmt(e.areaFraction, true), {
-    help: key === 'secondary' ? 'secondary' : 'area',
+    help: { secondary: 'secondary', f: 'area', c: 'carbon' }[key],
     note: 'Share of the analysed area.',
     hero: true,
   });
@@ -5261,9 +5270,13 @@ function drawTrend(figure, c, scale, key, n) {
     };
   });
 }
+// A fitted image is fitted again to the new window, and the charts take the new width.
 addEventListener('resize', () => {
   clearTimeout(renderTrends.timer);
-  renderTrends.timer = setTimeout(renderTrends, 120);
+  renderTrends.timer = setTimeout(() => {
+    if ($('#zoom').value === 'fit') fit();
+    renderTrends();
+  }, 120);
 });
 
 /* Session snapshot, validation and reload. */

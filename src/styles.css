@@ -1199,6 +1199,10 @@ dialog h2 {
   font-size: 11px;
   color: var(--ink-3);
 }
+.crop-coordinates input,
+.crop-scale input {
+  color: var(--ink);
+}
 .crop-coordinates input {
   width: 100%;
   min-width: 0;

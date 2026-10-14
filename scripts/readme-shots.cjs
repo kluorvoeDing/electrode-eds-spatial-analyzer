@@ -5,7 +5,7 @@ const { chromium } = require('playwright'),
   fs = require('node:fs'),
   path = require('node:path');
 
-const VIEW = { width: 1120, height: 720 },
+const VIEW = { width: 1366, height: 800 },
   OUT = path.resolve('docs/images'),
   TMP = path.resolve('qa/readme');
 fs.mkdirSync(OUT, { recursive: true });
@@ -67,6 +67,11 @@ fs.mkdirSync(TMP, { recursive: true });
     const elements = {
       Ni: counts((x, y) => surface(x, y) < 0, [230, 0, 230]),
       Fe: counts(inCluster, [255, 140, 0]),
+      // Carbon black in the gaps, denser towards the right, so the column trend shows a slope.
+      C: counts(
+        (x, y) => surface(x, y) > 0.5 && random() < 0.25 + 0.6 * (x / FIELD.w),
+        [242, 210, 0],
+      ),
       F: counts(
         (x, y) => {
           const d = surface(x, y);
@@ -143,6 +148,7 @@ fs.mkdirSync(TMP, { recursive: true });
       'ni.png': report('Ni', 352, 216, { x: 16, y: 60 }),
       'fe.png': report('Fe', 350, 222, { x: 14, y: 66 }),
       'f.png': report('F', 362, 218, { x: 22, y: 62 }),
+      'c.png': report('C', 356, 220, { x: 18, y: 64 }),
       'sem.png': sem(),
     };
   });
@@ -189,6 +195,8 @@ fs.mkdirSync(TMP, { recursive: true });
   await confirm();
   await choose('f', 'f.png');
   await confirm();
+  await choose('c', 'c.png');
+  await confirm();
 
   // The micrograph dialog is taller than the others; give it room so nothing is scrolled away.
   await choose('sem', 'sem.png');
@@ -215,10 +223,14 @@ fs.mkdirSync(TMP, { recursive: true });
   await p.locator('#nextStep').click();
   await p.waitForFunction(() => state.results && !busy);
   await shot('08-results.png');
+  // Binder and carbon each have their own tab; the grid and the trends follow it.
+  await p.locator('[data-metric="c"]').click();
+  await shot('12-carbon.png');
   const cell = p.locator('#gridOverlay .tile').nth(7),
     box = await cell.boundingBox();
   await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await shot('09-cell.png');
+  await p.locator('[data-metric="secondary"]').click();
 
   await p.locator('#export').click();
   await shot('10-export.png', dialog);

@@ -106,6 +106,7 @@ function renderChannels() {
       ? selected
       : Object.keys(state.channels)[0] || '';
   $('#dimensions').textContent = dimensions() ? `${dimensions().w} × ${dimensions().h} px` : '';
+  $('#channel').classList.toggle('hidden', !Object.keys(state.channels).length);
   renderElementChips();
   renderNotice();
 }

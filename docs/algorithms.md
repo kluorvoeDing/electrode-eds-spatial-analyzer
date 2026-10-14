@@ -1,4 +1,4 @@
-# Algorithms — v0.3.0
+# Algorithms — v0.4.0
 
 所有計算為二維影像量化。所有 mask 先裁切有效 ROI；面積與比例使用 ROI 像素數。無法計算的值輸出 JSON `null`、介面 `—`，不是零。
 
@@ -57,6 +57,21 @@ Grid 使用有效 ROI 的 bounding rectangle 切為 3×3、5×5、8×8；第 g �
 
 每格另外輸出與全區相同定義、但只計入該格像素的數值（v0.3.0）：`secondaryPixels`、`interparticleOccupancy`、`targetingEfficiency`、`distanceMedian`、`distanceMean`、`binderCoverage`。距離使用全圖的距離場，不會把格子邊界當成沒有顆粒；分母為 0 時為 `null`。CV 是各格之間的差異，沒有單格的值。格子越小，像素越少，數值越不穩定。
 
+## Per-element distribution (v0.4.0)
+
+次要相、F、C 各自輸出 `results.elements.<secondary|f|c>`（沒有該通道時為 `null`）：
+
+- `areaFraction = |E ∩ ROI| / |ROI|`；`pixels = |E ∩ ROI|`。
+- `uniformityCV`：各格 `|E ∩ tile| / |ROI ∩ tile|` 的母體 CV，與既有 Uniformity CV 相同定義；次要相的值等於 `uniformityCV`。
+- `columns[g]`、`rows[g]`：第 g 欄（列）所有格子合併的 `Σ|E| / Σ|ROI|`，即以像素加權，不是各格比例的平均；該欄（列）沒有 ROI 像素時為 `null`，不當作 0。
+- `columnCV`、`rowCV`：上述非空值的母體 CV，對應左右與上下方向的差異。截面影像以 Y 為厚度方向時，`rows` 即沿厚度的比例（影像上方為第 1 列，與 `depthReverse` 無關；Top／Middle／Bottom 表則依設定方向）。
+- `betweenParticles = |E ∩ G| / |E|`，次要相的值等於 Targeting Efficiency。
+- 每格新增 `fPixels`、`fFraction`、`cPixels`、`cFraction`；截面三層新增 `cFraction` 與 `depth.cCV`。
+
+畫面上的趨勢圖直接使用這些值：每一條細線是一列（欄）各格的 `fraction`，粗線是 `columns`（`rows`）。
+
+次要相為選填（v0.4.0）。沒有次要相時，次要相相關的全區與每格數值（面積比例、CV、Occupancy、Targeting、距離、Binder Coverage、Pearson、overlap）皆為 `null`，F 與 C 照常計算；主相仍為必填，且次要相、F、C 至少需有一個。C 遮罩超過 ROI 95% 時警告。C 訊號也可能來自 PVDF 與 LFP 碳包覆，C 的分布不等同於導電碳的分布。
+
 ## Interparticle metrics
 
 `G = ROI ∩ NOT(NMC)`；`S = Secondary ∩ ROI`。
@@ -89,6 +104,6 @@ Cross Section：沿所選 X/Y 軸，以有效 ROI bounding extent 作 0–100% �
 
 ## Trace / session
 
-結果與 comparison snapshot 保留版本、日期、原始檔名、尺寸、intensity range、匯入檔 SHA-256（合成資料無原始檔 hash）、ROI、threshold、segmentation、校正與分析設定。Session 包含完整 intensity，圖片另存 embedded PNG；重載重算結果。Session 維持 `schemaVersion: 1`，v0.3.0 新增選填欄位 `seg.<channel>.denoise` 與 `importInfo.scaleBar`；v0.2.0 新增欄位（`settings.binderRadiusCustom`、`importInfo` 的縮放資訊）皆為選填。載入時先驗證全部欄位並解碼內嵌 PNG，確認其實際尺寸與通道尺寸相符後才取代目前工作區；未知欄位捨棄。Analysis JSON 匯出數值及 trace；要重新載入工作專案，使用 Session JSON。
+結果與 comparison snapshot 保留版本、日期、原始檔名、尺寸、intensity range、匯入檔 SHA-256（合成資料無原始檔 hash）、ROI、threshold、segmentation、校正與分析設定。Session 包含完整 intensity，圖片另存 embedded PNG；重載重算結果。Session 維持 `schemaVersion: 1`；v0.4.0 新增 `c` 通道與 `seg.c`（舊 Session 沒有時使用目前預設值，平均半徑 2 px），v0.3.0 新增選填欄位 `seg.<channel>.denoise` 與 `importInfo.scaleBar`；v0.2.0 新增欄位（`settings.binderRadiusCustom`、`importInfo` 的縮放資訊）皆為選填。載入時先驗證全部欄位並解碼內嵌 PNG，確認其實際尺寸與通道尺寸相符後才取代目前工作區；未知欄位捨棄。Analysis JSON 匯出數值及 trace；要重新載入工作專案，使用 Session JSON。
 
 所有計算在本機。Worker 的流程實作於 `Core.createPipeline()`，快取 intensity、ROI 與未變更的 mask（ROI 改變時全部重算；分割參數改變時只重算該通道；ratio／ε 只影響次要相）；Worker 層級錯誤會結束所有等待中的請求。每次送回 mask 副本，避免 transferable buffer 使 cache 失效。最新 revision 才可更新畫面，設定變更時清除舊結果。無網路 API、CDN、IndexedDB 或 localStorage；CSP 拒絕外部連線。

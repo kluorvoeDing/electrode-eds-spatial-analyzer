@@ -25,7 +25,7 @@ function wholeRegionFigures(r, key) {
   const e = r.elements[key],
     spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}<div class="kpi-pair">${kpi('Column CV', fmt(e.columnCV), { help: 'profileCV', note: 'Left to right' })}${kpi('Row CV', fmt(e.rowCV), { help: 'profileCV', note: 'Top to bottom' })}</div>`;
   let html = kpi('Area fraction', fmt(e.areaFraction, true), {
-    help: key === 'secondary' ? 'secondary' : 'area',
+    help: { secondary: 'secondary', f: 'area', c: 'carbon' }[key],
     note: 'Share of the analysed area.',
     hero: true,
   });
@@ -243,7 +243,11 @@ function drawTrend(figure, c, scale, key, n) {
     };
   });
 }
+// A fitted image is fitted again to the new window, and the charts take the new width.
 addEventListener('resize', () => {
   clearTimeout(renderTrends.timer);
-  renderTrends.timer = setTimeout(renderTrends, 120);
+  renderTrends.timer = setTimeout(() => {
+    if ($('#zoom').value === 'fit') fit();
+    renderTrends();
+  }, 120);
 });
