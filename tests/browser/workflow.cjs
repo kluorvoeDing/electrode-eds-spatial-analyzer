@@ -51,7 +51,7 @@ fs.mkdirSync('qa', { recursive: true });
   const session = JSON.parse(fs.readFileSync('qa/session.json'));
   assert.equal(session.comparison[0].cohesive, '1.23 N');
   assert.equal(session.channels.nmc.data.length, 240 * 240);
-  await page.locator('#import').click();
+  await page.locator('[data-step="data"]').click();
   await page.locator('#sessionFile').setInputFiles(path.resolve('qa/session.json'));
   await page.waitForFunction(() =>
     document.querySelector('#status').textContent.startsWith('Session loaded'),
@@ -147,7 +147,7 @@ fs.mkdirSync('qa', { recursive: true });
   await page.screenshot({ path: 'qa/mobile.png', fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.locator('#import').click();
+  await page.locator('[data-step="data"]').click();
   fs.writeFileSync('qa/bad.csv', '1,2\n3');
   await page.locator('[data-file="other"]').setInputFiles(path.resolve('qa/bad.csv'));
   await page.waitForFunction(() =>

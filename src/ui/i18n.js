@@ -141,35 +141,50 @@ const UI_EN = {
   'About offline':
     'No external API, CDN, upload or AI runtime. Session JSON includes complete intensity data and can be reloaded offline.',
 };
+// Help texts in plain Chinese; symbols, units and instrument names stay as written on the reports.
 const HELP_ZH = {
   secondary:
-    '相對 NMC 主相添加的材料，例如 TiO₂、ZrO₂、MnO₂、Al₂O₃ 或 LFP；配方角色不代表必然是獨立晶體第二相。',
-  cv: 'ROI 的網格內 Secondary 面積比例之母體標準差 / 平均值；越低代表局部分布差異越小。空網格不參與計算。',
-  occupancy:
-    'NMC 顆粒間區域內的 Secondary 像素 / 顆粒間區域像素；僅為二維佔據率，並非三維孔隙填充率。',
-  targeting: '位於 ROI − NMC mask 的 Secondary 像素 / ROI 內全部 Secondary 像素。',
-  distance:
-    'Secondary 像素中心至最近 NMC 邊界像素中心的二維 Euclidean distance；重疊於 NMC 內部的像素也計算至邊界距離。',
+    '相對主相額外加入的材料，例如 TiO₂、ZrO₂、MnO₂、Al₂O₃ 或 LFP。這是配方上的角色，不代表一定是獨立的晶相。',
+  area: '遮罩的像素數除以分析範圍的像素數，也就是這個元素在影像上所佔的面積比例。',
+  cv: '把分析範圍切成網格，算出每一格的面積比例，再以標準差除以平均。數值越小，各處越接近，分布越均勻；空格不計入。',
+  profileCV:
+    '把同一欄（或同一列）的格子合併算出面積比例，再比較各欄（或各列）之間的差異。欄間差異大代表左右不均，列間差異大代表上下不均；截面影像的列間差異就是厚度方向的變化。',
+  between: '這個元素的像素中，位於主相顆粒之外、也就是顆粒之間的比例。',
+  occupancy: '主相顆粒之間的空隙中，被次要相佔據的比例。這是平面上的佔據率，不是立體孔隙的填充率。',
+  targeting: '次要相的像素中，位於主相顆粒之外的比例。',
+  distance: '每個次要相像素到最近主相顆粒邊界的直線距離；疊在顆粒上的像素也量到邊界。',
   binder:
-    'Secondary 邊界像素中，指定距離內存在 F mask 的比例。F 僅為 PVDF tracer，非化學鍵結證據。',
-  pearson:
-    'Secondary 與 F intensity 在有效 ROI 內的 Pearson r。常數訊號為無法計算；不可單獨證明 PVDF 覆蓋。',
-  overlap: 'Threshold 後 binary mask 的雙向 overlap，非 intensity-weighted Manders coefficient。',
+    '次要相的邊緣像素中，在設定距離內有黏結劑（F）的比例。F 只是黏結劑的指標元素，不代表有化學鍵結。',
+  pearson: '次要相與 F 兩張元素圖原始強度的相關係數，介於 −1 到 1。相關高不能單獨證明黏結劑包覆。',
+  overlap: '兩個遮罩重疊的像素數，分別除以 F 或次要相的像素數；只看有無，不看強度。',
   depth:
-    '按有效 ROI 厚度範圍三等分，計算各區 Secondary 面積比例與母體 CV；設定 Top 的方向並排除集流體。',
-  threshold:
-    'Auto 使用 ROI intensity histogram 的 Otsu；Manual 採 intensity > threshold，Invert 反轉判定。',
-  csv: '無表頭逗號分隔數值矩陣。優先使用原始 CSV；圖片採 max(R,G,B)，彩色 LUT 並不一定保留原始 intensity。',
-  cal: 'μm/pixel；空值或 0 表示未校正，距離以 px 呈現。Scale bar：點選兩端後輸入實際長度。',
-  roi: 'Rectangle 拖曳；Polygon 逐點點選並按完成。多個 include ROI 取聯集，再反轉 include，最後扣除 exclusions。',
-  mn: 'NMC 本身含 Mn。單純 Mn threshold 可能高估 MnO₂；Mn/(Ni+ε) 僅是探索用 proxy，需驗證背景與低 Ni 訊號。',
-  al: 'Al map 可能包含 Al current collector；Cross Section 必須限定有效極層並排除集流體。',
-  unit: 'CSV intensity 保留原始數值，圖片為 0–255。各圖須相同尺寸、視野、方向且預先完成 registration。',
-  smooth:
-    '3×3 binary majority smoothing；依序 threshold → smooth → fill holes → 移除小物件。連通與邊界採 4-neighbor。',
-  radius: '有校正預設 0.5 μm，無校正預設 3 px。此距離只影響 Binder Coverage。',
+    '把截面的分析範圍沿厚度方向等分為上、中、下三層，比較各層的面積比例。請設定哪一側是上方，並先排除集流體。',
+  threshold: '自動模式依強度分布找出分界（大津法）；手動模式把強度高於閾值的像素算作有該元素。',
+  csv: '沒有標題列、以逗號分隔的數值矩陣。CSV 保留原始強度，比圖片準確；圖片取紅、綠、藍三色中的最大值，彩色色階不一定保留原始強度。',
+  cal: '每個像素代表的實際長度（μm）。裁切時會由原圖上的比例尺換算，也可以在這裡直接輸入；空白時距離以像素顯示。',
+  roi: '矩形用拖曳；多邊形逐點點選後按「完成多邊形」。多個範圍取聯集，可整體反轉，最後扣除標為排除的部分。',
+  mn: '主相本身就含錳，直接以錳圖取閾值會高估 MnO₂。錳除以鎳的比例圖只是輔助判斷，需確認背景與低鎳區的訊號。',
+  al: '鋁圖可能包含鋁集流體。截面影像必須先限定電極層，並排除集流體。',
+  unit: 'CSV 保留原始強度，圖片為 0 到 255。各張圖須相同尺寸、相同視野與方向，並已對齊。',
+  smooth: '以 3×3 鄰域多數決修整遮罩邊緣。處理順序：取閾值、修整、填補孔洞、移除小物件。',
+  radius:
+    '判定「附近有黏結劑」的距離。有比例尺時預設 0.5 μm，否則 3 像素；只影響黏結劑鄰近覆蓋率。',
   scope:
-    '所有結果均為 2D spatial image quantification；不能推論體積分率、三維孔隙、化學鍵結、顆粒內滲入或 cohesive 因果。',
+    '所有結果都是平面影像的量化，不能據此推論體積分率、立體孔隙、化學鍵結、顆粒內部滲入或內聚力的因果關係。',
+  scaleBar:
+    '比例尺在原圖上，裁切後就看不到了。橘線是找到的比例尺，請輸入旁邊標示的長度；位置不對時按「點選比例尺兩端」自行指定。誤差約 ±1 像素。',
+  denoise:
+    '取閾值前先對元素圖做局部平均。元素圖是稀疏的計數點，不平均時只會挑出零星亮點。半徑越大區域越完整、細節越少；0 為關閉，舊版專案維持關閉。',
+  pasteCrop:
+    '在 VDI 複製影像或截圖，按該通道的「貼上」，再按 Ctrl+V。框選範圍只保留元素圖本身，排除標題與比例尺。尺寸相同不代表已對齊，請用右側的混合預覽確認。更換分析用影像或改變尺寸時，會清除分析範圍與尺度。',
+  nudge:
+    '以整數像素移動裁切框，大小不變、不重新取樣。點左側影像後也可以用方向鍵；按住 Shift 一次移動 10 像素。',
+  semFit:
+    'SEM 只當底圖，不參與任何計算，所以可以縮放。請框出元素圖實際掃描的範圍（例如標示 Map Data 的白框），工具會把它縮放成與元素圖相同的尺寸。分析用影像永遠不縮放。',
+  lockSize:
+    '所有通道必須是相同的像素尺寸才能計算。勾選時裁切框固定為已載入影像的尺寸，拖曳只移動位置。只有要重新決定整組尺寸時才取消勾選。',
+  comparison:
+    '把目前的結果加入比較表，換下一個樣品分析後再加入。比較表可以填入剝離強度等實驗值，並匯出 CSV。',
 };
 const HELP_EN = {
   secondary:
@@ -269,6 +284,11 @@ const MESSAGES = {
     'Secondary mask exceeds 95% of the ROI.',
   ],
   'F mask 超過 ROI 95%。': ['F 遮罩超過分析區域 95%。', 'F mask exceeds 95% of the ROI.'],
+  'C mask 超過 ROI 95%。': ['C 遮罩超過分析區域 95%。', 'C mask exceeds 95% of the ROI.'],
+  '請至少載入次要相、F 或 C 其中一張。': [
+    '請至少載入次要相、F 或 C 其中一張。',
+    'Load at least one of the secondary phase, F or C.',
+  ],
   '無 NMC 顆粒間區域，Occupancy 無法計算。': [
     '無 NMC 顆粒間區域，無法計算佔據率。',
     'No interparticle region. Occupancy is undefined.',
@@ -370,20 +390,12 @@ Object.assign(UI_ZH, {
   'Replacing this image clears the scale; type the length to keep it.':
     '換成另一張影像會清除尺度；請填入長度以保留。',
 });
-HELP_ZH.scaleBar =
-  '比例尺還在這張原圖上，裁切後就看不到了。工具會標出找到的比例尺（橘線），請輸入旁邊標示的長度，即可換算 μm／像素。位置不對時按「點選比例尺兩端」自行指定。長度以兩端刻度的中心計算，誤差約 ±1 像素。';
 HELP_EN.scaleBar =
   'The scale bar is still on this source image; after cropping it is gone. The bar that was found is drawn in orange: type the length printed next to it to get μm per pixel. If it is in the wrong place, click its two ends yourself. Length runs between the centres of the end ticks, give or take one pixel.';
-HELP_ZH.denoise =
-  '取閾值前先對元素圖做局部平均。EDS 元素圖是稀疏的計數點，不平均時閾值只會挑出亮點而不是區域。半徑越大區域越完整、細節越少；0 為關閉。舊版專案檔維持關閉。';
 HELP_EN.denoise =
   'Local averaging of the map before its threshold. EDS maps are sparse counts; without averaging a threshold picks out lit pixels rather than regions. A larger radius gives fuller regions and less detail; 0 turns it off. Sessions from older versions stay off.';
-HELP_ZH.cal =
-  'μm／像素；空白或 0 表示未校正，距離以像素顯示。裁切視窗會由原圖上的比例尺換算，也可以在這裡直接輸入。';
 HELP_EN.cal =
   'μm per pixel; blank or zero means distances stay in pixels. The crop dialog works it out from the scale bar on the source image, or type it here.';
-HELP_ZH.pasteCrop =
-  '在 VDI 複製影像或截圖，點選通道的貼上按鈕，再按 Ctrl+V。拖曳只框選有效元素圖，移除標題與比例尺。套用參考圖尺寸只改變裁切框的寬高，不會拉伸影像；各圖應以相同顯示倍率截圖並保留同一掃描範圍。尺寸相同不代表已對位，須以混合預覽人工確認。更換或重新裁切既有的分析通道（Ni／次要相／F），或影像尺寸改變時，會清除 ROI 與校正，截圖距離須重新校正；SEM 與其他元素僅供顯示，尺寸不變時保留。';
 HELP_EN.pasteCrop =
   'Copy an image or screenshot in VDI, select a channel, then press Ctrl+V. Crop only the map region. Reference dimensions change the crop rectangle without resizing pixels. Capture each map at the same display scale and retain the same field of view. Equal dimensions do not prove registration: inspect the blend preview. Replacing or recropping an analysis channel (Ni, secondary phase or F), or changing the image size, clears ROI and calibration; recalibrate screenshot distances. SEM and other-element maps are display-only and keep them when the size is unchanged.';
 Object.assign(UI_ZH, {
@@ -432,18 +444,110 @@ Object.assign(UI_ZH, {
     '通道尺寸不一致；請用影像上方的提示修正。',
   'Load the main-phase and secondary-phase maps first.': '請先載入主相與次要相影像。',
 });
-HELP_ZH.nudge =
-  '以整數像素移動裁切框，寬高不變、不重採樣。也可點選左側影像後使用方向鍵；按住 Shift 一次移動 10 px。用混合、差異或按住顯示參考圖來檢查對位。';
 HELP_EN.nudge =
   'Moves the crop by whole pixels; size is unchanged and nothing is resampled. Arrow keys work after clicking the source image; hold Shift for 10 px. Check alignment with the blend, difference or hold-to-show-reference views.';
-HELP_ZH.semFit =
-  'SEM 只作為顯示底圖，不進入任何指標，因此可以縮放。在 SEM 上框出元素圖實際掃描的區域（例如標示 Map Data 的白框），工具會把該區重採樣為參考通道的尺寸；縮小採面積平均、放大採雙線性內插。縮放比例與方式會記錄在 trace。Ni、次要相與 F 等分析通道永遠不重採樣。';
 HELP_EN.semFit =
   'SEM is a display backdrop and never enters the metrics, so it may be scaled. Select the area the element maps actually scanned (for example the white Map Data box); it is resampled to the reference channel size using area averaging when shrinking and bilinear interpolation when enlarging. Scale and method are recorded in the trace. Analysis channels (Ni, secondary phase, F) are never resampled.';
-HELP_ZH.lockSize =
-  '所有通道必須是相同的像素尺寸才能計算。勾選時，裁切框固定為已載入分析通道的尺寸，拖曳只會移動位置，因此不會出現差一兩個像素的情況。只有在要重新決定整組影像的尺寸時才取消勾選。';
 HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
+Object.assign(HELP_EN, {
+  area: 'Mask pixels divided by the pixels of the analysed area: the share of the image the element covers.',
+  profileCV:
+    'Cells in the same column (or row) are pooled into one share, and the columns (or rows) are compared. A large column spread means left and right differ; a large row spread means top and bottom differ, which on a cross section is the change through the thickness.',
+  between: 'Share of the element lying outside the main-phase particles, in the gaps between them.',
+  comparison:
+    'Adds the current results to the comparison table; analyse the next sample and add it too. The table takes measured values such as peel strength and exports to CSV.',
+});
+// Interface text introduced with the redesigned layout.
+Object.assign(UI_ZH, {
+  Steps: '步驟',
+  'Open project': '開啟專案',
+  More: '更多',
+  'Load the synthetic example': '載入合成範例',
+  'Start with the first element map': '從第一張元素圖開始',
+  'Paste or choose it on the left. The map area and the scale bar are found for you.':
+    '在左側貼上或選擇影像，工具會自動找出有效區域與比例尺。',
+  'Open a saved project': '開啟已存的專案',
+  'Try the synthetic example': '用合成範例試用',
+  'The example is generated data for trying the steps; it is not a measurement.':
+    '範例是程式產生的影像，用來熟悉操作，不是量測資料。',
+  'Replace the loaded images with the synthetic example?': '要以合成範例取代目前載入的影像嗎？',
+  Elements: '元素疊圖',
+  Overlay: '遮罩疊圖',
+  Original: '原圖',
+  'Single mask': '單一遮罩',
+  'Carbon / C': '導電碳 / C',
+  Required: '必填',
+  Optional: '選填',
+  'Display only': '僅顯示',
+  Paste: '貼上',
+  'Choose file': '選擇檔案',
+  'Crop / review': '裁切',
+  'Maps to analyse': '分析用影像',
+  'Shown only, never measured': '底圖與參考（不參與計算）',
+  'Load the main-phase map and at least one of the secondary phase, F or C.':
+    '請載入主相影像，以及次要相、F、C 至少一張。',
+  'Paste or choose an image for each element. The map area and the scale bar are found when you crop.':
+    '為每個元素貼上或選擇影像；裁切時會自動找出有效區域與比例尺。',
+  'Colour marks where each element is counted. Go on if it matches the element maps.':
+    '顏色是判定為有該元素的位置。和元素圖相符就繼續。',
+  'Click a cell to see its values; click it again for the whole region.':
+    '點格子看該格數值，再點一次回到全區。',
+  Analysis: '分析設定',
+  'Add to Comparison': '加入目前結果',
+  'Open table': '開啟比較表',
+  Recalculate: '重新計算',
+  Results: '分析結果',
+  'Figures appear here once the analysis has run.':
+    '完成前兩個步驟後，這裡會顯示各元素的分布數值。',
+  'Secondary phase': '次要相',
+  'Binder F': '黏結劑 F',
+  'Carbon C': '導電碳 C',
+  'Area fraction': '面積比例',
+  'Share of the analysed area.': '佔分析範圍的比例',
+  'Uniformity CV': '分布均勻性 CV',
+  'Cell-to-cell spread; lower is more even.': '各格之間的差異，越小越均勻',
+  'Column CV': '欄間差異 CV',
+  'Row CV': '列間差異 CV',
+  'Left to right': '左右方向',
+  'Top to bottom': '上下方向',
+  'Around the main-phase particles': '與主相顆粒的關係',
+  'Interparticle Occupancy': '顆粒間佔據率',
+  'Share of the gaps between particles it fills.': '顆粒之間的空隙被它佔據的比例',
+  'Between particles': '落在顆粒之間',
+  'Share of it lying between particles, not on them.': '落在顆粒之間、而非疊在顆粒上的比例',
+  'Median Distance': '到顆粒距離中位數',
+  'With the binder': '與黏結劑的關係',
+  'Binder Coverage': '鄰近有黏結劑的比例',
+  'Share of its outline with binder within the set distance.': '邊緣在設定距離內有黏結劑的比例',
+  'With the secondary phase': '與次要相的關係',
+  'Share of the secondary-phase outline with binder nearby.': '次要相邊緣附近有黏結劑的比例',
+  'F with Secondary': 'F 與次要相重疊',
+  'Secondary with F': '次要相與 F 重疊',
+  'Pearson r': '強度相關係數',
+  'Through the thickness': '厚度方向',
+  'Depth CV': '上中下差異 CV',
+  'Spread between the top, middle and bottom thirds.': '上、中、下三層之間的差異',
+  'Share of this cell.': '佔這一格的比例',
+  'Spread figures exist for the whole region only. The smaller the cell, the less steady the numbers.':
+    '差異類指標只有全區才有。格子越小，數值越不穩定。',
+  'Columns, left to right': '各欄 · 左 → 右',
+  'Rows, top to bottom': '各列 · 上 → 下',
+  'Row {n}': '第 {n} 列',
+  'Column {n}': '第 {n} 欄',
+  'Whole columns': '整欄',
+  'Whole rows': '整列',
+  '{element}: share in each column and row': '{element} · 各欄與各列的面積比例',
+  'Whole column / row': '整欄／整列',
+  'Grid labels': '格內數字',
+  'Each row / column of cells': '單一列／欄',
+  'already set': '已設定',
+  'First channel: select only the map region.': '第一個通道：只框選元素圖本身',
+  'Equal dimensions; check alignment using the blend slider.': '尺寸一致；拖曳混合比例檢查對位',
+  'Dimensions differ. Adjust the crop or crop the other channels before analysis.':
+    '尺寸仍不一致；請調整裁切',
+  'Region suggested automatically; please check it.': '已自動框選，請確認',
+});
 function t(key) {
   return language === 'zh-Hant' ? (UI_ZH[key] ?? key) : (UI_EN[key] ?? key);
 }

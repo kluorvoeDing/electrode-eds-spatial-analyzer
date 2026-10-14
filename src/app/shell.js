@@ -1,11 +1,19 @@
 /* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
-  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${STEP_ORDER.map((s, i) => `<button data-step="${s}">${i + 1} ${t(STEP_LABELS[s])}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><span id="maskLabel" class="compact muted"></span><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="elementChips" class="chips hidden"></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div id="scaleMark" class="hidden"></div></div><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+  `<header class="topbar"><div class="brand"><svg class="mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><rect x="1" y="1" width="16" height="16" rx="4"/><circle cx="6.5" cy="7" r="2.2" fill="#e040fb"/><circle cx="11.5" cy="11.2" r="2.2" fill="#ff9800"/><circle cx="12" cy="5.4" r="1.3" fill="#2979ff"/><circle cx="5.6" cy="12.3" r="1" fill="#f2d200"/></svg><strong id="appName">${t('Electrode EDS Analyzer')}</strong><span class="sep"></span><input id="sample" aria-label="${t('Sample name')}" value="Untitled" spellcheck="false"></div><nav class="stepper" aria-label="${t('Steps')}">${STEP_ORDER.map((s, i) => `${i ? '<span class="link"></span>' : ''}<button data-step="${s}"><span class="n">${i + 1}</span><span class="label">${t(STEP_LABELS[s])}</span></button>`).join('')}</nav><div class="actions"><select id="language" class="quiet" aria-label="Language / 介面語言"><option value="zh-Hant">中文</option><option value="en">English</option></select><button id="loadSession" class="ghost">${t('Open project')}</button><button id="save">${t('Save Session')}</button><button id="export" class="primary">${t('Export')}</button><div class="menu-wrap"><button id="more" class="ghost icon-only" aria-label="${t('More')}" aria-haspopup="true" aria-expanded="false">${icon('more')}</button><div id="moreMenu" class="menu hidden" role="menu"><button id="demoMenu" role="menuitem">${t('Load the synthetic example')}</button><button id="settings" role="menuitem">${t('Settings')}</button><button id="about" role="menuitem">${t('About')}</button></div></div></div></header><main><aside class="left"><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><div class="seg dark" role="group" aria-label="${t('View')}">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(DISPLAY_LABELS[x])}</button>`).join('')}</div><select id="channel" aria-label="Display channel"></select><span id="maskLabel" class="legend-inline"></span><div id="elementChips" class="chips hidden"></div><span class="spacer"></span><label class="range"><span id="opacityLabel">${t('Opacity')}</span><input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" class="hidden" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div id="scaleMark" class="hidden"></div></div><div class="empty" id="empty"></div></div><div id="trends" class="trends hidden"></div></section><aside class="right"><button id="collapse" class="ghost icon-only" aria-label="Toggle results">${icon('panel')}</button><div id="results"></div></aside></main><footer><span class="dot-status"></span><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog" class="ghost">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+/* What the image area shows before anything is loaded: where to start, and the two other ways in. */
+function renderEmpty() {
+  $('#empty').innerHTML =
+    `<div class="empty-card"><h2>${t('Start with the first element map')}</h2><p>${t('Paste or choose it on the left. The map area and the scale bar are found for you.')}</p><div class="empty-actions"><button id="emptyOpen">${icon('open')}${t('Open a saved project')}</button><button id="demo">${t('Try the synthetic example')}</button></div><p class="fine">${t('The example is generated data for trying the steps; it is not a measurement.')}</p></div>`;
+  $('#emptyOpen').onclick = () => $('#sessionFile').click();
+  $('#demo').onclick = loadDemo;
+}
 function status(message, error = false) {
   lastStatus = message;
   lastStatusError = error;
   $('#status').textContent = messageText(typeof message === 'function' ? message() : message);
   $('#status').classList.toggle('error', error);
+  $('footer').classList.toggle('error', error);
   renderNotice();
 }
 /* Channels whose size differs from the analysis grid, with the grid they should match. */
@@ -163,30 +171,47 @@ $('#about').onclick = () =>
     `<p>Electrode EDS Spatial Analyzer · v${VERSION}</p><p>${help.scope}</p><p>${t('About intensity')}</p><p>${t('About offline')}</p>`,
   );
 $('#collapse').onclick = () => $('main').classList.toggle('collapsed');
+$('#loadSession').onclick = () => $('#sessionFile').click();
+function closeMenu() {
+  $('#moreMenu').classList.add('hidden');
+  $('#more').setAttribute('aria-expanded', 'false');
+}
+$('#more').onclick = e => {
+  e.stopPropagation();
+  const open = $('#moreMenu').classList.toggle('hidden');
+  $('#more').setAttribute('aria-expanded', String(!open));
+};
+$('#moreMenu').addEventListener('click', closeMenu);
+document.addEventListener('click', closeMenu);
+// The example replaces whatever is loaded, so it asks first when there is something to lose.
+$('#demoMenu').onclick = () => {
+  if (
+    Object.keys(state.channels).length &&
+    !confirm(t('Replace the loaded images with the synthetic example?'))
+  )
+    return;
+  loadDemo();
+};
 function setupTooltips() {
   document.querySelectorAll('[data-help]').forEach(el => {
-    const show = (full = false) => {
-      const t = $('#tooltip'),
-        text = help[el.dataset.help] || el.dataset.help;
-      t.textContent = full
-        ? text
-        : language === 'en'
-          ? text.split(';')[0].split('. ')[0] + (text.endsWith('.') ? '' : '.')
-          : text.split('；')[0].split('。')[0] + '。';
+    // The texts are short enough to show whole on hover.
+    const show = () => {
+      const t = $('#tooltip');
+      t.textContent = help[el.dataset.help] || el.dataset.help;
       t.classList.remove('hidden');
       const r = el.getBoundingClientRect();
-      t.style.left = Math.max(8, Math.min(innerWidth - 350, r.left)) + 'px';
+      t.style.left = Math.max(8, Math.min(innerWidth - 320, r.left - 8)) + 'px';
       t.style.top = Math.min(innerHeight - t.offsetHeight - 10, r.bottom + 8) + 'px';
     };
-    el.onmouseenter = () => show(false);
-    el.onfocus = () => show(false);
+    el.onmouseenter = () => show();
+    el.onfocus = () => show();
     el.onmouseleave = () => {
       if (!$('#tooltip').classList.contains('pinned')) $('#tooltip').classList.add('hidden');
     };
     el.onblur = el.onmouseleave;
     el.onclick = e => {
       e.stopPropagation();
-      show(true);
+      show();
       $('#tooltip').classList.toggle('pinned');
     };
   });

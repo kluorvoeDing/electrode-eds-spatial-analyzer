@@ -80,7 +80,7 @@ fs.mkdirSync('qa', { recursive: true });
     p.waitForFunction(() => !document.querySelector('#dialog').open && !busy);
   const rect = () => p.evaluate(() => ({ ...imageImport.rect }));
   async function choose(key, name) {
-    await p.locator('#import').click();
+    await p.locator('[data-step="data"]').click();
     await p.locator(`[data-file="${key}"]`).setInputFiles(path.resolve('qa', name));
     await p.locator('#cropSource').waitFor();
   }
@@ -99,7 +99,7 @@ fs.mkdirSync('qa', { recursive: true });
     );
 
   // 1. The first report opens the review with its map already selected; nothing is imported yet.
-  assert.match(await p.locator('.hint').textContent(), /map area is found for you/);
+  assert.match(await p.locator('.hint').textContent(), /map area and the scale bar are found/);
   await choose('nmc', 'report-ni.png');
   assert.equal(await p.evaluate(() => Object.keys(state.channels).length), 0);
   assert.deepEqual(await rect(), { x: 12, y: 40, w: 100, h: 50 });
@@ -264,7 +264,7 @@ fs.mkdirSync('qa', { recursive: true });
   // 4b. Micrograph first, maps second: confirming the first map leads straight into scaling SEM.
   // Re-cropping keeps the scale, whichever channel it is: the length typed for one image is
   // remembered there, and an image cropped again from the same source cannot change μm / pixel.
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-crop="nmc"]').click();
   await p.locator('#cropSource').waitFor();
   assert.equal(await p.locator('#cropScaleUm').inputValue(), '13.5');
@@ -301,6 +301,7 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#cropSource').waitFor();
   assert.equal(await p.locator('#cropScaleUm').count(), 0);
   await p.locator('#cropCancel').click();
+  await p.locator('#more').click();
   await p.locator('#settings').click();
   await p.locator('#clearData').click();
   await choose('sem', 'report-sem.png');
@@ -330,17 +331,17 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#channel').selectOption('sem');
 
   // 5. Three steps, each with one hint and a way forward: data, check masks, analyse.
-  assert.deepEqual(await p.locator('nav [data-step]').allTextContents(), [
-    '1 Data',
-    '2 Check masks',
-    '3 Analyze',
+  assert.deepEqual(await p.locator('nav [data-step] .label').allTextContents(), [
+    'Data',
+    'Check masks',
+    'Analyze',
   ]);
   await p.locator('#nextStep').click();
   await p.waitForFunction(() => !busy);
   assert.deepEqual(await p.evaluate(() => [step, display]), ['segment', 'overlay']);
   assert.match(await p.locator('.hint').first().textContent(), /where each element is counted/);
   // Every mask is shown at once, in its channel colour, with the share of the area it covers.
-  const ALL_MASKS = 'Mask: NMC / Ni · Secondary phase / Additive · PVDF / F';
+  const ALL_MASKS = 'NiSecondary phaseF';
   assert.equal(await p.locator('#maskLabel').textContent(), ALL_MASKS);
   assert.equal(await p.locator('#maskLabel .swatch').count(), 3);
   assert.equal(await p.locator('.legend [data-coverage]').count(), 3);
@@ -351,14 +352,17 @@ fs.mkdirSync('qa', { recursive: true });
       key,
     );
   // New work averages the count map before its threshold.
-  assert.deepEqual(await p.evaluate(() => ANALYSIS_KEYS.map(k => state.seg[k].denoise)), [2, 2, 2]);
+  assert.deepEqual(
+    await p.evaluate(() => ANALYSIS_KEYS.map(k => state.seg[k].denoise)),
+    [2, 2, 2, 2],
+  );
   // Nothing has to be adjusted: the controls are folded away. Opened, they show one mask alone.
   assert.equal(await p.locator('#thresholdNumber').isVisible(), false);
   assert.equal(await p.locator('#segAdjust > summary').textContent(), 'Adjust a mask');
   await p.locator('#segAdjust > summary').click();
   assert.equal(await p.locator('#thresholdNumber').isVisible(), true);
   await p.locator('#segChannel').selectOption('nmc');
-  assert.equal(await p.locator('#maskLabel').textContent(), 'Mask: NMC / Ni');
+  assert.equal(await p.locator('#maskLabel').textContent(), 'Ni');
   assert.equal(await p.locator('#denoise').inputValue(), '2');
   assert.equal(await p.locator('#segAdvanced summary').textContent(), 'Advanced');
   for (const id of ['invert', 'fill', 'smooth', 'minObject'])
@@ -394,7 +398,7 @@ fs.mkdirSync('qa', { recursive: true });
   const computed = await resultTiles();
   assert.deepEqual(
     await tiles.allTextContents(),
-    computed.map(t => (t.fraction * 100).toFixed(1) + '%'),
+    computed.map(t => (t.fraction * 100).toFixed(1)),
   );
   assert.deepEqual(
     computed.slice(0, 2).map(t => [t.x0, t.y0, t.x1, t.y1]),
@@ -409,10 +413,10 @@ fs.mkdirSync('qa', { recursive: true });
   assert.ok(Math.abs(lastBox.x + lastBox.width - (canvasBox.x + canvasBox.width)) < 0.6);
   assert.ok(Math.abs(lastBox.y + lastBox.height - (canvasBox.y + canvasBox.height)) < 0.6);
   const panel = () => p.locator('#results').textContent(),
-    headline = () => p.locator('#results .metric .value').first().textContent();
+    headline = () => p.locator('#results .kpi-value').first().textContent();
   assert.match(await panel(), /Whole region/);
   assert.match(await panel(), /Uniformity CV/);
-  assert.match(await panel(), /Share of this area covered by the secondary phase\./);
+  assert.match(await panel(), /Share of the analysed area\./);
   assert.equal(await p.locator('#hist').count(), 1);
   const whole = await p.evaluate(() => state.results.secondaryAreaFraction);
   assert.equal((await headline()).trim(), (whole * 100).toFixed(2) + '%');
@@ -423,9 +427,9 @@ fs.mkdirSync('qa', { recursive: true });
   };
   await clickTile(7);
   assert.equal(await p.evaluate(() => regionTile), 7);
-  assert.match(await p.locator('#results .region').textContent(), /Row 2 · column 3/);
+  assert.match(await p.locator('#results .scope').textContent(), /Row 2 · column 3/);
   assert.equal((await headline()).trim(), (computed[7].fraction * 100).toFixed(2) + '%');
-  assert.match(await panel(), /Uniformity CV: whole region only/);
+  assert.match(await panel(), /Spread figures exist for the whole region only/);
   assert.equal(await p.locator('#hist').count(), 0);
   assert.equal(await tiles.nth(7).evaluate(e => e.classList.contains('selected')), true);
   assert.ok(
@@ -460,7 +464,7 @@ fs.mkdirSync('qa', { recursive: true });
 
   // 6. The reported failure: one channel a pixel larger than the rest. Everything stops, and the
   //    notice above the image names that channel and leads to the fix.
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-crop="nmc"]').click();
   await p.locator('#cropSource').waitFor();
   await p.locator('#cropLockSize').uncheck();
@@ -490,7 +494,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(await p.evaluate(() => Object.keys(masks).sort()), ['f', 'nmc', 'secondary']);
 
   // 7. With sizes equal the rest of the workflow runs, here as a cross-section with LFP.
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('#view').selectOption('cross');
   await p.locator('#material').selectOption('LFP');
   await p.locator('[data-step="analyze"]').click();
@@ -531,7 +535,7 @@ fs.mkdirSync('qa', { recursive: true });
 
   // 9. Other errors also appear above the image, and clear once things work again.
   fs.writeFileSync('qa/usability-bad.csv', '1,2\n3');
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-file="other"]').setInputFiles(path.resolve('qa/usability-bad.csv'));
   await p.waitForFunction(() => document.querySelector('#status').classList.contains('error'));
   assert.equal(await notice().isVisible(), true);
@@ -561,8 +565,8 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#language').selectOption('zh-Hant');
   assert.equal(await p.locator('[data-display="elements"]').textContent(), '元素疊圖');
   assert.equal(await p.locator('[data-display="overlay"]').textContent(), '遮罩疊圖');
-  await p.locator('#import').click();
-  assert.match(await p.locator('.hint').textContent(), /自動框出有效區域/);
+  await p.locator('[data-step="data"]').click();
+  assert.match(await p.locator('.hint').textContent(), /自動找出有效區域與比例尺/);
   assert.equal(await p.locator('#nextStep').textContent(), '下一步：確認遮罩');
   await p.setViewportSize({ width: 390, height: 844 });
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

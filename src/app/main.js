@@ -5,14 +5,14 @@ function updateChrome() {
   $('#language').value = language;
   for (const [id, key] of Object.entries({
     appName: 'Electrode EDS Analyzer',
-    import: 'Import',
+    loadSession: 'Open project',
     save: 'Save Session',
     export: 'Export',
     settings: 'Settings',
     about: 'About',
+    demoMenu: 'Load the synthetic example',
     pan: 'Pan',
     closeDialog: 'Close',
-    empty: 'Import map',
     opacityLabel: 'Opacity',
   }))
     $('#' + id).textContent = t(key);
@@ -22,17 +22,16 @@ function updateChrome() {
     zoom: 'Zoom',
     opacity: 'Overlay opacity',
     collapse: 'Toggle results',
+    more: 'More',
   }))
     $('#' + id).setAttribute('aria-label', t(key));
-  document.querySelectorAll('[data-step]').forEach(b => {
-    const s = b.dataset.step;
-    b.textContent = `${STEP_ORDER.indexOf(s) + 1} ${t(STEP_LABELS[s])}`;
-  });
+  document
+    .querySelectorAll('[data-step] .label')
+    .forEach(l => (l.textContent = t(STEP_LABELS[l.parentElement.dataset.step])));
   document
     .querySelectorAll('[data-display]')
-    .forEach(
-      b => (b.textContent = t(b.dataset.display[0].toUpperCase() + b.dataset.display.slice(1))),
-    );
+    .forEach(b => (b.textContent = t(DISPLAY_LABELS[b.dataset.display])));
+  renderEmpty();
   $('#zoom').querySelector('[value="fit"]').textContent = t('Fit');
   $('#pan').title = t('Pan');
   status(lastStatus, lastStatusError);

@@ -127,6 +127,7 @@ function loadDemo() {
     ni = new Float64Array(w * h),
     s = new Float64Array(w * h),
     f = new Float64Array(w * h),
+    c = new Float64Array(w * h),
     sem = new Float64Array(w * h);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -136,6 +137,9 @@ function loadDemo() {
       ni[i] = Math.hypot(dx, dy) < 14 ? 200 : 0;
       s[i] = x % 48 < 10 && y % 48 < 12 ? 180 : 0;
       f[i] = x % 48 < 13 && y % 48 < 15 ? 220 : 0;
+      // Carbon dots in the gaps, larger towards the right, so the trends have something to show.
+      c[i] =
+        x % 48 >= 36 && x % 48 < 38 + Math.floor(x / 48) && y % 48 >= 38 && y % 48 < 44 ? 160 : 0;
       sem[i] = 30 + ni[i] * 0.7 + s[i] * 0.4;
     }
   state.channels = {
@@ -143,6 +147,7 @@ function loadDemo() {
     nmc: { name: 'synthetic-ni.csv', w, h, data: ni, format: 'csv' },
     secondary: { name: 'synthetic-ti.csv', w, h, data: s, format: 'csv' },
     f: { name: 'synthetic-f.csv', w, h, data: f, format: 'csv' },
+    c: { name: 'synthetic-c.csv', w, h, data: c, format: 'csv' },
   };
   channelVersion++;
   state.sample = 'Synthetic uniform';

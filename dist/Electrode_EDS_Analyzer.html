@@ -1,24 +1,45 @@
-<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:; connect-src 'none'; object-src 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Electrode EDS Analyzer</title><style>:root {
-  --accent: #078491;
-  --bg: #f4f5f6;
-  --line: #d6dade;
-  --text: #242b35;
-  --muted: #6b7380;
+<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; worker-src blob:; connect-src 'none'; object-src 'none'"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Electrode EDS Analyzer</title><style>/* Neutral zinc surfaces, one accent for state (the current step, focus), and the element colours
+   kept for data. The image area is dark so element maps read as they do in the EDS software. */
+:root {
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --subtle: #fafafa;
+  --line: #e4e4e7;
+  --line-2: #d4d4d8;
+  --ink: #18181b;
+  --ink-2: #52525b;
+  --ink-3: #71717a;
+  --ink-4: #a1a1aa;
+  --accent: #047857;
+  --accent-soft: #e6f3ee;
+  --warn: #92400e;
+  --warn-soft: #fef6e7;
+  --warn-line: #f0d29a;
+  --error: #b91c1c;
+  --viewer: #1c1c1f;
+  --viewer-2: #27272a;
+  --viewer-line: #34343a;
+  --viewer-ink: #d4d4d8;
+  --radius: 6px;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
-  color: var(--text);
+  color: var(--ink);
   font:
     13px/1.5 system-ui,
     -apple-system,
     'Segoe UI',
-    'Microsoft JhengHei',
     'PingFang TC',
+    'Microsoft JhengHei',
+    'Noto Sans TC',
     sans-serif;
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
 }
 button,
 input,
@@ -27,122 +48,626 @@ select {
   color: inherit;
 }
 button,
-select,
-input[type='text'],
-input[type='number'] {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: white;
-  padding: 7px 9px;
-}
-button {
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface);
   cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s var(--ease),
+    border-color 0.15s var(--ease),
+    transform 0.15s var(--ease);
 }
-button:hover {
-  border-color: var(--accent);
+button:hover,
+.button:hover {
+  border-color: var(--ink-4);
+  background: var(--subtle);
 }
-button.primary,
-button.active {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+button.primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+button.primary:hover {
+  background: #27272a;
+}
+button.ghost,
+button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+}
+button.ghost:hover,
+button.quiet:hover {
+  background: var(--bg);
+  border-color: transparent;
+  color: var(--ink);
+}
+button.small,
+.button.small {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  gap: 4px;
+}
+.icon-only {
+  padding: 0 !important;
+  width: 32px;
+}
+.small.icon-only {
+  width: 26px;
 }
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
-input:focus,
-select:focus,
-button:focus-visible {
+.icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon circle {
+  fill: currentColor;
+  stroke: none;
+}
+select,
+input[type='text'],
+input[type='number'],
+input:not([type]) {
+  min-height: 32px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0 9px;
+}
+select {
+  padding-right: 6px;
+}
+input:focus-visible,
+select:focus-visible,
+button:focus-visible,
+.button:focus-within,
+summary:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 input[type='range'] {
-  accent-color: var(--accent);
+  accent-color: var(--ink-2);
   width: 100%;
 }
 input[type='checkbox'] {
   accent-color: var(--accent);
+  margin: 0;
 }
-header {
-  height: 62px;
-  display: flex;
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+h3 {
+  font-size: 12px;
+  margin: 18px 0 8px;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+/* Top bar: name and sample, the three steps, project actions. */
+.topbar {
+  height: 52px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  background: white;
+  gap: 16px;
+  padding: 0 12px 0 16px;
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
-header strong {
-  font-size: 17px;
-  margin-right: auto;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.brand .mark rect {
+  fill: var(--ink);
+}
+.brand strong {
+  font-size: 14px;
   white-space: nowrap;
 }
-header input {
-  width: 210px;
+.brand .sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line-2);
+  flex: none;
 }
+#sample {
+  min-width: 80px;
+  width: 200px;
+  border-color: transparent;
+  color: var(--ink-2);
+  background: transparent;
+  padding: 0 7px;
+}
+#sample:hover {
+  border-color: var(--line-2);
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.stepper .link {
+  width: 20px;
+  height: 1px;
+  background: var(--line-2);
+}
+.stepper button {
+  border: 0;
+  border-radius: 16px;
+  min-height: 32px;
+  padding: 0 12px 0 6px;
+  gap: 8px;
+  background: none;
+  color: var(--ink-3);
+}
+.stepper button:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+.stepper .n {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+  font: 600 11px var(--mono);
+  transition: background-color 0.2s var(--ease);
+}
+.stepper .done {
+  color: var(--ink-2);
+}
+.stepper .done .n {
+  background: var(--ink-2);
+  border-color: var(--ink-2);
+  color: #fff;
+}
+.stepper .active {
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 600;
+}
+.stepper .active .n {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+select.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+}
+.menu-wrap {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 190px;
+  display: grid;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px -12px #18181b40;
+}
+.menu button {
+  justify-content: flex-start;
+  border: 0;
+  background: none;
+}
+.menu button:hover {
+  background: var(--bg);
+}
+
+/* Three columns: step panel, image, results. The results column is only there for the analysis. */
 main {
   display: grid;
-  grid-template-columns: 280px minmax(300px, 1fr) 300px;
-  height: calc(100vh - 94px);
+  grid-template-columns: 296px minmax(0, 1fr) 0;
+  height: calc(100vh - 52px - 28px);
+}
+main[data-stage='analyze'] {
+  grid-template-columns: 296px minmax(0, 1fr) 320px;
+}
+main:not([data-stage='analyze']) aside.right {
+  display: none;
+}
+main.collapsed[data-stage='analyze'] {
+  grid-template-columns: 296px minmax(0, 1fr) 44px;
+}
+main.collapsed .right > *:not(#collapse) {
+  display: none;
 }
 aside {
   overflow: auto;
-  background: #fafbfc;
-  padding: 16px;
+  background: var(--surface);
+}
+aside.left {
   border-right: 1px solid var(--line);
 }
 aside.right {
+  position: relative;
   border-left: 1px solid var(--line);
-  border-right: 0;
 }
-nav {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+#controls {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 18px 18px 0;
+}
+#controls > h2 {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  margin: -16px -16px 14px;
-  padding: 12px 16px 10px;
-  position: sticky;
-  top: -16px;
-  z-index: 2;
-  background: #fafbfc;
-  border-bottom: 1px solid var(--line);
 }
-nav button {
-  padding: 9px 4px;
-  white-space: nowrap;
+.hint {
+  margin: 4px 0 16px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.panel-foot {
+  position: sticky;
+  bottom: 0;
+  margin: auto -18px 0;
+  padding: 14px 18px 18px;
+  background: linear-gradient(to bottom, #ffffff00, var(--surface) 14px);
+}
+.full {
+  width: 100%;
+}
+label.field {
+  display: block;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+label.field .info {
+  margin-left: 4px;
+}
+label.field > :is(input, select) {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  color: var(--ink);
   font-size: 13px;
 }
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+.button-row {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+.button-row > * {
+  flex: 1;
+  min-width: 0;
+}
+.group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+.seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border-radius: 7px;
+}
+.seg button {
+  min-height: 28px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  border-radius: 5px;
+}
+.seg button.active,
+.seg button.on {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow:
+    0 1px 2px #18181b1f,
+    0 0 0 1px #18181b0a;
+}
 details {
-  margin: 14px 0 4px;
+  margin: 8px 0 0;
+  padding: 12px 0 4px;
   border-top: 1px solid var(--line);
-  padding-top: 10px;
 }
 summary {
   cursor: pointer;
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: 12px;
   font-weight: 600;
+  list-style-position: inside;
 }
-.hint {
-  margin: -6px 0 12px;
-  color: var(--muted);
+details[open] > summary {
+  margin-bottom: 10px;
+}
+.compare {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+}
+.warning {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  color: var(--warn);
   font-size: 12px;
 }
-#nextStep {
-  margin-top: 16px;
+.info {
+  width: 16px;
+  min-height: 16px !important;
+  height: 16px;
+  padding: 0 !important;
+  border: 1px solid var(--ink-4) !important;
+  border-radius: 50%;
+  background: transparent !important;
+  color: var(--ink-3) !important;
+  font: 600 10px/1 var(--mono);
+  cursor: help;
+  flex: none;
+  vertical-align: 1px;
+}
+.info:hover {
+  border-color: var(--ink-2) !important;
+  color: var(--ink) !important;
+}
+#tooltip {
+  position: fixed;
+  z-index: 30;
+  max-width: 300px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: #f4f4f5;
+  font-size: 12px;
+  line-height: 1.55;
+  box-shadow: 0 12px 28px -10px #18181b80;
+  pointer-events: none;
+}
+#tooltip.pinned {
+  pointer-events: auto;
+}
+
+/* Channel rows on the data step. */
+.channel {
+  margin: 0 0 8px;
+  padding: 10px 10px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  transition: border-color 0.15s var(--ease);
+}
+.channel.loaded {
+  background: var(--subtle);
+}
+.channel.drag,
+.channel.paste-target {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.channel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.channel-head strong {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.channel-state {
+  margin-left: auto;
+  flex: none;
+  font: 11px var(--mono);
+  color: var(--ink-3);
+}
+.channel:not(.loaded) .channel-state {
+  font-family: inherit;
+}
+.channel .filename {
+  margin: 2px 0 0 18px;
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 0 18px;
+}
+.channel-ops [data-remove] {
+  margin-left: auto;
+}
+.channel-ops input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.button {
+  position: relative;
+}
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+/* Mask legend on the second step. */
+.legend {
+  border-top: 1px solid var(--line);
+}
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.legend-row .coverage {
+  margin-left: auto;
+  font: 12px var(--mono);
+  color: var(--ink-2);
+}
+.checks {
+  margin: 4px 0 8px;
+}
+.roilist {
+  font-size: 12px;
+  max-height: 140px;
+  overflow: auto;
+}
+.roi-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+/* Image area. */
+#workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--viewer);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 7px 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--viewer-line);
+  color: var(--viewer-ink);
+  font-size: 12px;
+}
+.toolbar select {
+  min-height: 28px;
+  border: 0;
+  background: var(--viewer-2);
+  color: #e4e4e7;
+  max-width: 150px;
+}
+.seg.dark {
+  background: var(--viewer-2);
+  grid-auto-columns: auto;
+}
+.seg.dark button {
+  color: var(--ink-4);
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.seg.dark button:hover {
+  color: #fafafa;
+}
+.seg.dark button.active {
+  background: #3f3f46;
+  color: #fafafa;
+  box-shadow: none;
+}
+.legend-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--ink-4);
+}
+.legend-inline .swatch {
+  margin-right: 5px;
+  vertical-align: -1px;
 }
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: 4px 12px;
   align-items: center;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  color: var(--ink-4);
 }
-.chips span {
-  color: var(--muted);
+.chips label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.chips input {
+  accent-color: #a1a1aa;
+}
+.toolbar .spacer {
+  flex: 1;
+}
+.toolbar .range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-4);
+}
+.toolbar .range input {
+  width: 84px;
 }
 .notice {
   display: flex;
@@ -150,320 +675,356 @@ summary {
   gap: 8px 12px;
   align-items: center;
   padding: 10px 14px;
-  background: #fff4e0;
-  border-bottom: 1px solid #e3b25f;
-  color: #6b4200;
+  background: var(--warn-soft);
+  border-bottom: 1px solid var(--warn-line);
+  color: var(--warn);
 }
 .notice button {
-  border-color: #c98a1e;
+  border-color: #d6a34f;
   font-weight: 600;
-}
-h2 {
-  font-size: 14px;
-  margin: 0 0 14px;
-}
-h3 {
-  font-size: 12px;
-  margin: 18px 0 8px;
-  color: var(--muted);
-  font-weight: 600;
-}
-label.field {
-  display: block;
-  margin: 13px 0 5px;
-}
-label.field input:not([type='checkbox']),
-label.field select {
-  width: 100%;
-  margin-top: 5px;
-}
-.row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin: 8px 0;
-}
-.row > * {
-  min-width: 0;
-}
-.row input[type='number'] {
-  width: 84px;
-}
-.row select {
-  flex: 1;
-}
-.checks label {
-  display: block;
-  margin: 9px 0;
-}
-.info {
-  font-family: Georgia, serif;
-  font-weight: bold;
-  font-style: normal;
-  border: 1px solid var(--muted);
-  width: 15px;
-  height: 15px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none !important;
-  color: var(--muted) !important;
-  border-radius: 50%;
-  font-size: 13px;
-  padding: 0;
-  line-height: 14px;
-  cursor: help;
-}
-.info:hover {
-  color: var(--accent) !important;
-}
-#tooltip {
-  position: fixed;
-  z-index: 10;
-  background: #242b35;
-  color: white;
-  padding: 10px 12px;
-  max-width: 340px;
-  border-radius: 4px;
-  box-shadow: 0 4px 18px #0003;
-  font-size: 12px;
-  pointer-events: none;
-}
-#tooltip.pinned {
-  pointer-events: auto;
-}
-#workspace {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-}
-.toolbar {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  padding: 12px;
-  border-bottom: 1px solid var(--line);
-  flex-wrap: wrap;
-  min-height: 62px;
-}
-.toolbar select {
-  max-width: 190px;
-}
-.toolbar input[type='range'] {
-  width: 90px;
-}
-.toolbar .spacer {
-  flex: 1;
+  min-height: 28px;
 }
 #viewport {
   position: relative;
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  background: #30353b;
   touch-action: none;
 }
 #stage {
   position: relative;
   width: fit-content;
-  margin: 20px auto;
+  margin: 24px auto;
 }
 #canvas {
   display: block;
   max-width: none;
   cursor: crosshair;
+  image-rendering: pixelated;
 }
 #gridOverlay {
   position: absolute;
   inset: 0 0 auto 0;
   pointer-events: none;
 }
-#scaleMark {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  color: #e8ebee;
-  font-size: 12px;
-}
-#scaleMark .bar {
-  display: inline-block;
-  height: 3px;
-  background: #e8ebee;
-}
 #gridOverlay .tile {
   position: absolute;
   display: grid;
   place-items: center;
-  box-sizing: border-box;
-  border: 1px solid #ffffffb0;
+  border: 0.5px solid #ffffff73;
   color: #fff;
+  font-family: var(--mono);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   text-shadow:
     0 0 3px #000,
-    0 0 3px #000,
-    0 1px 2px #000;
+    0 0 2px #000;
   overflow: hidden;
 }
 #gridOverlay .tile.selected {
-  border: 3px solid #ffd54a;
-  background: #ffd54a2e;
+  border: 2px solid #fff;
+  box-shadow: inset 0 0 0 2px #18181b99;
 }
-.swatch {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 5px;
-  border-radius: 2px;
-  vertical-align: baseline;
-}
-.legend .row {
-  align-items: center;
-  margin: 6px 0;
-  font-size: 13px;
-}
-.legend .spacer {
-  flex: 1;
-}
-.metric .note {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-.region {
+#scaleMark {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
-  margin: 2px 0 6px;
-  font-size: 14px;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--viewer-ink);
+  font: 11px var(--mono);
 }
-.region button {
-  margin-left: auto;
-  padding: 3px 9px;
-  font-size: 12px;
-}
-.crop-scale {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-.crop-scale .row {
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
-.crop-scale label {
-  font-size: 11px;
-}
-.crop-scale input {
-  display: block;
-  width: 110px;
-  margin-top: 4px;
+#scaleMark .bar {
+  display: inline-block;
+  height: 2px;
+  background: #e4e4e7;
 }
 .empty {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  color: #c5cbd1;
-  font-size: 14px;
+  padding: 24px;
+}
+.empty.hidden {
+  display: none;
+}
+.empty-card {
+  max-width: 420px;
+  color: var(--viewer-ink);
+}
+.empty-card h2 {
+  font-size: 18px;
+  color: #fafafa;
+}
+.empty-card p {
+  margin: 8px 0 0;
+  color: var(--ink-4);
+}
+.empty-card .fine {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+.empty-actions button {
+  background: var(--viewer-2);
+  border-color: var(--viewer-line);
+  color: #e4e4e7;
+}
+.empty-actions button:hover {
+  background: #3f3f46;
+  border-color: #52525b;
+}
+.progress {
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: slide 1.1s var(--ease) infinite;
+}
+@keyframes slide {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+/* Trend strip under the image. */
+.trends {
+  flex: none;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: 10px 16px 6px;
+  color: var(--ink);
+}
+.trends-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 12px;
+}
+.trend-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.trend-legend .key {
+  display: inline-block;
+  width: 16px;
+  margin-left: 8px;
+  border-top: 1px solid #a1a1aa;
+}
+.trend-legend .key.mean {
+  border-top: 2px solid var(--tint);
+  margin-left: 0;
+}
+.trend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.trend {
+  margin: 4px 0 0;
+  min-width: 0;
+}
+.trend figcaption {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.trend-plot svg {
+  display: block;
+  overflow: visible;
+}
+.trend .gridline {
+  stroke: #ececef;
+  stroke-width: 1;
+}
+.trend .tick {
+  font: 10px var(--mono);
+  fill: var(--ink-3);
+}
+.trend .series .line {
+  fill: none;
+  stroke: #a1a1aa;
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+  transition:
+    stroke 0.15s var(--ease),
+    stroke-opacity 0.15s var(--ease);
+}
+.trend .series .hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 10;
+  cursor: default;
+}
+.trend .series.picked .line {
+  stroke: var(--ink-2);
+  stroke-opacity: 1;
+  stroke-width: 1.5;
+}
+.trend .series.hot .line {
+  stroke: var(--ink);
+  stroke-opacity: 1;
+  stroke-width: 1.75;
+}
+.trend .mean {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
   pointer-events: none;
 }
-.drop {
-  border: 1px dashed var(--line);
-  padding: 13px;
-  margin: 10px 0;
-  background: white;
-  border-radius: 4px;
+.trend .mean-dot {
+  stroke: #fff;
+  stroke-width: 2;
+  pointer-events: none;
 }
-.drop.drag {
-  border-color: var(--accent);
-  background: #e4f3f4;
-}
-.drop strong {
-  display: block;
-  font-size: 12px;
-}
-.drop input {
-  width: 100%;
-  font-size: 11px;
-  margin-top: 7px;
-}
-.drop .filename {
-  font-size: 11px;
-  color: var(--muted);
+.trend-caption {
+  min-height: 16px;
+  font: 11px var(--mono);
+  color: var(--ink-2);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.metric {
-  padding: 13px 0;
+
+/* Results column. */
+#collapse {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  z-index: 2;
+}
+.results-head {
+  padding: 18px 18px 12px;
+}
+.results-empty {
+  padding: 18px;
+}
+.results-empty p {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  min-height: 26px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.scope b {
+  color: var(--ink);
+}
+.tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border-bottom: 1px solid var(--line);
+  padding: 0 10px;
+}
+.tabs button {
+  min-height: 40px;
+  padding: 0 4px;
+  gap: 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.tabs button:hover {
+  background: none;
+  color: var(--ink);
+}
+.tabs button.on {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+  font-weight: 600;
+}
+.figures {
+  padding: 0 18px 24px;
+}
+.figures .group-label {
+  margin: 20px 0 0;
+}
+.kpi {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 10px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--line);
 }
-.metric .label {
+.kpi-label {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   font-size: 12px;
+  color: var(--ink-2);
 }
-.metric .value {
-  font-size: 23px;
+.kpi-value {
+  font-size: 18px;
   font-weight: 600;
-  margin-top: 3px;
-  font-variant-numeric: tabular-nums;
-}
-.metric small {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-}
-.chart {
-  width: 100%;
-  height: 130px;
-  margin: 8px 0;
-}
-footer {
-  height: 32px;
-  display: flex;
-  align-items: center;
-  padding: 0 14px;
-  gap: 12px;
-  border-top: 1px solid var(--line);
-  background: white;
-  color: var(--muted);
-  font-size: 11px;
-}
-#status.error {
-  color: #af2929;
-}
-#status {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
-dialog {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 24px;
-  color: var(--text);
-  max-width: 90vw;
-  max-height: 88vh;
-  overflow: auto;
+.kpi-value small {
+  margin-left: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-3);
 }
-dialog::backdrop {
-  background: #17202b66;
+.kpi-note {
+  grid-column: 1 / -1;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--ink-3);
 }
-dialog h2 {
-  font-size: 18px;
+.kpi.hero {
+  padding: 16px 0 14px;
 }
-.dialogbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 40px;
+.kpi.hero .kpi-value {
+  font-size: 30px;
+  line-height: 1.1;
+}
+.kpi-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+.kpi-pair .kpi {
+  grid-template-columns: 1fr;
+}
+.kpi-pair .kpi-value {
+  margin-top: 2px;
+}
+.hist {
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.hist canvas {
+  display: block;
+  width: 100%;
+  height: 96px;
+}
+.compact {
+  font-size: 11px;
+}
+.muted {
+  color: var(--ink-3);
 }
 table {
   border-collapse: collapse;
@@ -472,154 +1033,139 @@ table {
 }
 th,
 td {
-  padding: 10px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   white-space: nowrap;
 }
+th {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+td {
+  font-variant-numeric: tabular-nums;
+}
+table.depth {
+  margin: 4px 0 0;
+}
+table.depth :is(th, td) {
+  padding: 6px 4px;
+  text-align: right;
+}
 td input {
   width: 100px;
 }
-.muted {
-  color: var(--muted);
+
+footer {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 11px;
 }
-.warning {
-  font-size: 12px;
-  color: #955d00;
-  padding: 8px 0;
+.dot-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+footer.error .dot-status {
+  background: var(--error);
+}
+#status {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#status.error {
+  color: var(--error);
+}
+#dimensions {
+  font-family: var(--mono);
+}
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px 22px 22px;
+  color: var(--ink);
+  max-width: 92vw;
+  max-height: 88vh;
+  overflow: auto;
+  box-shadow: 0 24px 60px -20px #18181b66;
+}
+dialog::backdrop {
+  background: #18181b59;
+}
+dialog h2 {
+  font-size: 16px;
+}
+.dialogbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 40px;
+  margin-bottom: 14px;
+}
+#dialogbody > .row,
+#dialogbody .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0;
 }
 .hidden {
   display: none !important;
 }
-.roilist {
-  font-size: 11px;
-  max-height: 140px;
-  overflow: auto;
-}
-.roilist .row {
-  justify-content: space-between;
-}
-.compact {
-  font-size: 11px;
-}
-.full {
-  width: 100%;
-}
-.progress {
-  height: 3px;
-  background: var(--accent);
-  animation: pulse 1s infinite;
-}
-main.collapsed {
-  grid-template-columns: 280px minmax(300px, 1fr) 42px;
-}
-main.collapsed .right > *:not(#collapse) {
-  display: none;
-}
-main.collapsed .right {
-  padding: 5px;
-}
-@keyframes pulse {
-  50% {
-    opacity: 0.25;
-  }
-}
-@media (max-width: 1100px) {
-  header strong {
-    font-size: 14px;
-  }
-  header {
-    gap: 5px;
-    padding: 10px;
-  }
-  header input {
-    width: 140px;
-  }
-  main {
-    grid-template-columns: 250px minmax(240px, 1fr) 250px;
-  }
-  aside {
-    padding: 12px;
-  }
-  .toolbar {
-    gap: 5px;
-  }
-  header button {
-    padding: 7px;
-  }
-}
-@media (max-width: 820px) {
-  header {
-    height: auto;
-    flex-wrap: wrap;
-  }
-  header strong {
-    width: 100%;
-  }
-  main {
-    height: auto;
-    min-height: 80vh;
-    grid-template-columns: 220px minmax(200px, 1fr);
-  }
-  aside.right {
-    grid-column: 1/-1;
-  }
-  #workspace {
-    height: 650px;
-  }
-  footer {
-    position: sticky;
-    bottom: 0;
-  }
-  main.collapsed {
-    grid-template-columns: 220px minmax(200px, 1fr);
-  }
-  main.collapsed .right {
-    grid-column: 1/-1;
-  }
-}
-@media (max-width: 520px) {
-  main,
-  main.collapsed {
-    display: flex;
-    flex-direction: column;
-  }
-  #workspace {
-    height: 500px;
-  }
-  aside {
-    max-height: none;
-  }
-  header input {
-    width: 150px;
-  }
-}
-.drop.paste-target {
-  border-color: var(--accent);
-}
+
+/* Paste and crop dialog. */
 .paste-well {
-  border: 2px dashed var(--accent);
-  padding: 28px;
+  border: 1.5px dashed var(--line-2);
+  border-radius: 10px;
+  padding: 32px;
   text-align: center;
   max-width: 540px;
+}
+.paste-well:focus {
+  border-color: var(--accent);
+  outline: none;
+  background: var(--accent-soft);
 }
 .crop-heading {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+}
+.crop-heading span {
+  font: 12px var(--mono);
+  color: var(--ink-3);
+}
+.crop-heading .info {
+  margin-left: auto;
 }
 .crop-layout {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 20px;
-  max-width: 900px;
-  width: 75vw;
+  gap: 24px;
+  max-width: 960px;
+  width: 78vw;
+}
+.crop-layout h3 {
+  margin-top: 0;
 }
 .crop-source-wrap {
-  max-height: 48vh;
+  max-height: 46vh;
   overflow: auto;
-  background: #30353b;
+  background: var(--viewer);
+  border-radius: var(--radius);
 }
 .crop-layout canvas {
   max-width: 100%;
@@ -631,74 +1177,172 @@ main.collapsed .right {
   touch-action: none;
   cursor: crosshair;
 }
+#cropSource:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 #cropPreview {
-  background: #30353b;
+  background: var(--viewer);
+  border-radius: 4px;
   min-width: 100px;
 }
 .crop-coordinates {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
   margin-top: 12px;
 }
-.crop-coordinates label {
+.crop-coordinates label,
+.crop-scale label {
+  display: grid;
+  gap: 4px;
   font-size: 11px;
+  color: var(--ink-3);
 }
 .crop-coordinates input {
   width: 100%;
   min-width: 0;
+  font-family: var(--mono);
 }
 .crop-nudge {
   align-items: center;
   flex-wrap: wrap;
 }
 .crop-nudge button[data-nudge] {
-  min-width: 32px;
-  padding-left: 0;
-  padding-right: 0;
+  width: 32px;
+  padding: 0;
 }
 .crop-fit {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   margin-top: 10px;
 }
-#cropSource:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+.crop-fit label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crop-scale {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.crop-scale > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#cropScaleStatus {
+  margin: 4px 0 2px;
+  color: var(--ink-2);
+}
+.crop-scale .row {
+  align-items: flex-end !important;
+}
+.crop-scale input {
+  width: 150px;
+  font-family: var(--mono);
+}
+#cropSizeStatus {
+  margin-top: 10px;
+  color: var(--ink-2);
 }
 .crop-confirm {
-  display: block;
-  margin: 16px 0;
-}
-.crop-heading .info {
-  margin-left: auto;
-}
-@media (max-width: 640px) {
-  .crop-layout {
-    grid-template-columns: 1fr;
-    width: 76vw;
-    gap: 8px;
-  }
-  .crop-source-wrap {
-    max-height: 32vh;
-  }
-  .crop-coordinates {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .crop-layout #cropPreview {
-    max-height: 160px;
-    max-width: 100%;
-    width: auto;
-  }
-  .crop-heading {
-    flex-wrap: wrap;
-  }
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--subtle);
+  border: 1px solid var(--line);
 }
 dialog.image-editor {
   top: 4vh;
   bottom: auto;
   margin-top: 0;
   max-height: 92vh;
+}
+
+@media (max-width: 1500px) {
+  #opacityLabel {
+    display: none;
+  }
+}
+@media (max-width: 1280px) {
+  .brand strong {
+    display: none;
+  }
+  .brand .sep {
+    display: none;
+  }
+  main,
+  main[data-stage='analyze'] {
+    grid-template-columns: 264px minmax(0, 1fr) 0;
+  }
+  main[data-stage='analyze'] {
+    grid-template-columns: 264px minmax(0, 1fr) 290px;
+  }
+  main.collapsed[data-stage='analyze'] {
+    grid-template-columns: 264px minmax(0, 1fr) 44px;
+  }
+  #controls {
+    padding: 14px 14px 0;
+  }
+  .panel-foot {
+    margin: auto -14px 0;
+    padding: 12px 14px 14px;
+  }
+  .stepper .link {
+    width: 10px;
+  }
+}
+@media (max-width: 980px) {
+  .topbar {
+    height: auto;
+    grid-template-columns: 1fr auto;
+    padding: 8px 12px;
+  }
+  .stepper {
+    grid-column: 1 / -1;
+    order: 3;
+    justify-content: center;
+  }
+  main,
+  main[data-stage='analyze'],
+  main.collapsed[data-stage='analyze'] {
+    height: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  #workspace {
+    height: 640px;
+  }
+  .trend-grid {
+    grid-template-columns: 1fr;
+  }
+  .crop-layout {
+    grid-template-columns: 1fr;
+    width: 84vw;
+  }
+}
+@media (max-width: 640px) {
+  .actions #loadSession,
+  #sample {
+    display: none;
+  }
+  .crop-coordinates {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .crop-source-wrap {
+    max-height: 32vh;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 </style><body><div id="app"></div><script>'use strict';
 /* Deterministic numerical core, shared by the browser Worker and Node tests. */
@@ -1559,35 +2203,50 @@ const UI_EN = {
   'About offline':
     'No external API, CDN, upload or AI runtime. Session JSON includes complete intensity data and can be reloaded offline.',
 };
+// Help texts in plain Chinese; symbols, units and instrument names stay as written on the reports.
 const HELP_ZH = {
   secondary:
-    '相對 NMC 主相添加的材料，例如 TiO₂、ZrO₂、MnO₂、Al₂O₃ 或 LFP；配方角色不代表必然是獨立晶體第二相。',
-  cv: 'ROI 的網格內 Secondary 面積比例之母體標準差 / 平均值；越低代表局部分布差異越小。空網格不參與計算。',
-  occupancy:
-    'NMC 顆粒間區域內的 Secondary 像素 / 顆粒間區域像素；僅為二維佔據率，並非三維孔隙填充率。',
-  targeting: '位於 ROI − NMC mask 的 Secondary 像素 / ROI 內全部 Secondary 像素。',
-  distance:
-    'Secondary 像素中心至最近 NMC 邊界像素中心的二維 Euclidean distance；重疊於 NMC 內部的像素也計算至邊界距離。',
+    '相對主相額外加入的材料，例如 TiO₂、ZrO₂、MnO₂、Al₂O₃ 或 LFP。這是配方上的角色，不代表一定是獨立的晶相。',
+  area: '遮罩的像素數除以分析範圍的像素數，也就是這個元素在影像上所佔的面積比例。',
+  cv: '把分析範圍切成網格，算出每一格的面積比例，再以標準差除以平均。數值越小，各處越接近，分布越均勻；空格不計入。',
+  profileCV:
+    '把同一欄（或同一列）的格子合併算出面積比例，再比較各欄（或各列）之間的差異。欄間差異大代表左右不均，列間差異大代表上下不均；截面影像的列間差異就是厚度方向的變化。',
+  between: '這個元素的像素中，位於主相顆粒之外、也就是顆粒之間的比例。',
+  occupancy: '主相顆粒之間的空隙中，被次要相佔據的比例。這是平面上的佔據率，不是立體孔隙的填充率。',
+  targeting: '次要相的像素中，位於主相顆粒之外的比例。',
+  distance: '每個次要相像素到最近主相顆粒邊界的直線距離；疊在顆粒上的像素也量到邊界。',
   binder:
-    'Secondary 邊界像素中，指定距離內存在 F mask 的比例。F 僅為 PVDF tracer，非化學鍵結證據。',
-  pearson:
-    'Secondary 與 F intensity 在有效 ROI 內的 Pearson r。常數訊號為無法計算；不可單獨證明 PVDF 覆蓋。',
-  overlap: 'Threshold 後 binary mask 的雙向 overlap，非 intensity-weighted Manders coefficient。',
+    '次要相的邊緣像素中，在設定距離內有黏結劑（F）的比例。F 只是黏結劑的指標元素，不代表有化學鍵結。',
+  pearson: '次要相與 F 兩張元素圖原始強度的相關係數，介於 −1 到 1。相關高不能單獨證明黏結劑包覆。',
+  overlap: '兩個遮罩重疊的像素數，分別除以 F 或次要相的像素數；只看有無，不看強度。',
   depth:
-    '按有效 ROI 厚度範圍三等分，計算各區 Secondary 面積比例與母體 CV；設定 Top 的方向並排除集流體。',
-  threshold:
-    'Auto 使用 ROI intensity histogram 的 Otsu；Manual 採 intensity > threshold，Invert 反轉判定。',
-  csv: '無表頭逗號分隔數值矩陣。優先使用原始 CSV；圖片採 max(R,G,B)，彩色 LUT 並不一定保留原始 intensity。',
-  cal: 'μm/pixel；空值或 0 表示未校正，距離以 px 呈現。Scale bar：點選兩端後輸入實際長度。',
-  roi: 'Rectangle 拖曳；Polygon 逐點點選並按完成。多個 include ROI 取聯集，再反轉 include，最後扣除 exclusions。',
-  mn: 'NMC 本身含 Mn。單純 Mn threshold 可能高估 MnO₂；Mn/(Ni+ε) 僅是探索用 proxy，需驗證背景與低 Ni 訊號。',
-  al: 'Al map 可能包含 Al current collector；Cross Section 必須限定有效極層並排除集流體。',
-  unit: 'CSV intensity 保留原始數值，圖片為 0–255。各圖須相同尺寸、視野、方向且預先完成 registration。',
-  smooth:
-    '3×3 binary majority smoothing；依序 threshold → smooth → fill holes → 移除小物件。連通與邊界採 4-neighbor。',
-  radius: '有校正預設 0.5 μm，無校正預設 3 px。此距離只影響 Binder Coverage。',
+    '把截面的分析範圍沿厚度方向等分為上、中、下三層，比較各層的面積比例。請設定哪一側是上方，並先排除集流體。',
+  threshold: '自動模式依強度分布找出分界（大津法）；手動模式把強度高於閾值的像素算作有該元素。',
+  csv: '沒有標題列、以逗號分隔的數值矩陣。CSV 保留原始強度，比圖片準確；圖片取紅、綠、藍三色中的最大值，彩色色階不一定保留原始強度。',
+  cal: '每個像素代表的實際長度（μm）。裁切時會由原圖上的比例尺換算，也可以在這裡直接輸入；空白時距離以像素顯示。',
+  roi: '矩形用拖曳；多邊形逐點點選後按「完成多邊形」。多個範圍取聯集，可整體反轉，最後扣除標為排除的部分。',
+  mn: '主相本身就含錳，直接以錳圖取閾值會高估 MnO₂。錳除以鎳的比例圖只是輔助判斷，需確認背景與低鎳區的訊號。',
+  al: '鋁圖可能包含鋁集流體。截面影像必須先限定電極層，並排除集流體。',
+  unit: 'CSV 保留原始強度，圖片為 0 到 255。各張圖須相同尺寸、相同視野與方向，並已對齊。',
+  smooth: '以 3×3 鄰域多數決修整遮罩邊緣。處理順序：取閾值、修整、填補孔洞、移除小物件。',
+  radius:
+    '判定「附近有黏結劑」的距離。有比例尺時預設 0.5 μm，否則 3 像素；只影響黏結劑鄰近覆蓋率。',
   scope:
-    '所有結果均為 2D spatial image quantification；不能推論體積分率、三維孔隙、化學鍵結、顆粒內滲入或 cohesive 因果。',
+    '所有結果都是平面影像的量化，不能據此推論體積分率、立體孔隙、化學鍵結、顆粒內部滲入或內聚力的因果關係。',
+  scaleBar:
+    '比例尺在原圖上，裁切後就看不到了。橘線是找到的比例尺，請輸入旁邊標示的長度；位置不對時按「點選比例尺兩端」自行指定。誤差約 ±1 像素。',
+  denoise:
+    '取閾值前先對元素圖做局部平均。元素圖是稀疏的計數點，不平均時只會挑出零星亮點。半徑越大區域越完整、細節越少；0 為關閉，舊版專案維持關閉。',
+  pasteCrop:
+    '在 VDI 複製影像或截圖，按該通道的「貼上」，再按 Ctrl+V。框選範圍只保留元素圖本身，排除標題與比例尺。尺寸相同不代表已對齊，請用右側的混合預覽確認。更換分析用影像或改變尺寸時，會清除分析範圍與尺度。',
+  nudge:
+    '以整數像素移動裁切框，大小不變、不重新取樣。點左側影像後也可以用方向鍵；按住 Shift 一次移動 10 像素。',
+  semFit:
+    'SEM 只當底圖，不參與任何計算，所以可以縮放。請框出元素圖實際掃描的範圍（例如標示 Map Data 的白框），工具會把它縮放成與元素圖相同的尺寸。分析用影像永遠不縮放。',
+  lockSize:
+    '所有通道必須是相同的像素尺寸才能計算。勾選時裁切框固定為已載入影像的尺寸，拖曳只移動位置。只有要重新決定整組尺寸時才取消勾選。',
+  comparison:
+    '把目前的結果加入比較表，換下一個樣品分析後再加入。比較表可以填入剝離強度等實驗值，並匯出 CSV。',
 };
 const HELP_EN = {
   secondary:
@@ -1687,6 +2346,11 @@ const MESSAGES = {
     'Secondary mask exceeds 95% of the ROI.',
   ],
   'F mask 超過 ROI 95%。': ['F 遮罩超過分析區域 95%。', 'F mask exceeds 95% of the ROI.'],
+  'C mask 超過 ROI 95%。': ['C 遮罩超過分析區域 95%。', 'C mask exceeds 95% of the ROI.'],
+  '請至少載入次要相、F 或 C 其中一張。': [
+    '請至少載入次要相、F 或 C 其中一張。',
+    'Load at least one of the secondary phase, F or C.',
+  ],
   '無 NMC 顆粒間區域，Occupancy 無法計算。': [
     '無 NMC 顆粒間區域，無法計算佔據率。',
     'No interparticle region. Occupancy is undefined.',
@@ -1788,20 +2452,12 @@ Object.assign(UI_ZH, {
   'Replacing this image clears the scale; type the length to keep it.':
     '換成另一張影像會清除尺度；請填入長度以保留。',
 });
-HELP_ZH.scaleBar =
-  '比例尺還在這張原圖上，裁切後就看不到了。工具會標出找到的比例尺（橘線），請輸入旁邊標示的長度，即可換算 μm／像素。位置不對時按「點選比例尺兩端」自行指定。長度以兩端刻度的中心計算，誤差約 ±1 像素。';
 HELP_EN.scaleBar =
   'The scale bar is still on this source image; after cropping it is gone. The bar that was found is drawn in orange: type the length printed next to it to get μm per pixel. If it is in the wrong place, click its two ends yourself. Length runs between the centres of the end ticks, give or take one pixel.';
-HELP_ZH.denoise =
-  '取閾值前先對元素圖做局部平均。EDS 元素圖是稀疏的計數點，不平均時閾值只會挑出亮點而不是區域。半徑越大區域越完整、細節越少；0 為關閉。舊版專案檔維持關閉。';
 HELP_EN.denoise =
   'Local averaging of the map before its threshold. EDS maps are sparse counts; without averaging a threshold picks out lit pixels rather than regions. A larger radius gives fuller regions and less detail; 0 turns it off. Sessions from older versions stay off.';
-HELP_ZH.cal =
-  'μm／像素；空白或 0 表示未校正，距離以像素顯示。裁切視窗會由原圖上的比例尺換算，也可以在這裡直接輸入。';
 HELP_EN.cal =
   'μm per pixel; blank or zero means distances stay in pixels. The crop dialog works it out from the scale bar on the source image, or type it here.';
-HELP_ZH.pasteCrop =
-  '在 VDI 複製影像或截圖，點選通道的貼上按鈕，再按 Ctrl+V。拖曳只框選有效元素圖，移除標題與比例尺。套用參考圖尺寸只改變裁切框的寬高，不會拉伸影像；各圖應以相同顯示倍率截圖並保留同一掃描範圍。尺寸相同不代表已對位，須以混合預覽人工確認。更換或重新裁切既有的分析通道（Ni／次要相／F），或影像尺寸改變時，會清除 ROI 與校正，截圖距離須重新校正；SEM 與其他元素僅供顯示，尺寸不變時保留。';
 HELP_EN.pasteCrop =
   'Copy an image or screenshot in VDI, select a channel, then press Ctrl+V. Crop only the map region. Reference dimensions change the crop rectangle without resizing pixels. Capture each map at the same display scale and retain the same field of view. Equal dimensions do not prove registration: inspect the blend preview. Replacing or recropping an analysis channel (Ni, secondary phase or F), or changing the image size, clears ROI and calibration; recalibrate screenshot distances. SEM and other-element maps are display-only and keep them when the size is unchanged.';
 Object.assign(UI_ZH, {
@@ -1850,18 +2506,110 @@ Object.assign(UI_ZH, {
     '通道尺寸不一致；請用影像上方的提示修正。',
   'Load the main-phase and secondary-phase maps first.': '請先載入主相與次要相影像。',
 });
-HELP_ZH.nudge =
-  '以整數像素移動裁切框，寬高不變、不重採樣。也可點選左側影像後使用方向鍵；按住 Shift 一次移動 10 px。用混合、差異或按住顯示參考圖來檢查對位。';
 HELP_EN.nudge =
   'Moves the crop by whole pixels; size is unchanged and nothing is resampled. Arrow keys work after clicking the source image; hold Shift for 10 px. Check alignment with the blend, difference or hold-to-show-reference views.';
-HELP_ZH.semFit =
-  'SEM 只作為顯示底圖，不進入任何指標，因此可以縮放。在 SEM 上框出元素圖實際掃描的區域（例如標示 Map Data 的白框），工具會把該區重採樣為參考通道的尺寸；縮小採面積平均、放大採雙線性內插。縮放比例與方式會記錄在 trace。Ni、次要相與 F 等分析通道永遠不重採樣。';
 HELP_EN.semFit =
   'SEM is a display backdrop and never enters the metrics, so it may be scaled. Select the area the element maps actually scanned (for example the white Map Data box); it is resampled to the reference channel size using area averaging when shrinking and bilinear interpolation when enlarging. Scale and method are recorded in the trace. Analysis channels (Ni, secondary phase, F) are never resampled.';
-HELP_ZH.lockSize =
-  '所有通道必須是相同的像素尺寸才能計算。勾選時，裁切框固定為已載入分析通道的尺寸，拖曳只會移動位置，因此不會出現差一兩個像素的情況。只有在要重新決定整組影像的尺寸時才取消勾選。';
 HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
+Object.assign(HELP_EN, {
+  area: 'Mask pixels divided by the pixels of the analysed area: the share of the image the element covers.',
+  profileCV:
+    'Cells in the same column (or row) are pooled into one share, and the columns (or rows) are compared. A large column spread means left and right differ; a large row spread means top and bottom differ, which on a cross section is the change through the thickness.',
+  between: 'Share of the element lying outside the main-phase particles, in the gaps between them.',
+  comparison:
+    'Adds the current results to the comparison table; analyse the next sample and add it too. The table takes measured values such as peel strength and exports to CSV.',
+});
+// Interface text introduced with the redesigned layout.
+Object.assign(UI_ZH, {
+  Steps: '步驟',
+  'Open project': '開啟專案',
+  More: '更多',
+  'Load the synthetic example': '載入合成範例',
+  'Start with the first element map': '從第一張元素圖開始',
+  'Paste or choose it on the left. The map area and the scale bar are found for you.':
+    '在左側貼上或選擇影像，工具會自動找出有效區域與比例尺。',
+  'Open a saved project': '開啟已存的專案',
+  'Try the synthetic example': '用合成範例試用',
+  'The example is generated data for trying the steps; it is not a measurement.':
+    '範例是程式產生的影像，用來熟悉操作，不是量測資料。',
+  'Replace the loaded images with the synthetic example?': '要以合成範例取代目前載入的影像嗎？',
+  Elements: '元素疊圖',
+  Overlay: '遮罩疊圖',
+  Original: '原圖',
+  'Single mask': '單一遮罩',
+  'Carbon / C': '導電碳 / C',
+  Required: '必填',
+  Optional: '選填',
+  'Display only': '僅顯示',
+  Paste: '貼上',
+  'Choose file': '選擇檔案',
+  'Crop / review': '裁切',
+  'Maps to analyse': '分析用影像',
+  'Shown only, never measured': '底圖與參考（不參與計算）',
+  'Load the main-phase map and at least one of the secondary phase, F or C.':
+    '請載入主相影像，以及次要相、F、C 至少一張。',
+  'Paste or choose an image for each element. The map area and the scale bar are found when you crop.':
+    '為每個元素貼上或選擇影像；裁切時會自動找出有效區域與比例尺。',
+  'Colour marks where each element is counted. Go on if it matches the element maps.':
+    '顏色是判定為有該元素的位置。和元素圖相符就繼續。',
+  'Click a cell to see its values; click it again for the whole region.':
+    '點格子看該格數值，再點一次回到全區。',
+  Analysis: '分析設定',
+  'Add to Comparison': '加入目前結果',
+  'Open table': '開啟比較表',
+  Recalculate: '重新計算',
+  Results: '分析結果',
+  'Figures appear here once the analysis has run.':
+    '完成前兩個步驟後，這裡會顯示各元素的分布數值。',
+  'Secondary phase': '次要相',
+  'Binder F': '黏結劑 F',
+  'Carbon C': '導電碳 C',
+  'Area fraction': '面積比例',
+  'Share of the analysed area.': '佔分析範圍的比例',
+  'Uniformity CV': '分布均勻性 CV',
+  'Cell-to-cell spread; lower is more even.': '各格之間的差異，越小越均勻',
+  'Column CV': '欄間差異 CV',
+  'Row CV': '列間差異 CV',
+  'Left to right': '左右方向',
+  'Top to bottom': '上下方向',
+  'Around the main-phase particles': '與主相顆粒的關係',
+  'Interparticle Occupancy': '顆粒間佔據率',
+  'Share of the gaps between particles it fills.': '顆粒之間的空隙被它佔據的比例',
+  'Between particles': '落在顆粒之間',
+  'Share of it lying between particles, not on them.': '落在顆粒之間、而非疊在顆粒上的比例',
+  'Median Distance': '到顆粒距離中位數',
+  'With the binder': '與黏結劑的關係',
+  'Binder Coverage': '鄰近有黏結劑的比例',
+  'Share of its outline with binder within the set distance.': '邊緣在設定距離內有黏結劑的比例',
+  'With the secondary phase': '與次要相的關係',
+  'Share of the secondary-phase outline with binder nearby.': '次要相邊緣附近有黏結劑的比例',
+  'F with Secondary': 'F 與次要相重疊',
+  'Secondary with F': '次要相與 F 重疊',
+  'Pearson r': '強度相關係數',
+  'Through the thickness': '厚度方向',
+  'Depth CV': '上中下差異 CV',
+  'Spread between the top, middle and bottom thirds.': '上、中、下三層之間的差異',
+  'Share of this cell.': '佔這一格的比例',
+  'Spread figures exist for the whole region only. The smaller the cell, the less steady the numbers.':
+    '差異類指標只有全區才有。格子越小，數值越不穩定。',
+  'Columns, left to right': '各欄 · 左 → 右',
+  'Rows, top to bottom': '各列 · 上 → 下',
+  'Row {n}': '第 {n} 列',
+  'Column {n}': '第 {n} 欄',
+  'Whole columns': '整欄',
+  'Whole rows': '整列',
+  '{element}: share in each column and row': '{element} · 各欄與各列的面積比例',
+  'Whole column / row': '整欄／整列',
+  'Grid labels': '格內數字',
+  'Each row / column of cells': '單一列／欄',
+  'already set': '已設定',
+  'First channel: select only the map region.': '第一個通道：只框選元素圖本身',
+  'Equal dimensions; check alignment using the blend slider.': '尺寸一致；拖曳混合比例檢查對位',
+  'Dimensions differ. Adjust the crop or crop the other channels before analysis.':
+    '尺寸仍不一致；請調整裁切',
+  'Region suggested automatically; please check it.': '已自動框選，請確認',
+});
 function t(key) {
   return language === 'zh-Hant' ? (UI_ZH[key] ?? key) : (UI_EN[key] ?? key);
 }
@@ -2905,8 +3653,21 @@ const $ = s => document.querySelector(s),
       c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
     );
 function info(key) {
-  return `<button class="info" type="button" aria-label="${esc(key)} ${t('Help')}" data-help="${key}">i</button>`;
+  return `<button class="info" type="button" aria-label="${t('Help')}" data-help="${key}">i</button>`;
 }
+/* Line icons drawn inline (the page loads nothing from outside), 16 px, 1.5 px strokes. */
+const ICONS = {
+  paste:
+    '<rect x="4" y="3.5" width="8" height="10" rx="1.5"/><path d="M6.5 3.5V2.8c0-.4.3-.8.8-.8h1.4c.5 0 .8.4.8.8v.7"/><path d="M6.5 8h3M6.5 10.5h3"/>',
+  file: '<path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/>',
+  crop: '<path d="M4.5 1.5v10h10"/><path d="M1.5 4.5h10v10"/>',
+  close: '<path d="M4 4l8 8M12 4l-8 8"/>',
+  more: '<circle cx="3.5" cy="8" r=".9"/><circle cx="8" cy="8" r=".9"/><circle cx="12.5" cy="8" r=".9"/>',
+  panel: '<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M10 2.5v11"/>',
+  open: '<path d="M2 4.5V12c0 .6.4 1 1 1h10c.6 0 1-.4 1-1V6.5c0-.6-.4-1-1-1H8L6.5 3.5H3c-.6 0-1 .4-1 1z"/>',
+};
+const icon = name =>
+  `<svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">${ICONS[name]}</svg>`;
 const defaults = () => ({
   auto: true,
   threshold: 128,
@@ -2917,13 +3678,24 @@ const defaults = () => ({
   smooth: false,
 });
 // 'elements' lays the element maps over SEM in their own colours; 'overlay' shows a mask.
-const DISPLAY_MODES = ['original', 'elements', 'overlay', 'mask'],
+const DISPLAY_MODES = ['elements', 'overlay', 'original', 'mask'],
+  DISPLAY_LABELS = {
+    elements: 'Elements',
+    overlay: 'Overlay',
+    original: 'Original',
+    mask: 'Single mask',
+  },
   ELEMENT_TINT = {
     nmc: [224, 64, 251],
     secondary: [255, 152, 0],
     f: [41, 121, 255],
-    other: [255, 235, 59],
+    c: [242, 210, 0],
+    other: [0, 188, 212],
   };
+// Elements whose distribution is reported, in the order of the results tabs.
+const METRIC_KEYS = ['secondary', 'f', 'c'];
+// Element whose local shares label the grid and whose figures and trends are shown.
+let metric = 'secondary';
 // Element maps laid over SEM in the element view. Null until the user picks: the phase under
 // study if it is loaded, otherwise every loaded element.
 let elementsShown = null;
@@ -2937,7 +3709,7 @@ let segAdjustOpen = false,
 // Cell of the analysis grid whose values the results panel shows; null for the whole region.
 let regionTile = null;
 // Masks are drawn in the colour of their channel, the phase under study on top.
-const MASK_ORDER = ['nmc', 'f', 'secondary'];
+const MASK_ORDER = ['nmc', 'f', 'c', 'secondary'];
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',
@@ -2982,11 +3754,21 @@ let step = 'data',
   previewTimer = null,
   channelVersion = 0,
   workerSentVersion = -1;
+// Names short enough for the legend above the image.
+const SHORT_NAMES = {
+  nmc: 'Ni',
+  secondary: 'Secondary phase',
+  f: 'F',
+  c: 'C',
+  other: 'Other',
+  sem: 'SEM',
+};
 const channelNames = {
   sem: 'SEM / BSE',
   nmc: 'NMC / Ni',
   secondary: 'Secondary phase / Additive',
   f: 'PVDF / F',
+  c: 'Carbon / C',
   other: 'Other element',
 };
 let lastStatus = 'Ready',
@@ -3029,8 +3811,8 @@ async function compute(analyze = false) {
     return;
   }
   if (!dimensions()) return;
-  if (analyze && (!state.channels.nmc || !state.channels.secondary)) {
-    status('請載入 NMC 與 Secondary map。', true);
+  if (analyze && analysisBlocked().startsWith('Load')) {
+    status(analysisBlocked(), true);
     return;
   }
   if (state.settings.ratio && (!state.channels.nmc || !state.channels.secondary)) {
@@ -3092,6 +3874,9 @@ async function compute(analyze = false) {
     state.results.elapsedMs = performance.now() - start;
     state.results.analyzedAt = new Date().toISOString();
     state.results.trace = trace();
+    // The figures follow an element that was analysed; the first one when the last is gone.
+    if (!state.results.elements?.[metric])
+      metric = METRIC_KEYS.find(k => state.results.elements?.[k]) || 'secondary';
     renderResults();
     renderControls();
     const elapsed = Math.round(state.results.elapsedMs),
@@ -3121,12 +3906,20 @@ async function compute(analyze = false) {
 
 /* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
-  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${STEP_ORDER.map((s, i) => `<button data-step="${s}">${i + 1} ${t(STEP_LABELS[s])}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><span id="maskLabel" class="compact muted"></span><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="elementChips" class="chips hidden"></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div id="scaleMark" class="hidden"></div></div><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+  `<header class="topbar"><div class="brand"><svg class="mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><rect x="1" y="1" width="16" height="16" rx="4"/><circle cx="6.5" cy="7" r="2.2" fill="#e040fb"/><circle cx="11.5" cy="11.2" r="2.2" fill="#ff9800"/><circle cx="12" cy="5.4" r="1.3" fill="#2979ff"/><circle cx="5.6" cy="12.3" r="1" fill="#f2d200"/></svg><strong id="appName">${t('Electrode EDS Analyzer')}</strong><span class="sep"></span><input id="sample" aria-label="${t('Sample name')}" value="Untitled" spellcheck="false"></div><nav class="stepper" aria-label="${t('Steps')}">${STEP_ORDER.map((s, i) => `${i ? '<span class="link"></span>' : ''}<button data-step="${s}"><span class="n">${i + 1}</span><span class="label">${t(STEP_LABELS[s])}</span></button>`).join('')}</nav><div class="actions"><select id="language" class="quiet" aria-label="Language / 介面語言"><option value="zh-Hant">中文</option><option value="en">English</option></select><button id="loadSession" class="ghost">${t('Open project')}</button><button id="save">${t('Save Session')}</button><button id="export" class="primary">${t('Export')}</button><div class="menu-wrap"><button id="more" class="ghost icon-only" aria-label="${t('More')}" aria-haspopup="true" aria-expanded="false">${icon('more')}</button><div id="moreMenu" class="menu hidden" role="menu"><button id="demoMenu" role="menuitem">${t('Load the synthetic example')}</button><button id="settings" role="menuitem">${t('Settings')}</button><button id="about" role="menuitem">${t('About')}</button></div></div></div></header><main><aside class="left"><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><div class="seg dark" role="group" aria-label="${t('View')}">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(DISPLAY_LABELS[x])}</button>`).join('')}</div><select id="channel" aria-label="Display channel"></select><span id="maskLabel" class="legend-inline"></span><div id="elementChips" class="chips hidden"></div><span class="spacer"></span><label class="range"><span id="opacityLabel">${t('Opacity')}</span><input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" class="hidden" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div id="scaleMark" class="hidden"></div></div><div class="empty" id="empty"></div></div><div id="trends" class="trends hidden"></div></section><aside class="right"><button id="collapse" class="ghost icon-only" aria-label="Toggle results">${icon('panel')}</button><div id="results"></div></aside></main><footer><span class="dot-status"></span><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog" class="ghost">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+/* What the image area shows before anything is loaded: where to start, and the two other ways in. */
+function renderEmpty() {
+  $('#empty').innerHTML =
+    `<div class="empty-card"><h2>${t('Start with the first element map')}</h2><p>${t('Paste or choose it on the left. The map area and the scale bar are found for you.')}</p><div class="empty-actions"><button id="emptyOpen">${icon('open')}${t('Open a saved project')}</button><button id="demo">${t('Try the synthetic example')}</button></div><p class="fine">${t('The example is generated data for trying the steps; it is not a measurement.')}</p></div>`;
+  $('#emptyOpen').onclick = () => $('#sessionFile').click();
+  $('#demo').onclick = loadDemo;
+}
 function status(message, error = false) {
   lastStatus = message;
   lastStatusError = error;
   $('#status').textContent = messageText(typeof message === 'function' ? message() : message);
   $('#status').classList.toggle('error', error);
+  $('footer').classList.toggle('error', error);
   renderNotice();
 }
 /* Channels whose size differs from the analysis grid, with the grid they should match. */
@@ -3284,30 +4077,47 @@ $('#about').onclick = () =>
     `<p>Electrode EDS Spatial Analyzer · v${VERSION}</p><p>${help.scope}</p><p>${t('About intensity')}</p><p>${t('About offline')}</p>`,
   );
 $('#collapse').onclick = () => $('main').classList.toggle('collapsed');
+$('#loadSession').onclick = () => $('#sessionFile').click();
+function closeMenu() {
+  $('#moreMenu').classList.add('hidden');
+  $('#more').setAttribute('aria-expanded', 'false');
+}
+$('#more').onclick = e => {
+  e.stopPropagation();
+  const open = $('#moreMenu').classList.toggle('hidden');
+  $('#more').setAttribute('aria-expanded', String(!open));
+};
+$('#moreMenu').addEventListener('click', closeMenu);
+document.addEventListener('click', closeMenu);
+// The example replaces whatever is loaded, so it asks first when there is something to lose.
+$('#demoMenu').onclick = () => {
+  if (
+    Object.keys(state.channels).length &&
+    !confirm(t('Replace the loaded images with the synthetic example?'))
+  )
+    return;
+  loadDemo();
+};
 function setupTooltips() {
   document.querySelectorAll('[data-help]').forEach(el => {
-    const show = (full = false) => {
-      const t = $('#tooltip'),
-        text = help[el.dataset.help] || el.dataset.help;
-      t.textContent = full
-        ? text
-        : language === 'en'
-          ? text.split(';')[0].split('. ')[0] + (text.endsWith('.') ? '' : '.')
-          : text.split('；')[0].split('。')[0] + '。';
+    // The texts are short enough to show whole on hover.
+    const show = () => {
+      const t = $('#tooltip');
+      t.textContent = help[el.dataset.help] || el.dataset.help;
       t.classList.remove('hidden');
       const r = el.getBoundingClientRect();
-      t.style.left = Math.max(8, Math.min(innerWidth - 350, r.left)) + 'px';
+      t.style.left = Math.max(8, Math.min(innerWidth - 320, r.left - 8)) + 'px';
       t.style.top = Math.min(innerHeight - t.offsetHeight - 10, r.bottom + 8) + 'px';
     };
-    el.onmouseenter = () => show(false);
-    el.onfocus = () => show(false);
+    el.onmouseenter = () => show();
+    el.onfocus = () => show();
     el.onmouseleave = () => {
       if (!$('#tooltip').classList.contains('pinned')) $('#tooltip').classList.add('hidden');
     };
     el.onblur = el.onmouseleave;
     el.onclick = e => {
       e.stopPropagation();
-      show(true);
+      show();
       $('#tooltip').classList.toggle('pinned');
     };
   });
@@ -3328,11 +4138,9 @@ document.addEventListener('keydown', e => {
 
 /* Left-hand step panels: Data, Check masks and Analyze. */
 const STEP_HINTS = {
-  data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
-  segment:
-    'The coloured areas are where each element is counted as present. If they look like the element maps, go on; adjust only when one is clearly too large or too small.',
-  analyze:
-    'Each cell shows the local share of the secondary phase. Click a cell to see its values on the right; click it again for the whole region.',
+  data: 'Paste or choose an image for each element. The map area and the scale bar are found when you crop.',
+  segment: 'Colour marks where each element is counted. Go on if it matches the element maps.',
+  analyze: 'Click a cell to see its values; click it again for the whole region.',
 };
 const STEP_RENDERERS = {
   data: renderDataStep,
@@ -3340,9 +4148,14 @@ const STEP_RENDERERS = {
   analyze: renderAnalyzeStep,
 };
 function renderControls() {
-  document
-    .querySelectorAll('[data-step]')
-    .forEach(b => b.classList.toggle('active', b.dataset.step === step));
+  const index = STEP_ORDER.indexOf(step);
+  document.querySelectorAll('[data-step]').forEach(b => {
+    const i = STEP_ORDER.indexOf(b.dataset.step);
+    b.classList.toggle('active', i === index);
+    b.classList.toggle('done', i < index);
+    b.setAttribute('aria-current', i === index ? 'step' : 'false');
+  });
+  $('main').dataset.stage = step;
   const c = $('#controls');
   (STEP_RENDERERS[step] || renderAnalyzeStep)(c);
   // One line on what this step is for, and the way on to the next one.
@@ -3350,27 +4163,26 @@ function renderControls() {
     'afterend',
     `<p class="hint">${t(STEP_HINTS[step])}</p>`,
   );
-  const next = STEP_ORDER[STEP_ORDER.indexOf(step) + 1];
+  const next = STEP_ORDER[index + 1];
   if (next) {
     c.insertAdjacentHTML(
       'beforeend',
-      `<button id="nextStep" class="primary full" type="button">${t('Next')}${language === 'zh-Hant' ? '：' : ': '}${t(STEP_LABELS[next])}</button>`,
+      `<div class="panel-foot"><button id="nextStep" class="primary full" type="button">${t('Next')}${language === 'zh-Hant' ? '：' : ': '}${t(STEP_LABELS[next])}</button></div>`,
     );
     $('#nextStep').onclick = () => setStep(next);
   }
   setupTooltips();
 }
+const tintCSS = key => (ELEMENT_TINT[key] ? `rgb(${ELEMENT_TINT[key]})` : 'var(--ink-3)');
+/* One row per channel: what it is, what is loaded, and the ways to load or change it. */
+function channelRow(key) {
+  const ch = state.channels[key],
+    required = key === 'nmc',
+    analysed = ANALYSIS_KEYS.includes(key);
+  return `<div class="channel${ch ? ' loaded' : ''}${pasteTarget === key ? ' paste-target' : ''}" data-drop="${key}"><div class="channel-head"><span class="swatch" style="background:${tintCSS(key)}"></span><strong>${t(channelNames[key])}</strong>${key === 'secondary' ? info('secondary') : ''}<span class="channel-state">${ch ? `${ch.w} × ${ch.h}` : t(required ? 'Required' : analysed ? 'Optional' : 'Display only')}</span></div>${ch ? `<div class="filename" title="${esc(ch.name)}">${esc(ch.name)}</div>` : ''}<div class="channel-ops"><button data-paste="${key}" type="button" class="small">${icon('paste')}${t('Paste')}</button><label class="small button">${icon('file')}${t('Choose file')}<input type="file" data-file="${key}" aria-label="${t('Import')} ${t(channelNames[key])}" accept=".png,.jpg,.jpeg,.csv"></label>${ch?.image ? `<button data-crop="${key}" type="button" class="small">${icon('crop')}${t('Crop / review')}</button>` : ''}${ch ? `<button data-remove="${key}" type="button" class="small quiet icon-only" aria-label="${t('Remove')} ${t(channelNames[key])}" title="${t('Remove')}">${icon('close')}</button>` : ''}</div></div>`;
+}
 function renderDataStep(c) {
-  c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${MATERIALS.map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(
-    channelNames,
-  )
-    .map(
-      ([key, name]) =>
-        `<div class="drop ${pasteTarget === key ? 'paste-target' : ''}" data-drop="${key}"><strong>${t(name)} ${key === 'secondary' ? info('secondary') : info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="row"><button data-paste="${key}" type="button">${t('Paste / Ctrl+V')}</button>${state.channels[key]?.image ? `<button data-crop="${key}" type="button">${t('Crop / review')}</button>` : ''}</div><div class="filename">${esc(state.channels[key] ? state.channels[key].name + ' · ' + state.channels[key].w + '×' + state.channels[key].h : '—')}</div>${state.channels[key] ? `<button data-remove="${key}" class="compact">${t('Remove')}</button>` : ''}</div>`,
-    )
-    .join(
-      '',
-    )}<label class="field">${t('μm / pixel')} ${info('cal')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}" placeholder="${t('set from the scale bar when cropping')}"></label><div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
+  c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><div class="field-pair"><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${MATERIALS.map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label></div><div id="materialWarning"></div><div class="group-label">${t('Maps to analyse')}</div>${['nmc', 'secondary', 'f', 'c'].map(channelRow).join('')}<div class="group-label">${t('Shown only, never measured')}</div>${['sem', 'other'].map(channelRow).join('')}<label class="field">${t('μm / pixel')} ${info('cal')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}" placeholder="${t('set from the scale bar when cropping')}"></label>`;
   $('#view').value = state.view;
   $('#material').value = state.material;
   $('#view').onchange = e => {
@@ -3427,14 +4239,12 @@ function renderDataStep(c) {
       }),
   );
   $('#calibration').onchange = e => setCalibration(+e.target.value);
-  $('#loadSession').onclick = () => $('#sessionFile').click();
-  $('#demo').onclick = loadDemo;
 }
 /* Why the analysis cannot run yet, as a message key; empty when it can. */
 function analysisBlocked() {
   if (sizeError()) return 'Channel sizes differ; fix them with the notice above the image.';
-  if (!state.channels.nmc || !state.channels.secondary)
-    return 'Load the main-phase and secondary-phase maps first.';
+  if (!state.channels.nmc || !METRIC_KEYS.some(k => state.channels[k]))
+    return 'Load the main-phase map and at least one of the secondary phase, F or C.';
   if (state.material === 'Al2O3' && state.view === 'cross' && !state.rois.length)
     return 'Al₂O₃ cross sections need the current collector excluded; draw the area below.';
   return '';
@@ -3451,7 +4261,7 @@ function recompute() {
    analysed whole. */
 function roiToolsHTML() {
   const used = state.rois.length || state.roiInvert;
-  return `<details id="roiTools" ${roiToolsOpen ? 'open' : ''}><summary>${t('Limit the analysed area (optional)')}${used ? ` (${t('in use')})` : ''}</summary><p class="hint">${t('Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.')} ${info('roi')}</p><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div></details>`;
+  return `<details id="roiTools" ${roiToolsOpen ? 'open' : ''}><summary>${t('Limit the analysed area (optional)')}${used ? ` · ${t('in use')}` : ''}</summary><p class="hint">${t('Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.')} ${info('roi')}</p><div class="button-row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label class="check"><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="button-row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="button-row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label class="check"><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="roi-item"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}" class="small quiet icon-only" aria-label="${t('Remove')}">${icon('close')}</button></div>`).join('')}</div></details>`;
 }
 function bindROITools() {
   // Recorded on the click itself: returning nothing, so the toggle is not cancelled.
@@ -3530,7 +4340,7 @@ function renderSegmentStep(c) {
     // The Mn / Ni ratio only applies to Mn-based additives.
     showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio),
     loaded = ANALYSIS_KEYS.filter(k => state.channels[k]);
-  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<div class="row"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="spacer"></span><span class="muted compact" data-coverage="${k}"></span></div>`).join('') || `<div class="warning">${t('Load the main-phase and secondary-phase maps first.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
+  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<div class="legend-row"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="coverage" data-coverage="${k}"></span></div>`).join('') || `<div class="warning">${t('Load the main-phase map and at least one of the secondary phase, F or C.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="seg"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label class="check"><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label class="check"><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label class="check"><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label class="check"><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
   updateMaskLegend();
   $('#segChannel').value = selected;
   $('#denoise').value = p.denoise;
@@ -3624,7 +4434,7 @@ function renderAnalyzeStep(c) {
   const blocked = analysisBlocked();
   // The one case where the area tool is required: show it rather than only naming it.
   if (blocked.startsWith('Al')) roiToolsOpen = true;
-  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}${roiToolsHTML()}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>`;
+  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label class="check"><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>${roiToolsHTML()}<section class="compare"><div class="group-label">${t('Comparison')} ${info('comparison')}</div><div class="button-row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button><button id="showComparison">${t('Open table')} (${state.comparison.length})</button></div></section><div class="panel-foot"><button id="analyze" class="quiet full">${t('Recalculate')}</button></div>`;
   bindROITools();
   $('#grid').value = state.settings.grid;
   $('#grid').onchange = e => {
@@ -3830,6 +4640,7 @@ function loadDemo() {
     ni = new Float64Array(w * h),
     s = new Float64Array(w * h),
     f = new Float64Array(w * h),
+    c = new Float64Array(w * h),
     sem = new Float64Array(w * h);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -3839,6 +4650,9 @@ function loadDemo() {
       ni[i] = Math.hypot(dx, dy) < 14 ? 200 : 0;
       s[i] = x % 48 < 10 && y % 48 < 12 ? 180 : 0;
       f[i] = x % 48 < 13 && y % 48 < 15 ? 220 : 0;
+      // Carbon dots in the gaps, larger towards the right, so the trends have something to show.
+      c[i] =
+        x % 48 >= 36 && x % 48 < 38 + Math.floor(x / 48) && y % 48 >= 38 && y % 48 < 44 ? 160 : 0;
       sem[i] = 30 + ni[i] * 0.7 + s[i] * 0.4;
     }
   state.channels = {
@@ -3846,6 +4660,7 @@ function loadDemo() {
     nmc: { name: 'synthetic-ni.csv', w, h, data: ni, format: 'csv' },
     secondary: { name: 'synthetic-ti.csv', w, h, data: s, format: 'csv' },
     f: { name: 'synthetic-f.csv', w, h, data: f, format: 'csv' },
+    c: { name: 'synthetic-c.csv', w, h, data: c, format: 'csv' },
   };
   channelVersion++;
   state.sample = 'Synthetic uniform';
@@ -3890,9 +4705,15 @@ function draw() {
     maskKey = focusedMask() || (masks[key] ? key : selected),
     mask = masks[maskKey],
     // The mask overlay: each channel's mask in its own colour over a grey backdrop.
+    // While analysing, the main phase and the element whose shares label the grid.
     shownMasks =
       display === 'overlay'
-        ? MASK_ORDER.filter(k => masks[k] && (!focusedMask() || k === focusedMask()))
+        ? MASK_ORDER.filter(
+            k =>
+              masks[k] &&
+              (!focusedMask() || k === focusedMask()) &&
+              (step !== 'analyze' || !state.results || k === 'nmc' || k === metric),
+          )
         : [],
     layers = display === 'elements' ? elementLayers(ch) : null;
   $('#elementChips').classList.toggle(
@@ -3901,12 +4722,12 @@ function draw() {
   );
   $('#maskLabel').innerHTML =
     display === 'overlay' && shownMasks.length
-      ? `${t('Mask')}: ${ANALYSIS_KEYS.filter(k => shownMasks.includes(k))
+      ? ANALYSIS_KEYS.filter(k => shownMasks.includes(k))
           .map(
             k =>
-              `<span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span>${esc(t(channelNames[k]))}`,
+              `<span><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span>${esc(t(SHORT_NAMES[k]))}</span>`,
           )
-          .join(' · ')}`
+          .join('')
       : mask && display === 'mask'
         ? `${t('Mask')}: ${esc(t(channelNames[maskKey]))}`
         : '';
@@ -4002,7 +4823,12 @@ function scaleMark(pixels) {
 function renderGridOverlay() {
   const el = $('#gridOverlay'),
     tiles = state.results?.tiles,
-    show = step === 'analyze' && !!tiles?.length && tiles[0].x1 != null && !!baseChannel();
+    show =
+      step === 'analyze' &&
+      !!tiles?.length &&
+      tiles[0].x1 != null &&
+      !!state.results.elements?.[metric] &&
+      !!baseChannel();
   el.classList.toggle('hidden', !show);
   el.innerHTML = show
     ? tiles
@@ -4010,8 +4836,9 @@ function renderGridOverlay() {
           const width = (tile.x1 - tile.x0) * zoom,
             height = (tile.y1 - tile.y0) * zoom,
             size = Math.min(14, width / 4.2, height / 1.7),
-            label = tile.area && size >= 7 ? (tile.fraction * 100).toFixed(1) + '%' : '';
-          return `<div class="tile${i === regionTile ? ' selected' : ''}" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
+            share = tileShare(tile, metric),
+            label = tile.area && share != null && size >= 7 ? (share * 100).toFixed(1) : '';
+          return `<div class="tile${i === regionTile ? ' selected' : ''}" title="${esc(t(METRIC_LABELS[metric]))} ${label}%" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
         })
         .join('')
     : '';
@@ -4066,6 +4893,7 @@ function setStep(next) {
   if (step === 'data' && display === 'overlay') display = 'elements';
   if (step !== 'data' && display === 'elements') display = 'overlay';
   renderControls();
+  renderResults();
   draw();
   // A mask refresh still pending or running is superseded: only the latest request is applied.
   if (step === 'analyze' && !state.results) {
@@ -4080,8 +4908,9 @@ function fit() {
     0.02,
     Math.min(
       4,
-      ($('#viewport').clientWidth - 40) / ch.w,
-      ($('#viewport').clientHeight - 40) / ch.h,
+      // Room for the margin around the image and the scale mark under it.
+      ($('#viewport').clientWidth - 56) / ch.w,
+      ($('#viewport').clientHeight - 84) / ch.h,
     ),
   );
   $('#zoom').value = 'fit';
@@ -4186,9 +5015,8 @@ $('#sample').oninput = e => {
   state.sample = e.target.value;
   dirty();
 };
-$('#import').onclick = () => setStep('data');
 
-/* Results panel and its charts. */
+/* Results panel, per element, and the row / column trend charts under the image. */
 function fmt(v, percent = false) {
   return v == null || !Number.isFinite(v)
     ? '—'
@@ -4196,71 +5024,247 @@ function fmt(v, percent = false) {
       ? (v * 100).toFixed(2) + '%'
       : v.toFixed(3);
 }
-/* One plain sentence per figure, shown under it. */
-const METRIC_NOTES = {
-  area: 'Share of this area covered by the secondary phase.',
-  cv: 'How much that share differs from cell to cell. Lower is more even.',
-  occupancy: 'Share of the space between main-phase particles filled by the secondary phase.',
-  targeting: 'Share of the secondary phase that lies between particles rather than on them.',
-  distance: 'Typical distance from the secondary phase to the nearest main-phase surface.',
-  binder: 'Share of the secondary-phase outline with binder within the set distance.',
-  depth:
-    'How much that share differs between the top, middle and bottom thirds. Lower is more even.',
-};
-/* The results panel shows either the whole analysed region or the grid cell picked on the image. */
+// Short names for the elements whose distribution is reported.
+const METRIC_LABELS = { secondary: 'Secondary phase', f: 'Binder F', c: 'Carbon C' },
+  // Line colours on the white chart surface: the channel hues, darkened until they read on white.
+  CHART_TINT = { secondary: '#d97b00', f: '#2563d6', c: '#a68a00' };
+/* Share of one element in one grid cell. */
+function tileShare(tile, key) {
+  return key === 'secondary' ? tile.fraction : key === 'f' ? tile.fFraction : tile.cFraction;
+}
+/* One figure: label with its help, the value, and a few words on how to read it. */
+function kpi(label, value, { help, unit = '', note = '', hero = false } = {}) {
+  const [number, suffix] = value.endsWith('%') ? [value.slice(0, -1), '%'] : [value, unit];
+  return `<div class="kpi${hero ? ' hero' : ''}"><div class="kpi-label">${t(label)}${help ? ' ' + info(help) : ''}</div><div class="kpi-value">${number}${suffix ? `<small>${suffix}</small>` : ''}</div>${note ? `<div class="kpi-note">${t(note)}</div>` : ''}</div>`;
+}
+const groupLabel = text => `<div class="group-label">${t(text)}</div>`;
+/* Figures of one element for the whole analysed region. */
+function wholeRegionFigures(r, key) {
+  const e = r.elements[key],
+    spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}<div class="kpi-pair">${kpi('Column CV', fmt(e.columnCV), { help: 'profileCV', note: 'Left to right' })}${kpi('Row CV', fmt(e.rowCV), { help: 'profileCV', note: 'Top to bottom' })}</div>`;
+  let html = kpi('Area fraction', fmt(e.areaFraction, true), {
+    help: key === 'secondary' ? 'secondary' : 'area',
+    note: 'Share of the analysed area.',
+    hero: true,
+  });
+  html += spread;
+  if (key === 'secondary') {
+    html += `${groupLabel('Around the main-phase particles')}${kpi('Interparticle Occupancy', fmt(r.interparticleOccupancy, true), { help: 'occupancy', note: 'Share of the gaps between particles it fills.' })}${kpi('Between particles', fmt(r.targetingEfficiency, true), { help: 'targeting', note: 'Share of it lying between particles, not on them.' })}${kpi('Median Distance', fmt(r.distance.median), { help: 'distance', unit: r.distance.unit, note: `${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}` })}<div class="hist"><canvas id="hist" width="280" height="96"></canvas><div class="compact muted" id="bins"></div></div>`;
+    if (r.binderCoverage != null)
+      html += `${groupLabel('With the binder')}${kpi('Binder Coverage', fmt(r.binderCoverage, true), { help: 'binder', note: 'Share of its outline with binder within the set distance.' })}`;
+  } else {
+    html += `${groupLabel('Around the main-phase particles')}${kpi('Between particles', fmt(e.betweenParticles, true), { help: 'between', note: 'Share of it lying between particles, not on them.' })}`;
+    if (key === 'f' && r.secondaryPixels != null)
+      html += `${groupLabel('With the secondary phase')}${kpi('Binder Coverage', fmt(r.binderCoverage, true), { help: 'binder', note: 'Share of the secondary-phase outline with binder nearby.' })}<div class="kpi-pair">${kpi('F with Secondary', fmt(r.fWithSecondary, true), { help: 'overlap' })}${kpi('Secondary with F', fmt(r.secondaryWithF, true), { help: 'overlap' })}</div>${kpi('Pearson r', fmt(r.pearson), { help: 'pearson' })}`;
+  }
+  if (r.depth) {
+    const field = { secondary: 'secondaryFraction', f: 'fFraction', c: 'cFraction' }[key],
+      depthCV = { secondary: r.depth.cv, f: r.depth.fCV, c: r.depth.cCV }[key];
+    html += `${groupLabel('Through the thickness')}${kpi('Depth CV', fmt(depthCV), { help: 'depth', note: 'Spread between the top, middle and bottom thirds.' })}<table class="depth"><tr>${r.depth.zones.map(z => `<th>${t(z.zone)}</th>`).join('')}</tr><tr>${r.depth.zones.map(z => `<td>${fmt(z[field], true)}</td>`).join('')}</tr></table>`;
+  }
+  return html;
+}
+/* Figures of one element inside the picked grid cell. */
+function cellFigures(tile, key, unit) {
+  let html = kpi('Area fraction', fmt(tileShare(tile, key), true), {
+    help: 'area',
+    note: 'Share of this cell.',
+    hero: true,
+  });
+  if (key === 'secondary')
+    html += `${kpi('Interparticle Occupancy', fmt(tile.interparticleOccupancy, true), { help: 'occupancy' })}${kpi('Between particles', fmt(tile.targetingEfficiency, true), { help: 'targeting' })}${kpi('Median Distance', fmt(tile.distanceMedian), { help: 'distance', unit, note: `${t('Mean')} ${fmt(tile.distanceMean)}` })}${tile.binderCoverage != null ? kpi('Binder Coverage', fmt(tile.binderCoverage, true), { help: 'binder' }) : ''}`;
+  return `${html}<p class="hint">${t('Spread figures exist for the whole region only. The smaller the cell, the less steady the numbers.')}</p>`;
+}
+/* The results panel shows one element, for either the whole analysed region or the picked cell. */
 function renderResults() {
   const r = state.results;
   if (!r) {
-    $('#results').innerHTML = '';
+    const blocked = typeof analysisBlocked === 'function' ? analysisBlocked() : '';
+    $('#results').innerHTML =
+      `<div class="results-empty"><h2>${t('Results')}</h2><p>${t(step === 'analyze' && blocked ? blocked : 'Figures appear here once the analysis has run.')}</p></div>`;
+    renderTrends();
     return;
   }
-  const tile = regionTile == null ? null : r.tiles[regionTile],
+  const keys = METRIC_KEYS.filter(k => r.elements?.[k]),
+    key = keys.includes(metric) ? metric : keys[0],
+    tile = regionTile == null ? null : r.tiles[regionTile],
     grid = Math.round(Math.sqrt(r.tiles.length)),
-    m = (name, value, key, unit = '', note = key) =>
-      `<div class="metric"><div class="label">${t(name)} ${info(key)}</div><div class="value">${value} <small>${unit}</small></div><div class="note">${t(METRIC_NOTES[note])}</div></div>`,
-    binder = state.channels.f
-      ? m('Binder Coverage', fmt((tile || r).binderCoverage, true), 'binder')
-      : '',
-    region = tile
-      ? `<div class="region"><strong>${t('Row {r} · column {c}')
+    scope = tile
+      ? `<span><b>${t('Row {r} · column {c}')
           .replace('{r}', tile.y + 1)
           .replace(
             '{c}',
             tile.x + 1,
-          )}</strong><span class="muted compact">${grid} × ${grid}</span><button id="regionAll" type="button">${t('Whole region')}</button></div><p class="hint">${t('Values of this cell only. The smaller the cell, the less steady the numbers.')}</p>`
-      : `<div class="region"><strong>${t('Whole region')}</strong></div><p class="hint">${t('Click a cell on the image to see its values.')}</p>`;
-  if (tile) {
-    $('#results').innerHTML =
-      `<h2>${t('Results')}</h2>${region}${m('Secondary area fraction', fmt(tile.fraction, true), 'cv', '', 'area')}${m('Interparticle Occupancy', fmt(tile.interparticleOccupancy, true), 'occupancy')}${m('Targeting Efficiency', fmt(tile.targetingEfficiency, true), 'targeting')}${m('Median Distance', fmt(tile.distanceMedian), 'distance', r.distance.unit)}<div class="row compact">${t('Mean')} ${fmt(tile.distanceMean)}</div>${binder}<div class="row compact muted">${t('Uniformity CV')}: ${t('whole region only')} · ${tile.area} px</div>`;
+          )}</b> · ${tile.area} px</span><button id="regionAll" type="button" class="small">${t('Whole region')}</button>`
+      : `<span><b>${t('Whole region')}</b> · ${r.roiPixels} px</span><span>${grid} × ${grid}</span>`;
+  $('#results').innerHTML =
+    `<div class="results-head"><h2>${t('Results')}</h2><div class="scope">${scope}</div></div><div class="tabs" role="tablist">${keys.map(k => `<button role="tab" data-metric="${k}" aria-selected="${k === key}" class="${k === key ? 'on' : ''}"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span>${t(METRIC_LABELS[k])}</button>`).join('')}</div><div class="figures">${tile ? cellFigures(tile, key, r.distance?.unit || '') : wholeRegionFigures(r, key)}${r.warnings.map(w => `<div class="warning">${esc(messageText(w))}</div>`).join('')}</div>`;
+  document.querySelectorAll('[data-metric]').forEach(
+    b =>
+      (b.onclick = () => {
+        metric = b.dataset.metric;
+        renderResults();
+        draw();
+      }),
+  );
+  if ($('#regionAll'))
     $('#regionAll').onclick = () => {
       regionTile = null;
       renderResults();
       renderGridOverlay();
     };
-    setupTooltips();
-    return;
-  }
-  $('#results').innerHTML =
-    `<h2>${t('Results')}</h2>${region}${m('Secondary area fraction', fmt(r.secondaryAreaFraction, true), 'cv', '', 'area')}${m('Uniformity CV', fmt(r.uniformityCV), 'cv')}${m('Interparticle Occupancy', fmt(r.interparticleOccupancy, true), 'occupancy')}${m('Targeting Efficiency', fmt(r.targetingEfficiency, true), 'targeting')}${m('Median Distance', fmt(r.distance.median), 'distance', r.distance.unit)}<div class="row compact">${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}</div>${binder}<h3>${t('Distance distribution')} ${info('distance')}</h3><canvas id="hist" class="chart" width="260" height="130"></canvas><div class="compact" id="bins"></div>${state.channels.f ? `<h3>${t('F colocalization')} ${info('overlap')}</h3><div class="row">${t('Pearson r')} ${info('pearson')} <strong>${fmt(r.pearson)}</strong></div><div class="row compact">${t('F with Secondary')} <strong>${fmt(r.fWithSecondary, true)}</strong></div><div class="row compact">${t('Secondary with F')} <strong>${fmt(r.secondaryWithF, true)}</strong></div>` : ''}${r.depth ? `${m('Depth CV', fmt(r.depth.cv), 'depth')}<table><tr><th>${t('Zone')}</th><th>${t('Additive')}</th><th>F</th><th>${t('Overlap')}</th></tr>${r.depth.zones.map(z => `<tr><td>${t(z.zone)}</td><td>${fmt(z.secondaryFraction, true)}</td><td>${fmt(z.fFraction, true)}</td><td>${fmt(z.overlapFraction, true)}</td></tr>`).join('')}</table><div class="compact">${t('F Depth CV')} ${fmt(r.depth.fCV)}</div>` : ''}${r.warnings.map(w => `<div class="warning">${esc(messageText(w))}</div>`).join('')}`;
-  const ctx = $('#hist').getContext('2d'),
-    max = Math.max(...r.distance.histogram, 1);
-  ctx.fillStyle = '#078491';
-  r.distance.histogram.forEach((v, i) =>
-    ctx.fillRect(10 + i * 12, 105 - (v / max) * 90, 10, (v / max) * 90),
-  );
-  ctx.fillStyle = '#6b7380';
-  ctx.font = '11px system-ui';
-  ctx.fillText(`0`, 10, 124);
-  ctx.fillText(`${fmt(r.distance.max)} ${r.distance.unit}`, 175, 124);
-  ctx.fillText(`${max} px`, 10, 11);
+  if ($('#hist')) drawHistogram(r);
+  renderTrends();
+  setupTooltips();
+}
+function drawHistogram(r) {
+  const canvas = $('#hist'),
+    ctx = canvas.getContext('2d'),
+    ratio = devicePixelRatio || 1,
+    w = canvas.clientWidth || 280,
+    h = 96,
+    max = Math.max(...r.distance.histogram, 1),
+    bar = (w - 8) / r.distance.histogram.length;
+  canvas.width = w * ratio;
+  canvas.height = h * ratio;
+  ctx.scale(ratio, ratio);
+  ctx.strokeStyle = '#e4e4e7';
+  ctx.beginPath();
+  ctx.moveTo(0, 74.5);
+  ctx.lineTo(w, 74.5);
+  ctx.stroke();
+  ctx.fillStyle = CHART_TINT.secondary;
+  r.distance.histogram.forEach((v, i) => {
+    const height = (v / max) * 64;
+    ctx.fillRect(4 + i * bar + 1, 74 - height, Math.max(1, bar - 2), height);
+  });
+  ctx.fillStyle = '#71717a';
+  ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
+  ctx.fillText('0', 4, 90);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${fmt(r.distance.max)} ${r.distance.unit}`, w - 4, 90);
   $('#bins').innerHTML = r.distance.bins
     .map(
       (v, i) =>
-        `${['< ' + r.distance.edges[0], r.distance.edges[0] + ' – ' + r.distance.edges[1], r.distance.edges[1] + ' – ' + r.distance.edges[2], '> ' + r.distance.edges[2]][i]} ${r.distance.unit}: ${fmt(v / r.secondaryPixels, true)}`,
+        `${['< ' + r.distance.edges[0], r.distance.edges[0] + '–' + r.distance.edges[1], r.distance.edges[1] + '–' + r.distance.edges[2], '> ' + r.distance.edges[2]][i]} ${r.distance.unit}: ${fmt(v / r.secondaryPixels, true)}`,
     )
-    .join('<br>');
-  setupTooltips();
+    .join(' · ');
 }
+/* A round upper bound for a share axis, with its tick step. */
+function shareAxis(max) {
+  const top = Math.max(0.01, max);
+  for (const step of [0.01, 0.02, 0.05, 0.1, 0.2, 0.25])
+    if (top / step <= 4) return { max: Math.ceil(top / step) * step, step };
+  return { max: 1, step: 0.25 };
+}
+/* Trend charts for the element on show. The column chart has one thin line per grid row, each
+   running left to right, and one thick line for the share in each whole column; the row chart is
+   the same turned round. A line under the pointer, and the row or column of the picked cell,
+   stand out from the rest. */
+function renderTrends() {
+  const el = $('#trends'),
+    r = state.results,
+    key = r?.elements?.[metric] ? metric : null,
+    show = step === 'analyze' && !!key && r.tiles?.[0]?.x1 != null;
+  const changed = el.classList.contains('hidden') === show;
+  el.classList.toggle('hidden', !show);
+  // The strip takes height from the image; a fitted image is fitted again.
+  if (changed && $('#zoom').value === 'fit') requestAnimationFrame(fit);
+  if (!show) {
+    el.innerHTML = '';
+    return;
+  }
+  const n = Math.round(Math.sqrt(r.tiles.length)),
+    cell = (x, y) => tileShare(r.tiles[y * n + x], key),
+    lines = axis =>
+      Array.from({ length: n }, (_, a) =>
+        Array.from({ length: n }, (_, b) => (axis === 'columns' ? cell(b, a) : cell(a, b))),
+      ),
+    picked = regionTile == null ? null : r.tiles[regionTile],
+    charts = [
+      {
+        axis: 'columns',
+        title: 'Columns, left to right',
+        series: lines('columns'),
+        mean: r.elements[key].columns,
+        each: 'Row {n}',
+        picked: picked?.y,
+      },
+      {
+        axis: 'rows',
+        title: 'Rows, top to bottom',
+        series: lines('rows'),
+        mean: r.elements[key].rows,
+        each: 'Column {n}',
+        picked: picked?.x,
+      },
+    ],
+    all = charts.flatMap(c => [...c.series.flat(), ...c.mean]).filter(v => v != null),
+    scale = shareAxis(Math.max(...all, 0)),
+    name = t(METRIC_LABELS[key]);
+  el.innerHTML = `<div class="trends-head"><strong>${t('{element}: share in each column and row').replace('{element}', name)}</strong><span class="trend-legend"><span class="key mean" style="--tint:${CHART_TINT[key]}"></span>${t('Whole column / row')}<span class="key each"></span>${t('Each row / column of cells')}</span></div><div class="trend-grid">${charts.map(c => `<figure class="trend" data-axis="${c.axis}"><figcaption>${t(c.title)}</figcaption><div class="trend-plot"></div><div class="trend-caption"></div></figure>`).join('')}</div>`;
+  charts.forEach(c => drawTrend(el.querySelector(`[data-axis="${c.axis}"]`), c, scale, key, n));
+}
+function drawTrend(figure, c, scale, key, n) {
+  const plot = figure.querySelector('.trend-plot'),
+    caption = figure.querySelector('.trend-caption'),
+    w = Math.max(220, plot.clientWidth || 320),
+    h = 132,
+    left = 38,
+    right = 12,
+    top = 8,
+    bottom = 20,
+    x = i => left + ((i + 0.5) / n) * (w - left - right),
+    y = v => top + (1 - v / scale.max) * (h - top - bottom),
+    path = values => {
+      let d = '',
+        pen = false;
+      values.forEach((v, i) => {
+        if (v == null) return (pen = false);
+        d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+        pen = true;
+      });
+      return d;
+    },
+    percent = v => (v == null ? '—' : (v * 100).toFixed(1));
+  let svg = `<svg width="${w}" height="${h}" role="img" aria-label="${esc(figure.querySelector('figcaption').textContent)}">`;
+  for (let v = 0; v <= scale.max + 1e-9; v += scale.step)
+    svg += `<line class="gridline" x1="${left}" x2="${w - right}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${left - 6}" y="${y(v) + 3}" text-anchor="end">${Math.round(v * 100)}%</text>`;
+  for (let i = 0; i < n; i++)
+    svg += `<text class="tick" x="${x(i)}" y="${h - 5}" text-anchor="middle">${i + 1}</text>`;
+  c.series.forEach((values, i) => {
+    const d = path(values);
+    svg += `<g class="series${i === c.picked ? ' picked' : ''}" data-series="${i}"><path class="line" d="${d}"/><path class="hit" d="${d}"/></g>`;
+  });
+  svg += `<path class="mean" d="${path(c.mean)}" style="stroke:${CHART_TINT[key]}"/>`;
+  c.mean.forEach((v, i) => {
+    if (v != null)
+      svg += `<circle class="mean-dot" cx="${x(i)}" cy="${y(v)}" r="3.5" style="fill:${CHART_TINT[key]}"/>`;
+  });
+  plot.innerHTML = svg + '</svg>';
+  const describe = (label, values) => `${label}: ${values.map(percent).join(' · ')} %`;
+  const rest = () =>
+    (caption.textContent =
+      c.picked != null
+        ? describe(t(c.each).replace('{n}', c.picked + 1), c.series[c.picked])
+        : describe(t(c.axis === 'columns' ? 'Whole columns' : 'Whole rows'), c.mean));
+  rest();
+  plot.querySelectorAll('.series').forEach(g => {
+    g.onmouseenter = () => {
+      g.classList.add('hot');
+      const i = +g.dataset.series;
+      caption.textContent = describe(t(c.each).replace('{n}', i + 1), c.series[i]);
+    };
+    g.onmouseleave = () => {
+      g.classList.remove('hot');
+      rest();
+    };
+  });
+}
+addEventListener('resize', () => {
+  clearTimeout(renderTrends.timer);
+  renderTrends.timer = setTimeout(renderTrends, 120);
+});
 
 /* Session snapshot, validation and reload. */
 function snapshot() {
@@ -4327,7 +5331,7 @@ $('#sessionFile').onchange = async e => {
     $('#sample').value = state.sample;
     renderControls();
     renderChannels();
-    await compute(!!state.channels.nmc && !!state.channels.secondary);
+    await compute(!analysisBlocked());
     fit();
     status('Session loaded · results recomputed');
   } catch (err) {
@@ -4611,7 +5615,7 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('CV')}</th><th>${t('Occupancy')}</th><th>${t('Targeting')}</th><th>${t('Median')}</th><th>${t('Binder')}</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('CV')}</th><th>${t('Occupancy')}</th><th>${t('Targeting')}</th><th>${t('Median')}</th><th>${t('Binder')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
   );
   document
     .querySelectorAll('[data-comp]')
@@ -4640,10 +5644,10 @@ function flatResult(r, t, c = {}) {
     InterparticleOccupancy: r.interparticleOccupancy,
     TargetingEfficiency: r.targetingEfficiency,
     SecondaryAreaFraction: r.secondaryAreaFraction,
-    MeanDistance: r.distance.mean,
-    MedianDistance: r.distance.median,
-    P90Distance: r.distance.p90,
-    DistanceUnit: r.distance.unit,
+    MeanDistance: r.distance?.mean,
+    MedianDistance: r.distance?.median,
+    P90Distance: r.distance?.p90,
+    DistanceUnit: r.distance?.unit,
     BinderCoverage: r.binderCoverage,
     Pearson: r.pearson,
     FWithSecondary: r.fWithSecondary,
@@ -4663,9 +5667,22 @@ function flatResult(r, t, c = {}) {
     Images: t.images,
     DepthZones: r.depth?.zones || [],
     Tiles: r.tiles,
-    DistanceHistogram: r.distance.histogram,
-    DistanceBins: r.distance.bins,
+    DistanceHistogram: r.distance?.histogram,
+    DistanceBins: r.distance?.bins,
     Warnings: r.warnings,
+    // Added in v0.4.0, after every earlier column so existing positions do not move.
+    FAreaFraction: r.elements?.f?.areaFraction,
+    FUniformityCV: r.elements?.f?.uniformityCV,
+    FColumnCV: r.elements?.f?.columnCV,
+    FRowCV: r.elements?.f?.rowCV,
+    CAreaFraction: r.elements?.c?.areaFraction,
+    CUniformityCV: r.elements?.c?.uniformityCV,
+    CColumnCV: r.elements?.c?.columnCV,
+    CRowCV: r.elements?.c?.rowCV,
+    SecondaryColumnCV: r.elements?.secondary?.columnCV,
+    SecondaryRowCV: r.elements?.secondary?.rowCV,
+    CDepthCV: r.depth?.cCV,
+    Elements: r.elements,
   };
 }
 function exportCSV(comparison = false) {
@@ -4732,7 +5749,9 @@ function exportPNG() {
   ctx.fillRect(0, 0, out.width, out.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, 0, 0, source.width * k, imageHeight);
-  // The analysis grid with each cell's share of the secondary phase, as on screen.
+  // The analysis grid with each cell's share of the element on show, as on screen.
+  const key = state.results.elements?.[metric] ? metric : 'secondary',
+    figures = state.results.elements?.[key];
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
@@ -4745,7 +5764,9 @@ function exportPNG() {
     ctx.lineWidth = 1;
     ctx.strokeRect(tile.x0 * k + 0.5, tile.y0 * k + 0.5, width - 1, height - 1);
     if (!tile.area || label < 7) continue;
-    const text = (tile.fraction * 100).toFixed(1) + '%',
+    const share = tileShare(tile, key);
+    if (share == null) continue;
+    const text = (share * 100).toFixed(1) + '%',
       x = tile.x0 * k + width / 2,
       y = tile.y0 * k + height / 2;
     ctx.font = `600 ${label}px system-ui`;
@@ -4775,7 +5796,7 @@ function exportPNG() {
   );
   ctx.font = `${size * 0.8}px system-ui`;
   ctx.fillText(
-    `CV ${fmt(state.results.uniformityCV)} | ${t('Occupancy')} ${fmt(state.results.interparticleOccupancy, true)} | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}`,
+    `${t('Grid labels')}: ${t(METRIC_LABELS[key])} ${t('Area fraction')} | ${fmt(figures?.areaFraction, true)} | CV ${fmt(figures?.uniformityCV)}${key === 'secondary' && state.results.distance ? ` | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}` : ''}`,
     12,
     imageHeight + 55,
   );
@@ -4796,14 +5817,14 @@ function updateChrome() {
   $('#language').value = language;
   for (const [id, key] of Object.entries({
     appName: 'Electrode EDS Analyzer',
-    import: 'Import',
+    loadSession: 'Open project',
     save: 'Save Session',
     export: 'Export',
     settings: 'Settings',
     about: 'About',
+    demoMenu: 'Load the synthetic example',
     pan: 'Pan',
     closeDialog: 'Close',
-    empty: 'Import map',
     opacityLabel: 'Opacity',
   }))
     $('#' + id).textContent = t(key);
@@ -4813,17 +5834,16 @@ function updateChrome() {
     zoom: 'Zoom',
     opacity: 'Overlay opacity',
     collapse: 'Toggle results',
+    more: 'More',
   }))
     $('#' + id).setAttribute('aria-label', t(key));
-  document.querySelectorAll('[data-step]').forEach(b => {
-    const s = b.dataset.step;
-    b.textContent = `${STEP_ORDER.indexOf(s) + 1} ${t(STEP_LABELS[s])}`;
-  });
+  document
+    .querySelectorAll('[data-step] .label')
+    .forEach(l => (l.textContent = t(STEP_LABELS[l.parentElement.dataset.step])));
   document
     .querySelectorAll('[data-display]')
-    .forEach(
-      b => (b.textContent = t(b.dataset.display[0].toUpperCase() + b.dataset.display.slice(1))),
-    );
+    .forEach(b => (b.textContent = t(DISPLAY_LABELS[b.dataset.display])));
+  renderEmpty();
   $('#zoom').querySelector('[value="fit"]').textContent = t('Fit');
   $('#pan').title = t('Pan');
   status(lastStatus, lastStatusError);

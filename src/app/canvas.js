@@ -24,9 +24,15 @@ function draw() {
     maskKey = focusedMask() || (masks[key] ? key : selected),
     mask = masks[maskKey],
     // The mask overlay: each channel's mask in its own colour over a grey backdrop.
+    // While analysing, the main phase and the element whose shares label the grid.
     shownMasks =
       display === 'overlay'
-        ? MASK_ORDER.filter(k => masks[k] && (!focusedMask() || k === focusedMask()))
+        ? MASK_ORDER.filter(
+            k =>
+              masks[k] &&
+              (!focusedMask() || k === focusedMask()) &&
+              (step !== 'analyze' || !state.results || k === 'nmc' || k === metric),
+          )
         : [],
     layers = display === 'elements' ? elementLayers(ch) : null;
   $('#elementChips').classList.toggle(
@@ -35,12 +41,12 @@ function draw() {
   );
   $('#maskLabel').innerHTML =
     display === 'overlay' && shownMasks.length
-      ? `${t('Mask')}: ${ANALYSIS_KEYS.filter(k => shownMasks.includes(k))
+      ? ANALYSIS_KEYS.filter(k => shownMasks.includes(k))
           .map(
             k =>
-              `<span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span>${esc(t(channelNames[k]))}`,
+              `<span><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span>${esc(t(SHORT_NAMES[k]))}</span>`,
           )
-          .join(' · ')}`
+          .join('')
       : mask && display === 'mask'
         ? `${t('Mask')}: ${esc(t(channelNames[maskKey]))}`
         : '';
@@ -136,7 +142,12 @@ function scaleMark(pixels) {
 function renderGridOverlay() {
   const el = $('#gridOverlay'),
     tiles = state.results?.tiles,
-    show = step === 'analyze' && !!tiles?.length && tiles[0].x1 != null && !!baseChannel();
+    show =
+      step === 'analyze' &&
+      !!tiles?.length &&
+      tiles[0].x1 != null &&
+      !!state.results.elements?.[metric] &&
+      !!baseChannel();
   el.classList.toggle('hidden', !show);
   el.innerHTML = show
     ? tiles
@@ -144,8 +155,9 @@ function renderGridOverlay() {
           const width = (tile.x1 - tile.x0) * zoom,
             height = (tile.y1 - tile.y0) * zoom,
             size = Math.min(14, width / 4.2, height / 1.7),
-            label = tile.area && size >= 7 ? (tile.fraction * 100).toFixed(1) + '%' : '';
-          return `<div class="tile${i === regionTile ? ' selected' : ''}" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
+            share = tileShare(tile, metric),
+            label = tile.area && share != null && size >= 7 ? (share * 100).toFixed(1) : '';
+          return `<div class="tile${i === regionTile ? ' selected' : ''}" title="${esc(t(METRIC_LABELS[metric]))} ${label}%" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
         })
         .join('')
     : '';
@@ -200,6 +212,7 @@ function setStep(next) {
   if (step === 'data' && display === 'overlay') display = 'elements';
   if (step !== 'data' && display === 'elements') display = 'overlay';
   renderControls();
+  renderResults();
   draw();
   // A mask refresh still pending or running is superseded: only the latest request is applied.
   if (step === 'analyze' && !state.results) {
@@ -214,8 +227,9 @@ function fit() {
     0.02,
     Math.min(
       4,
-      ($('#viewport').clientWidth - 40) / ch.w,
-      ($('#viewport').clientHeight - 40) / ch.h,
+      // Room for the margin around the image and the scale mark under it.
+      ($('#viewport').clientWidth - 56) / ch.w,
+      ($('#viewport').clientHeight - 84) / ch.h,
     ),
   );
   $('#zoom').value = 'fit';
@@ -320,4 +334,3 @@ $('#sample').oninput = e => {
   state.sample = e.target.value;
   dirty();
 };
-$('#import').onclick = () => setStep('data');

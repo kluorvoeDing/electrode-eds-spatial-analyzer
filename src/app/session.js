@@ -63,7 +63,7 @@ $('#sessionFile').onchange = async e => {
     $('#sample').value = state.sample;
     renderControls();
     renderChannels();
-    await compute(!!state.channels.nmc && !!state.channels.secondary);
+    await compute(!analysisBlocked());
     fit();
     status('Session loaded · results recomputed');
   } catch (err) {

@@ -1,10 +1,8 @@
 /* Left-hand step panels: Data, Check masks and Analyze. */
 const STEP_HINTS = {
-  data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
-  segment:
-    'The coloured areas are where each element is counted as present. If they look like the element maps, go on; adjust only when one is clearly too large or too small.',
-  analyze:
-    'Each cell shows the local share of the secondary phase. Click a cell to see its values on the right; click it again for the whole region.',
+  data: 'Paste or choose an image for each element. The map area and the scale bar are found when you crop.',
+  segment: 'Colour marks where each element is counted. Go on if it matches the element maps.',
+  analyze: 'Click a cell to see its values; click it again for the whole region.',
 };
 const STEP_RENDERERS = {
   data: renderDataStep,
@@ -12,9 +10,14 @@ const STEP_RENDERERS = {
   analyze: renderAnalyzeStep,
 };
 function renderControls() {
-  document
-    .querySelectorAll('[data-step]')
-    .forEach(b => b.classList.toggle('active', b.dataset.step === step));
+  const index = STEP_ORDER.indexOf(step);
+  document.querySelectorAll('[data-step]').forEach(b => {
+    const i = STEP_ORDER.indexOf(b.dataset.step);
+    b.classList.toggle('active', i === index);
+    b.classList.toggle('done', i < index);
+    b.setAttribute('aria-current', i === index ? 'step' : 'false');
+  });
+  $('main').dataset.stage = step;
   const c = $('#controls');
   (STEP_RENDERERS[step] || renderAnalyzeStep)(c);
   // One line on what this step is for, and the way on to the next one.
@@ -22,27 +25,26 @@ function renderControls() {
     'afterend',
     `<p class="hint">${t(STEP_HINTS[step])}</p>`,
   );
-  const next = STEP_ORDER[STEP_ORDER.indexOf(step) + 1];
+  const next = STEP_ORDER[index + 1];
   if (next) {
     c.insertAdjacentHTML(
       'beforeend',
-      `<button id="nextStep" class="primary full" type="button">${t('Next')}${language === 'zh-Hant' ? '：' : ': '}${t(STEP_LABELS[next])}</button>`,
+      `<div class="panel-foot"><button id="nextStep" class="primary full" type="button">${t('Next')}${language === 'zh-Hant' ? '：' : ': '}${t(STEP_LABELS[next])}</button></div>`,
     );
     $('#nextStep').onclick = () => setStep(next);
   }
   setupTooltips();
 }
+const tintCSS = key => (ELEMENT_TINT[key] ? `rgb(${ELEMENT_TINT[key]})` : 'var(--ink-3)');
+/* One row per channel: what it is, what is loaded, and the ways to load or change it. */
+function channelRow(key) {
+  const ch = state.channels[key],
+    required = key === 'nmc',
+    analysed = ANALYSIS_KEYS.includes(key);
+  return `<div class="channel${ch ? ' loaded' : ''}${pasteTarget === key ? ' paste-target' : ''}" data-drop="${key}"><div class="channel-head"><span class="swatch" style="background:${tintCSS(key)}"></span><strong>${t(channelNames[key])}</strong>${key === 'secondary' ? info('secondary') : ''}<span class="channel-state">${ch ? `${ch.w} × ${ch.h}` : t(required ? 'Required' : analysed ? 'Optional' : 'Display only')}</span></div>${ch ? `<div class="filename" title="${esc(ch.name)}">${esc(ch.name)}</div>` : ''}<div class="channel-ops"><button data-paste="${key}" type="button" class="small">${icon('paste')}${t('Paste')}</button><label class="small button">${icon('file')}${t('Choose file')}<input type="file" data-file="${key}" aria-label="${t('Import')} ${t(channelNames[key])}" accept=".png,.jpg,.jpeg,.csv"></label>${ch?.image ? `<button data-crop="${key}" type="button" class="small">${icon('crop')}${t('Crop / review')}</button>` : ''}${ch ? `<button data-remove="${key}" type="button" class="small quiet icon-only" aria-label="${t('Remove')} ${t(channelNames[key])}" title="${t('Remove')}">${icon('close')}</button>` : ''}</div></div>`;
+}
 function renderDataStep(c) {
-  c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${MATERIALS.map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label><div id="materialWarning"></div>${Object.entries(
-    channelNames,
-  )
-    .map(
-      ([key, name]) =>
-        `<div class="drop ${pasteTarget === key ? 'paste-target' : ''}" data-drop="${key}"><strong>${t(name)} ${key === 'secondary' ? info('secondary') : info('csv')}</strong><input type="file" data-file="${key}" aria-label="${t('Import')} ${t(name)}" accept=".png,.jpg,.jpeg,.csv"><div class="row"><button data-paste="${key}" type="button">${t('Paste / Ctrl+V')}</button>${state.channels[key]?.image ? `<button data-crop="${key}" type="button">${t('Crop / review')}</button>` : ''}</div><div class="filename">${esc(state.channels[key] ? state.channels[key].name + ' · ' + state.channels[key].w + '×' + state.channels[key].h : '—')}</div>${state.channels[key] ? `<button data-remove="${key}" class="compact">${t('Remove')}</button>` : ''}</div>`,
-    )
-    .join(
-      '',
-    )}<label class="field">${t('μm / pixel')} ${info('cal')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}" placeholder="${t('set from the scale bar when cropping')}"></label><div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
+  c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><div class="field-pair"><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${MATERIALS.map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label></div><div id="materialWarning"></div><div class="group-label">${t('Maps to analyse')}</div>${['nmc', 'secondary', 'f', 'c'].map(channelRow).join('')}<div class="group-label">${t('Shown only, never measured')}</div>${['sem', 'other'].map(channelRow).join('')}<label class="field">${t('μm / pixel')} ${info('cal')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}" placeholder="${t('set from the scale bar when cropping')}"></label>`;
   $('#view').value = state.view;
   $('#material').value = state.material;
   $('#view').onchange = e => {
@@ -99,14 +101,12 @@ function renderDataStep(c) {
       }),
   );
   $('#calibration').onchange = e => setCalibration(+e.target.value);
-  $('#loadSession').onclick = () => $('#sessionFile').click();
-  $('#demo').onclick = loadDemo;
 }
 /* Why the analysis cannot run yet, as a message key; empty when it can. */
 function analysisBlocked() {
   if (sizeError()) return 'Channel sizes differ; fix them with the notice above the image.';
-  if (!state.channels.nmc || !state.channels.secondary)
-    return 'Load the main-phase and secondary-phase maps first.';
+  if (!state.channels.nmc || !METRIC_KEYS.some(k => state.channels[k]))
+    return 'Load the main-phase map and at least one of the secondary phase, F or C.';
   if (state.material === 'Al2O3' && state.view === 'cross' && !state.rois.length)
     return 'Al₂O₃ cross sections need the current collector excluded; draw the area below.';
   return '';
@@ -123,7 +123,7 @@ function recompute() {
    analysed whole. */
 function roiToolsHTML() {
   const used = state.rois.length || state.roiInvert;
-  return `<details id="roiTools" ${roiToolsOpen ? 'open' : ''}><summary>${t('Limit the analysed area (optional)')}${used ? ` (${t('in use')})` : ''}</summary><p class="hint">${t('Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.')} ${info('roi')}</p><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div></details>`;
+  return `<details id="roiTools" ${roiToolsOpen ? 'open' : ''}><summary>${t('Limit the analysed area (optional)')}${used ? ` · ${t('in use')}` : ''}</summary><p class="hint">${t('Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.')} ${info('roi')}</p><div class="button-row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label class="check"><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="button-row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="button-row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label class="check"><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="roi-item"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}" class="small quiet icon-only" aria-label="${t('Remove')}">${icon('close')}</button></div>`).join('')}</div></details>`;
 }
 function bindROITools() {
   // Recorded on the click itself: returning nothing, so the toggle is not cancelled.
@@ -202,7 +202,7 @@ function renderSegmentStep(c) {
     // The Mn / Ni ratio only applies to Mn-based additives.
     showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio),
     loaded = ANALYSIS_KEYS.filter(k => state.channels[k]);
-  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<div class="row"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="spacer"></span><span class="muted compact" data-coverage="${k}"></span></div>`).join('') || `<div class="warning">${t('Load the main-phase and secondary-phase maps first.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
+  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<div class="legend-row"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="coverage" data-coverage="${k}"></span></div>`).join('') || `<div class="warning">${t('Load the main-phase map and at least one of the secondary phase, F or C.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="seg"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label class="check"><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label class="check"><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label class="check"><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label class="check"><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
   updateMaskLegend();
   $('#segChannel').value = selected;
   $('#denoise').value = p.denoise;
@@ -296,7 +296,7 @@ function renderAnalyzeStep(c) {
   const blocked = analysisBlocked();
   // The one case where the area tool is required: show it rather than only naming it.
   if (blocked.startsWith('Al')) roiToolsOpen = true;
-  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}${roiToolsHTML()}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>`;
+  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label class="check"><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>${roiToolsHTML()}<section class="compare"><div class="group-label">${t('Comparison')} ${info('comparison')}</div><div class="button-row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button><button id="showComparison">${t('Open table')} (${state.comparison.length})</button></div></section><div class="panel-foot"><button id="analyze" class="quiet full">${t('Recalculate')}</button></div>`;
   bindROITools();
   $('#grid').value = state.settings.grid;
   $('#grid').onchange = e => {

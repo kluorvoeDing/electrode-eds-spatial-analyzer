@@ -22,7 +22,7 @@ const { chromium } = require('playwright'),
   });
   await page.goto('file://' + path.resolve('dist/Electrode_EDS_Analyzer.html'));
   assert.equal(await page.locator('html').getAttribute('lang'), 'zh-Hant');
-  assert.equal(await page.locator('#import').innerText(), '匯入');
+  assert.equal(await page.locator('#loadSession').innerText(), '開啟專案');
   await page.locator('#demo').click();
   await page.waitForFunction(() => !busy && Object.keys(masks).length > 0);
   await page.locator('#sample').fill('中文樣品 A');
@@ -66,12 +66,13 @@ const { chromium } = require('playwright'),
   assert.ok((await page.locator('#dialogtitle').innerText()).includes('比較'));
   await page.locator('#closeDialog').click();
   for (const id of ['settings', 'about', 'export']) {
+    if (id !== 'export') await page.locator('#more').click();
     await page.locator('#' + id).click();
     assert.ok((await page.locator('#dialogtitle').innerText()).length > 0);
     await page.locator('#closeDialog').click();
   }
   await page.locator('footer .info').click();
-  assert.ok((await page.locator('#tooltip').innerText()).includes('2D'));
+  assert.ok((await page.locator('#tooltip').innerText()).includes('平面影像'));
   await page.locator('#language').selectOption('en');
   await page.locator('footer .info').click();
   assert.ok((await page.locator('#tooltip').innerText()).includes('spatial'));

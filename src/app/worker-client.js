@@ -35,8 +35,8 @@ async function compute(analyze = false) {
     return;
   }
   if (!dimensions()) return;
-  if (analyze && (!state.channels.nmc || !state.channels.secondary)) {
-    status('請載入 NMC 與 Secondary map。', true);
+  if (analyze && analysisBlocked().startsWith('Load')) {
+    status(analysisBlocked(), true);
     return;
   }
   if (state.settings.ratio && (!state.channels.nmc || !state.channels.secondary)) {
@@ -98,6 +98,9 @@ async function compute(analyze = false) {
     state.results.elapsedMs = performance.now() - start;
     state.results.analyzedAt = new Date().toISOString();
     state.results.trace = trace();
+    // The figures follow an element that was analysed; the first one when the last is gone.
+    if (!state.results.elements?.[metric])
+      metric = METRIC_KEYS.find(k => state.results.elements?.[k]) || 'secondary';
     renderResults();
     renderControls();
     const elapsed = Math.round(state.results.elapsedMs),

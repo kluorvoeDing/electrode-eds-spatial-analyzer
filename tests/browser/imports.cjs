@@ -63,7 +63,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.ok(baseline.uniformityCV < 1e-12);
   assert.equal(baseline.interparticleOccupancy, 125 / 600);
   assert.equal(baseline.targetingEfficiency, 1);
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-file="secondary"]').setInputFiles(path.resolve('qa/secondary.png'));
   await waitMask();
   await p.locator('#channel').selectOption('secondary');
@@ -85,7 +85,7 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#save').click();
   const dl = await wait;
   await dl.saveAs(path.resolve('qa/image.session.json'));
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('#sessionFile').setInputFiles(path.resolve('qa/image.session.json'));
   await p.waitForFunction(() =>
     document.querySelector('#status').textContent.startsWith('Session loaded'),
@@ -140,7 +140,7 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('[data-help="threshold"]').click();
   assert.ok((await p.locator('#tooltip').innerText()).includes('Manual'));
   await p.keyboard.press('Escape');
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-remove="f"]').click();
   await waitMask();
   await p.locator('[data-step="analyze"]').click();
@@ -149,7 +149,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.evaluate(() => state.results.binderCoverage), null);
   assert.equal(await p.getByText('Binder Coverage', { exact: true }).count(), 0);
   // Al collector restriction and valid effective ROI.
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('#material').selectOption('Al2O3');
   await p.locator('#view').selectOption('cross');
   await p.locator('[data-step="analyze"]').click();
@@ -158,7 +158,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.match(await p.locator('#analysisWarnings').textContent(), /current collector excluded/);
   assert.equal(await p.locator('#roiTools').getAttribute('open'), '');
   // Empty ROI is an explicit analysis error.
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('#material').selectOption('TiO2');
   await p.locator('[data-step="analyze"]').click();
   // The area tool is folded away until needed; the Al₂O₃ block above opened it.

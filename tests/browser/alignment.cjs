@@ -217,7 +217,7 @@ fs.mkdirSync('qa', { recursive: true });
   );
 
   // Re-opening restores the selection and mode; re-fitting still keeps ROI and calibration.
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-crop="sem"]').click();
   await p.locator('#cropSource').waitFor();
   assert.deepEqual(await rect(), { x: 15, y: 10, w: 120, h: 80 });
@@ -239,6 +239,7 @@ fs.mkdirSync('qa', { recursive: true });
   // A v0.2.0 session with a resampled SEM survives a save / load round trip.
   const saved = await p.evaluate(() => JSON.stringify(snapshot()));
   fs.writeFileSync('qa/alignment-session.json', saved);
+  await p.locator('#more').click();
   await p.locator('#settings').click();
   await p.locator('#clearData').click();
   await p.locator('#sessionFile').setInputFiles(path.resolve('qa/alignment-session.json'));
@@ -264,7 +265,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(reloaded, baseline);
 
   // Analysis channels never offer scaling and cannot be resampled even if the flag is forced.
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-crop="f"]').click();
   await p.locator('#cropSource').waitFor();
   assert.equal(await p.locator('#cropFit').count(), 0);
@@ -311,7 +312,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(await gridState(), { rois: 0, calibration: null });
 
   await p.locator('#language').selectOption('zh-Hant');
-  await p.locator('#import').click();
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-crop="sem"]').click();
   await p.locator('#cropSource').waitFor();
   assert.match(await p.locator('.crop-fit').textContent(), /將框選區縮放為參考圖尺寸（僅限 SEM）/);

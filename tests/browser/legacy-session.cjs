@@ -167,7 +167,7 @@ fs.writeFileSync('qa/legacy-v0.1.3.html', legacyHTML);
     [0, 0, 0, 2],
   );
   // The stored crop can be reopened and the comparison table still renders and exports.
-  await page.locator('#import').click();
+  await page.locator('[data-step="data"]').click();
   await page.locator('[data-crop="f"]').click();
   await page.locator('#cropSource').waitFor();
   assert.deepEqual(await page.evaluate(() => imageImport.rect), { x: 10, y: 12, w: 240, h: 240 });

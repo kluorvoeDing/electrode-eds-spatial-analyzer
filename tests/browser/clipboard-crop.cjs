@@ -23,7 +23,7 @@ const { chromium } = require('playwright'),
   });
   await p.goto('file://' + path.resolve('dist/Electrode_EDS_Analyzer.html'));
   assert.equal(await p.title(), '電極 EDS 空間分析');
-  assert.equal(await p.locator('[data-paste]').count(), 5);
+  assert.equal(await p.locator('[data-paste]').count(), 6);
   await p.locator('#language').selectOption('en');
   async function copyImage(color = 'magenta') {
     await p.evaluate(async color => {

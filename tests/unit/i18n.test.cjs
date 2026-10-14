@@ -5,7 +5,7 @@ test('Traditional Chinese default, English messages and help, invalid language r
   assert.equal(getLanguage(), 'zh-Hant');
   assert.equal(t('Import'), '匯入');
   const zhHelp = help.scope;
-  assert.ok(zhHelp.includes('2D'));
+  assert.ok(zhHelp.includes('平面影像'));
   assert.equal(setUILanguage('en'), true);
   assert.equal(t('Import'), 'Import');
   assert.equal(messageText('ROI 為空。'), 'ROI is empty.');

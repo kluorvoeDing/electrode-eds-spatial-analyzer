@@ -28,8 +28,15 @@ fs.mkdirSync('qa', { recursive: true });
   const statusText = () => p.locator('#status').textContent();
   const waitIdle = () => p.waitForFunction(() => !busy);
   async function demo() {
-    await p.locator('#import').click();
-    await p.locator('#demo').click();
+    await p.locator('[data-step="data"]').click();
+    // From the empty page the example is offered beside the image; once images are loaded it
+    // sits in the menu and asks before replacing them.
+    if (await p.locator('#demo').isVisible()) await p.locator('#demo').click();
+    else {
+      p.once('dialog', d => d.accept());
+      await p.locator('#more').click();
+      await p.locator('#demoMenu').click();
+    }
     await p.waitForFunction(() => document.querySelector('#status').textContent === 'Mask updated');
   }
   const csvFile = (w, h, value) =>
@@ -124,7 +131,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(await gridState(), { rois: 0, calibration: null });
   // With display channels only, they define the grid.
   await p.evaluate(() => {
-    for (const key of ['nmc', 'secondary', 'f', 'other']) delete state.channels[key];
+    for (const key of ['nmc', 'secondary', 'f', 'c', 'other']) delete state.channels[key];
   });
   await importCSV('sem', 120, 240);
   await setROIAndCalibration();
@@ -208,7 +215,7 @@ fs.mkdirSync('qa', { recursive: true });
         sample: state.sample,
         channels: Object.keys(state.channels).length,
       })),
-      { sample: 'Keep me', channels: 4 },
+      { sample: 'Keep me', channels: 5 },
       name,
     );
     await p.evaluate(() => status('Ready'));
@@ -245,6 +252,7 @@ fs.mkdirSync('qa', { recursive: true });
   );
 
   // The reset control says what it does: nothing is stored on the machine.
+  await p.locator('#more').click();
   await p.locator('#settings').click();
   assert.equal(await p.locator('#clearData').textContent(), 'Reset workspace');
   await p.locator('#clearData').click();
@@ -254,6 +262,7 @@ fs.mkdirSync('qa', { recursive: true });
     [0, false],
   );
   await p.locator('#language').selectOption('zh-Hant');
+  await p.locator('#more').click();
   await p.locator('#settings').click();
   assert.equal(await p.locator('#clearData').textContent(), '重設工作區');
 

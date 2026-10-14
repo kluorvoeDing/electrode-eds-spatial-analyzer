@@ -56,7 +56,7 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('CV')}</th><th>${t('Occupancy')}</th><th>${t('Targeting')}</th><th>${t('Median')}</th><th>${t('Binder')}</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('CV')}</th><th>${t('Occupancy')}</th><th>${t('Targeting')}</th><th>${t('Median')}</th><th>${t('Binder')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
   );
   document
     .querySelectorAll('[data-comp]')
@@ -85,10 +85,10 @@ function flatResult(r, t, c = {}) {
     InterparticleOccupancy: r.interparticleOccupancy,
     TargetingEfficiency: r.targetingEfficiency,
     SecondaryAreaFraction: r.secondaryAreaFraction,
-    MeanDistance: r.distance.mean,
-    MedianDistance: r.distance.median,
-    P90Distance: r.distance.p90,
-    DistanceUnit: r.distance.unit,
+    MeanDistance: r.distance?.mean,
+    MedianDistance: r.distance?.median,
+    P90Distance: r.distance?.p90,
+    DistanceUnit: r.distance?.unit,
     BinderCoverage: r.binderCoverage,
     Pearson: r.pearson,
     FWithSecondary: r.fWithSecondary,
@@ -108,9 +108,22 @@ function flatResult(r, t, c = {}) {
     Images: t.images,
     DepthZones: r.depth?.zones || [],
     Tiles: r.tiles,
-    DistanceHistogram: r.distance.histogram,
-    DistanceBins: r.distance.bins,
+    DistanceHistogram: r.distance?.histogram,
+    DistanceBins: r.distance?.bins,
     Warnings: r.warnings,
+    // Added in v0.4.0, after every earlier column so existing positions do not move.
+    FAreaFraction: r.elements?.f?.areaFraction,
+    FUniformityCV: r.elements?.f?.uniformityCV,
+    FColumnCV: r.elements?.f?.columnCV,
+    FRowCV: r.elements?.f?.rowCV,
+    CAreaFraction: r.elements?.c?.areaFraction,
+    CUniformityCV: r.elements?.c?.uniformityCV,
+    CColumnCV: r.elements?.c?.columnCV,
+    CRowCV: r.elements?.c?.rowCV,
+    SecondaryColumnCV: r.elements?.secondary?.columnCV,
+    SecondaryRowCV: r.elements?.secondary?.rowCV,
+    CDepthCV: r.depth?.cCV,
+    Elements: r.elements,
   };
 }
 function exportCSV(comparison = false) {
@@ -177,7 +190,9 @@ function exportPNG() {
   ctx.fillRect(0, 0, out.width, out.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, 0, 0, source.width * k, imageHeight);
-  // The analysis grid with each cell's share of the secondary phase, as on screen.
+  // The analysis grid with each cell's share of the element on show, as on screen.
+  const key = state.results.elements?.[metric] ? metric : 'secondary',
+    figures = state.results.elements?.[key];
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
@@ -190,7 +205,9 @@ function exportPNG() {
     ctx.lineWidth = 1;
     ctx.strokeRect(tile.x0 * k + 0.5, tile.y0 * k + 0.5, width - 1, height - 1);
     if (!tile.area || label < 7) continue;
-    const text = (tile.fraction * 100).toFixed(1) + '%',
+    const share = tileShare(tile, key);
+    if (share == null) continue;
+    const text = (share * 100).toFixed(1) + '%',
       x = tile.x0 * k + width / 2,
       y = tile.y0 * k + height / 2;
     ctx.font = `600 ${label}px system-ui`;
@@ -220,7 +237,7 @@ function exportPNG() {
   );
   ctx.font = `${size * 0.8}px system-ui`;
   ctx.fillText(
-    `CV ${fmt(state.results.uniformityCV)} | ${t('Occupancy')} ${fmt(state.results.interparticleOccupancy, true)} | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}`,
+    `${t('Grid labels')}: ${t(METRIC_LABELS[key])} ${t('Area fraction')} | ${fmt(figures?.areaFraction, true)} | CV ${fmt(figures?.uniformityCV)}${key === 'secondary' && state.results.distance ? ` | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}` : ''}`,
     12,
     imageHeight + 55,
   );
