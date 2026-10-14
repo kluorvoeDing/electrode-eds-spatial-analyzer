@@ -1,16 +1,13 @@
-/* Left-hand step panels: Data, ROI, Segment and Analyze. */
-const STEP_ORDER = ['data', 'roi', 'segment', 'analyze'],
-  STEP_LABELS = { data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' },
-  STEP_HINTS = {
-    data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
-    roi: 'The region is optional: leave it empty to analyse the whole image. Enter μm / pixel here if distances should be in micrometres.',
-    segment:
-      'Check that the mask of each channel covers the right areas; adjust the threshold if not.',
-    analyze: 'Run the analysis. Change a setting and run it again to compare.',
-  };
+/* Left-hand step panels: Data, Check masks and Analyze. */
+const STEP_HINTS = {
+  data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
+  segment:
+    'The coloured areas are where each element is counted as present. If they look like the element maps, go on; adjust only when one is clearly too large or too small.',
+  analyze:
+    'Each cell shows the local share of the secondary phase. Click a cell to see its values on the right; click it again for the whole region.',
+};
 const STEP_RENDERERS = {
   data: renderDataStep,
-  roi: renderROIStep,
   segment: renderSegmentStep,
   analyze: renderAnalyzeStep,
 };
@@ -45,7 +42,7 @@ function renderDataStep(c) {
     )
     .join(
       '',
-    )}<div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
+    )}<label class="field">${t('μm / pixel')} ${info('cal')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}" placeholder="${t('set from the scale bar when cropping')}"></label><div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
   $('#view').value = state.view;
   $('#material').value = state.material;
   $('#view').onchange = e => {
@@ -101,11 +98,38 @@ function renderDataStep(c) {
         preview();
       }),
   );
+  $('#calibration').onchange = e => setCalibration(+e.target.value);
   $('#loadSession').onclick = () => $('#sessionFile').click();
   $('#demo').onclick = loadDemo;
 }
-function renderROIStep(c) {
-  c.innerHTML = `<h2>${t('ROI')} ${info('roi')}</h2><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div><h3>${t('Calibration')} ${info('cal')}</h3><label class="field">${t('μm / pixel')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}"></label><label class="field">${t('Scale bar length (\u03bcm)')}<input id="scaleLength" type="number" min="0" step="any" value="10"></label><button id="scaleBar">${t('Select scale bar endpoints')}</button>`;
+/* Why the analysis cannot run yet, as a message key; empty when it can. */
+function analysisBlocked() {
+  if (sizeError()) return 'Channel sizes differ; fix them with the notice above the image.';
+  if (!state.channels.nmc || !state.channels.secondary)
+    return 'Load the main-phase and secondary-phase maps first.';
+  if (state.material === 'Al2O3' && state.view === 'cross' && !state.rois.length)
+    return 'Al₂O₃ cross sections need the current collector excluded; draw the area below.';
+  return '';
+}
+function analyzeIfReady() {
+  return analysisBlocked() ? preview() : compute(true);
+}
+/* After a change to what is analysed: on the analysis step the numbers follow at once, elsewhere
+   only the masks are refreshed. */
+function recompute() {
+  return step === 'analyze' ? analyzeIfReady() : preview();
+}
+/* Optional tool for leaving part of the image out. Folded away: an accurately cropped map is
+   analysed whole. */
+function roiToolsHTML() {
+  const used = state.rois.length || state.roiInvert;
+  return `<details id="roiTools" ${roiToolsOpen ? 'open' : ''}><summary>${t('Limit the analysed area (optional)')}${used ? ` (${t('in use')})` : ''}</summary><p class="hint">${t('Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.')} ${info('roi')}</p><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div></details>`;
+}
+function bindROITools() {
+  // Recorded on the click itself: returning nothing, so the toggle is not cancelled.
+  $('#roiTools summary').onclick = () => {
+    roiToolsOpen = !$('#roiTools').open;
+  };
   $('#exclude').checked = exclude;
   $('#roiInvert').checked = state.roiInvert;
   $('#exclude').onchange = e => (exclude = e.target.checked);
@@ -127,12 +151,12 @@ function renderROIStep(c) {
     state.roiInvert = false;
     dirty();
     renderControls();
-    preview();
+    recompute();
   };
   $('#roiInvert').onchange = e => {
     state.roiInvert = e.target.checked;
     dirty();
-    preview();
+    recompute();
   };
   document.querySelectorAll('[data-delroi]').forEach(
     b =>
@@ -140,42 +164,61 @@ function renderROIStep(c) {
         state.rois.splice(+b.dataset.delroi, 1);
         dirty();
         renderControls();
-        preview();
+        recompute();
       }),
   );
-  $('#calibration').onchange = e => setCalibration(+e.target.value);
-  $('#scaleBar').onclick = () => {
-    if (!(+$('#scaleLength').value > 0)) {
-      status('Scale bar length 必須 > 0。', true);
-      return;
-    }
-    scalePoints = [];
-    drawMode = 'scale';
-    status('點選 Scale bar 兩端。');
-  };
 }
 const advancedInUse = p => p.invert || p.fill || p.smooth || p.min > 0,
-  advancedLabel = p => t('Advanced') + (advancedInUse(p) ? ` (${t('in use')})` : '');
+  advancedLabel = p => t('Advanced') + (advancedInUse(p) ? ` (${t('in use')})` : ''),
+  // A mask the user has taken away from the defaults.
+  maskAdjusted = p => !p.auto || advancedInUse(p) || p.denoise !== Core.DENOISE_DEFAULT,
+  adjustLabel = () =>
+    t('Adjust a mask') +
+    (ANALYSIS_KEYS.some(k => maskAdjusted(state.seg[k])) ? ` (${t('in use')})` : '');
+/* Share of the analysed area a mask covers, or null before it has been computed. */
+function maskCoverage(key) {
+  const mask = masks[key];
+  if (!mask) return null;
+  let covered = 0,
+    area = 0;
+  for (let i = 0; i < mask.length; i++) {
+    covered += mask[i];
+    area += effectiveROI ? effectiveROI[i] : 1;
+  }
+  return area ? covered / area : null;
+}
+function updateMaskLegend() {
+  document.querySelectorAll('[data-coverage]').forEach(el => {
+    const key = el.dataset.coverage;
+    el.textContent = `${t(state.seg[key].auto ? 'Auto' : 'Manual')} · ${fmt(maskCoverage(key), true)}`;
+  });
+}
 function renderSegmentStep(c) {
   const p = state.seg[selected] || state.seg.secondary,
     ch = state.channels[selected],
-    a = ch ? segIntensity(selected) : null,
-    r = a ? Core.range(a) : { min: 0, max: 255 },
+    r = segRanges[selected] || (ch ? Core.range(ch.data) : { min: 0, max: 255 }),
     // Clean-up options stay folded away unless one is in use, so an active setting is never hidden.
     advancedUsed = advancedInUse(p),
     // The Mn / Ni ratio only applies to Mn-based additives.
-    showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio);
-  c.innerHTML = `<h2>${t('Segmentation')} ${info('threshold')}</h2><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}`;
+    showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio),
+    loaded = ANALYSIS_KEYS.filter(k => state.channels[k]);
+  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<div class="row"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="spacer"></span><span class="muted compact" data-coverage="${k}"></span></div>`).join('') || `<div class="warning">${t('Load the main-phase and secondary-phase maps first.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
+  updateMaskLegend();
   $('#segChannel').value = selected;
+  $('#denoise').value = p.denoise;
   // Recorded on the click itself (the toggle event arrives later and also fires for a section
-  // that is merely rendered open), so a re-render keeps the section as the user left it.
-  $('#segAdvanced summary').onclick = () => {
+  // that is merely rendered open), so a re-render keeps the section as the user left it. While
+  // the section is open only the mask being adjusted is drawn.
+  $('#segAdjust > summary').onclick = () => {
     // No return value: returning false from a click handler would cancel the toggle itself.
+    segAdjustOpen = !$('#segAdjust').open;
+    draw();
+  };
+  $('#segAdvanced summary').onclick = () => {
     segAdvancedOpen = !$('#segAdvanced').open;
   };
   $('#segChannel').onchange = e => {
     selected = e.target.value;
-    if (state.channels[selected]) $('#channel').value = selected;
     renderControls();
     draw();
   };
@@ -201,21 +244,32 @@ function renderSegmentStep(c) {
     $('#thresholdSlider').value = value;
     $('#manual').classList.add('active');
     $('#auto').classList.remove('active');
+    $('#segAdjust > summary').textContent = adjustLabel();
     dirty();
     schedulePreview();
   }
   $('#thresholdNumber').onchange = e => thresholdChange(+e.target.value);
   $('#thresholdSlider').oninput = e => thresholdChange(+e.target.value);
+  // Averaging changes the scale of the values, so the threshold is found again.
+  $('#denoise').onchange = e => {
+    p.denoise = +e.target.value;
+    p.auto = true;
+    dirty();
+    renderControls();
+    preview();
+  };
   for (const key of ['invert', 'fill', 'smooth'])
     $('#' + key).onchange = e => {
       p[key] = e.target.checked;
       $('#segAdvanced summary').textContent = advancedLabel(p);
+      $('#segAdjust > summary').textContent = adjustLabel();
       dirty();
       preview();
     };
   $('#minObject').onchange = e => {
     p.min = Math.max(0, Math.floor(+e.target.value || 0));
     $('#segAdvanced summary').textContent = advancedLabel(p);
+    $('#segAdjust > summary').textContent = adjustLabel();
     dirty();
     preview();
   };
@@ -239,11 +293,16 @@ function renderSegmentStep(c) {
   }
 }
 function renderAnalyzeStep(c) {
-  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings"></div>`;
+  const blocked = analysisBlocked();
+  // The one case where the area tool is required: show it rather than only naming it.
+  if (blocked.startsWith('Al')) roiToolsOpen = true;
+  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}${roiToolsHTML()}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>`;
+  bindROITools();
   $('#grid').value = state.settings.grid;
   $('#grid').onchange = e => {
     state.settings.grid = +e.target.value;
     dirty();
+    analyzeIfReady();
   };
   $('#radius').onchange = e => {
     if (!Number.isFinite(+e.target.value) || +e.target.value < 0) {
@@ -254,24 +313,21 @@ function renderAnalyzeStep(c) {
     state.settings.binderRadius = +e.target.value;
     state.settings.binderRadiusCustom = +e.target.value !== Core.BINDER_DEFAULT[unit];
     dirty();
+    analyzeIfReady();
   };
   if ($('#depthAxis')) {
     $('#depthAxis').value = state.settings.depthAxis;
     $('#depthAxis').onchange = e => {
       state.settings.depthAxis = e.target.value;
       dirty();
+      analyzeIfReady();
     };
     $('#depthReverse').onchange = e => {
       state.settings.depthReverse = e.target.checked;
       dirty();
+      analyzeIfReady();
     };
   }
-  const blocked = sizeError()
-    ? 'Channel sizes differ; fix them with the notice above the image.'
-    : !state.channels.nmc || !state.channels.secondary
-      ? 'Load the main-phase and secondary-phase maps first.'
-      : '';
-  if (blocked) $('#analysisWarnings').innerHTML = `<div class="warning">${t(blocked)}</div>`;
   $('#analyze').onclick = () => compute(true);
   $('#addComparison').onclick = addComparison;
   $('#showComparison').onclick = showComparison;
@@ -314,5 +370,5 @@ function finishPolygon() {
   drawMode = 'pan';
   dirty();
   renderControls();
-  preview();
+  recompute();
 }

@@ -154,6 +154,44 @@ const Core = (() => {
       }
     return out;
   }
+  /* Local average of a count map: two passes of a (2r + 1)-wide box filter along each axis, which
+     together weight neighbours like a triangle. Sparse X-ray counts become a density that a
+     single threshold can separate; without it a threshold only picks out the lit pixels.
+     Windows are clipped at the image border, so the edge is the mean of what exists. */
+  function denoise(a, w, h, radius) {
+    const r = Math.floor(radius);
+    if (!(r > 0)) return a;
+    const box = (src, length, stride, lines, lineStride) => {
+      const out = new Float64Array(src.length);
+      for (let line = 0; line < lines; line++) {
+        const base = line * lineStride;
+        let total = 0,
+          count = 0;
+        for (let i = 0; i < Math.min(r, length); i++) {
+          total += src[base + i * stride];
+          count++;
+        }
+        for (let i = 0; i < length; i++) {
+          if (i + r < length) {
+            total += src[base + (i + r) * stride];
+            count++;
+          }
+          if (i - r - 1 >= 0) {
+            total -= src[base + (i - r - 1) * stride];
+            count--;
+          }
+          out[base + i * stride] = total / count;
+        }
+      }
+      return out;
+    };
+    let out = a;
+    for (let pass = 0; pass < 2; pass++) {
+      out = box(out, w, 1, h, w);
+      out = box(out, h, w, w, 1);
+    }
+    return out;
+  }
   function segment(a, w, h, roi, p) {
     const threshold = p.auto ? otsu(a, roi) : p.threshold;
     let m = new Uint8Array(a.length);
@@ -298,26 +336,24 @@ const Core = (() => {
       }
     const rw = xmax - xmin + 1,
       rh = ymax - ymin + 1;
-    const tiles = [];
+    // Tile edges, shared by the counts below and by the grid drawn over the image.
+    const edge = (origin, size, g) => origin + Math.floor((g * size) / grid),
+      tiles = [];
     for (let gy = 0; gy < grid; gy++)
       for (let gx = 0; gx < grid; gx++) {
+        const x0 = edge(xmin, rw, gx),
+          x1 = edge(xmin, rw, gx + 1),
+          y0 = edge(ymin, rh, gy),
+          y1 = edge(ymin, rh, gy + 1);
         let a = 0,
           b = 0;
-        for (
-          let y = ymin + Math.floor((gy * rh) / grid);
-          y < ymin + Math.floor(((gy + 1) * rh) / grid);
-          y++
-        )
-          for (
-            let x = xmin + Math.floor((gx * rw) / grid);
-            x < xmin + Math.floor(((gx + 1) * rw) / grid);
-            x++
-          ) {
+        for (let y = y0; y < y1; y++)
+          for (let x = x0; x < x1; x++) {
             const i = y * w + x;
             a += roi[i];
             b += secondary[i];
           }
-        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null });
+        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null, x0, y0, x1, y1 });
       }
     const dist = edt(perimeter(nmc, w, h), w, h),
       values = new Float64Array(ns),
@@ -329,6 +365,51 @@ const Core = (() => {
         values[k++] = dist[i] * scale;
         total += dist[i] * scale;
       }
+    // The same measures inside each tile. Distances come from the whole-image fields above, so a
+    // tile is not treated as if nothing existed beyond its edge.
+    const medianOf = list => {
+      if (!list.length) return null;
+      const sorted = Float64Array.from(list).sort(),
+        p = 0.5 * (sorted.length - 1),
+        lo = Math.floor(p),
+        hi = Math.ceil(p);
+      return sorted[lo] + (sorted[hi] - sorted[lo]) * (p - lo);
+    };
+    const secondaryEdge = f && nf ? perimeter(secondary, w, h) : null,
+      binderDistance = f && nf ? edt(f, w, h) : null;
+    for (const tile of tiles) {
+      const distances = [];
+      let gap = 0,
+        inGap = 0,
+        count = 0,
+        sumDistance = 0,
+        edgePixels = 0,
+        covered = 0;
+      for (let y = tile.y0; y < tile.y1; y++)
+        for (let x = tile.x0; x < tile.x1; x++) {
+          const i = y * w + x;
+          if (!roi[i]) continue;
+          if (!nmc[i]) {
+            gap++;
+            inGap += secondary[i];
+          }
+          if (secondary[i]) {
+            count++;
+            distances.push(dist[i] * scale);
+            sumDistance += dist[i] * scale;
+          }
+          if (secondaryEdge?.[i]) {
+            edgePixels++;
+            if (binderDistance[i] * scale <= binderRadius) covered++;
+          }
+        }
+      tile.secondaryPixels = count;
+      tile.interparticleOccupancy = fraction(inGap, gap);
+      tile.targetingEfficiency = fraction(inGap, count);
+      tile.distanceMedian = medianOf(distances);
+      tile.distanceMean = count ? sumDistance / count : null;
+      tile.binderCoverage = !f ? null : nf ? fraction(covered, edgePixels) : count ? 0 : null;
+    }
     values.sort();
     const quantile = q => {
       const p = q * (values.length - 1),
@@ -344,8 +425,8 @@ const Core = (() => {
     for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;
     let coverage = null;
     if (f && nf) {
-      const sp = perimeter(secondary, w, h),
-        fd = edt(f, w, h);
+      const sp = secondaryEdge,
+        fd = binderDistance;
       let p = 0,
         hit = 0;
       for (let i = 0; i < sp.length; i++)
@@ -431,7 +512,10 @@ const Core = (() => {
   const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],
     MAX_PIXELS = 16e6,
     GRID_OPTIONS = [3, 5, 8],
-    BINDER_DEFAULT = { px: 3, um: 0.5 };
+    BINDER_DEFAULT = { px: 3, um: 0.5 },
+    // Averaging radius (pixels) applied to a map before its threshold; 0 turns it off.
+    DENOISE_DEFAULT = 2,
+    DENOISE_MAX = 5;
   /* Binder neighbourhood after the calibration changes from `from` to `to` (μm per pixel, or
      null for pixels). The default follows the unit; a radius the user chose keeps its physical
      size, so it is converted when the unit changes and left alone otherwise. */
@@ -462,11 +546,14 @@ const Core = (() => {
       }
       const masks = {},
         intensities = {},
-        thresholds = {};
+        thresholds = {},
+        ranges = {};
       for (const key of ANALYSIS_KEYS)
         if (channelCache[key]) {
           const param = p.seg[key],
+            radius = param.denoise || 0,
             signature = JSON.stringify([
+              radius,
               param.auto,
               param.auto ? null : param.threshold,
               param.invert,
@@ -477,17 +564,22 @@ const Core = (() => {
               key === 'secondary' ? settings.epsilon : null,
             ]);
           if (segCache[key]?.signature !== signature) {
-            let data = channelCache[key].data;
-            if (key === 'secondary' && settings.ratio)
-              data = Float64Array.from(
-                data,
-                (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),
-              );
-            segCache[key] = { signature, ...segment(data, w, h, roiCache, param) };
+            // Both maps of a ratio are averaged first; a ratio of raw counts is mostly noise.
+            let data = denoise(channelCache[key].data, w, h, radius);
+            if (key === 'secondary' && settings.ratio) {
+              const main = denoise(channelCache.nmc.data, w, h, radius);
+              data = Float64Array.from(data, (x, i) => x / (main[i] + settings.epsilon));
+            }
+            segCache[key] = {
+              signature,
+              range: range(data),
+              ...segment(data, w, h, roiCache, param),
+            };
           }
           masks[key] = segCache[key].mask;
           intensities[key] = channelCache[key].data;
           thresholds[key] = segCache[key].threshold;
+          ranges[key] = segCache[key].range;
         }
       const results = p.analyze
         ? analyze({
@@ -502,7 +594,7 @@ const Core = (() => {
             ...settings,
           })
         : null;
-      return { roi: roiCache, masks, thresholds, results };
+      return { roi: roiCache, masks, thresholds, ranges, results };
     };
   }
   function process(p) {
@@ -516,6 +608,7 @@ const Core = (() => {
     range,
     otsu,
     roiMask,
+    denoise,
     segment,
     perimeter,
     edt,
@@ -527,6 +620,8 @@ const Core = (() => {
     MAX_PIXELS,
     GRID_OPTIONS,
     BINDER_DEFAULT,
+    DENOISE_DEFAULT,
+    DENOISE_MAX,
     rescaleBinderRadius,
   };
 })();

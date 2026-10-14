@@ -91,7 +91,8 @@ fs.mkdirSync(TMP, { recursive: true });
       ctx.putImageData(image, at.x, at.y);
     };
     const png = c => c.toDataURL('image/png').split(',')[1];
-    // Element report: title, label, the map, and a scale bar (50 px = 10 µm, so 0.2 µm / pixel).
+    // Element report: title, label, the map, and a bracket scale bar whose end ticks are 50 px
+    // apart for 10 µm, so 0.2 µm / pixel.
     const report = (name, w, h, at) => {
       const [c, ctx] = canvas(w, h);
       ctx.fillStyle = '#222';
@@ -101,10 +102,13 @@ fs.mkdirSync(TMP, { recursive: true });
       ctx.font = '10px sans-serif';
       ctx.fillText('Synthetic demo · not measured data', at.x, at.y - 8);
       paint(ctx, at, MAP.w, MAP.h, elements[name]);
+      const bar = { x: at.x + 4, y: at.y + MAP.h + 14 };
       ctx.fillStyle = '#000';
-      ctx.fillRect(at.x, at.y + MAP.h + 12, 50, 3);
+      ctx.fillRect(bar.x, bar.y, 51, 1);
+      ctx.fillRect(bar.x, bar.y, 1, 7);
+      ctx.fillRect(bar.x + 50, bar.y, 1, 7);
       ctx.font = '10px sans-serif';
-      ctx.fillText('10µm', at.x + 56, at.y + MAP.h + 17);
+      ctx.fillText('10µm', bar.x + 13, bar.y + 12);
       return png(c);
     };
     const sem = () => {
@@ -171,7 +175,10 @@ fs.mkdirSync(TMP, { recursive: true });
   await p.locator('#material').selectOption('LFP');
   await shot('01-start.png');
 
+  // First map: the region and the scale bar are found; only the printed length is typed.
   await choose('nmc', 'ni.png');
+  await p.setViewportSize({ ...VIEW, height: 900 });
+  await p.locator('#cropScaleUm').fill('10');
   await p.locator('#cropReviewed').check();
   await shot('02-crop.png', dialog);
   await p.locator('#cropApply').click();
@@ -192,33 +199,29 @@ fs.mkdirSync(TMP, { recursive: true });
   await p.locator('#channel').selectOption('sem');
   await shot('05-elements.png');
 
-  // Region and calibration.
+  // The masks of all three elements, then the controls for the rare case one needs adjusting.
   await p.locator('#nextStep').click();
-  await p.locator('#drawROI').click();
-  const box = await p.locator('#canvas').boundingBox();
-  await p.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.1);
-  await p.mouse.down();
-  await p.mouse.move(box.x + box.width * 0.92, box.y + box.height * 0.9, { steps: 6 });
-  await p.mouse.up();
-  await p.locator('#calibration').fill('0.2');
-  await p.locator('#calibration').press('Tab');
   await p.waitForFunction(() => !busy);
-  await p.setViewportSize({ ...VIEW, height: 860 });
-  await shot('06-roi.png');
-  await p.setViewportSize(VIEW);
-
-  await p.locator('#nextStep').click();
+  await shot('06-masks.png');
+  await p.locator('#segAdjust > summary').click();
   await p.locator('#segChannel').selectOption('secondary');
   await p.waitForFunction(() => !busy);
-  await shot('07-segment.png');
+  await p.setViewportSize({ ...VIEW, height: 860 });
+  await shot('07-adjust.png');
+  await p.setViewportSize(VIEW);
+  await p.locator('#segAdjust > summary').click();
 
+  // The analysis runs on arrival: grid on the image, whole-region values on the right.
   await p.locator('#nextStep').click();
-  await p.locator('#analyze').click();
   await p.waitForFunction(() => state.results && !busy);
   await shot('08-results.png');
+  const cell = p.locator('#gridOverlay .tile').nth(7),
+    box = await cell.boundingBox();
+  await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await shot('09-cell.png');
 
   await p.locator('#export').click();
-  await shot('09-export.png', dialog);
+  await shot('10-export.png', dialog);
   await p.locator('#closeDialog').click();
 
   // One channel a pixel larger than the others: the notice above the image and its fix button.
@@ -231,7 +234,7 @@ fs.mkdirSync(TMP, { recursive: true });
   await confirm();
   await p.locator('#notice').waitFor();
   await p.locator('#channel').selectOption('sem');
-  await shot('10-notice.png', p, { clip: { x: 0, y: 0, width: VIEW.width, height: 470 } });
+  await shot('11-notice.png', p, { clip: { x: 0, y: 0, width: VIEW.width, height: 470 } });
 
   await browser.close();
 })().catch(e => {

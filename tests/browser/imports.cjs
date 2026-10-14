@@ -45,7 +45,17 @@ fs.mkdirSync('qa', { recursive: true });
       .setInputFiles(path.resolve('tests/synthetic/' + key + '.csv'));
     await waitMask();
   }
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  // The reference maps are noise-free; averaging is switched off so the expected values are exact.
+  await p.locator('[data-step="segment"]').click();
+  await p.locator('#segAdjust > summary').click();
+  for (const key of ['nmc', 'secondary', 'f']) {
+    await p.locator('#segChannel').selectOption(key);
+    assert.equal(await p.locator('#denoise').inputValue(), '2');
+    await p.locator('#denoise').selectOption('0');
+    await waitMask();
+  }
+  assert.equal(await p.locator('#segAdjust > summary').textContent(), 'Adjust a mask (in use)');
+  await p.locator('[data-step="analyze"]').click();
   await p.locator('#grid').selectOption('3');
   await p.locator('#analyze').click();
   await p.waitForFunction(() => state.results !== null);
@@ -64,7 +74,7 @@ fs.mkdirSync('qa', { recursive: true });
     ),
     [180, 0, 0, 255],
   );
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await p.locator('[data-step="analyze"]').click();
   await p.locator('#analyze').click();
   await p.waitForFunction(() => state.results !== null);
   assert.equal(
@@ -87,15 +97,17 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('[data-file="secondary"]').setInputFiles(path.resolve('qa/secondary.jpg'));
   await waitMask();
   assert.equal(await p.evaluate(() => state.channels.secondary.format), 'image');
-  await p.getByRole('button', { name: '2 ROI', exact: true }).click();
-  await p.locator('#scaleLength').fill('10');
-  await p.locator('#scaleBar').click();
-  const box = await p.locator('#canvas').boundingBox();
-  const z = await p.evaluate(() => zoom);
-  await p.mouse.click(box.x + 5 * z, box.y + 5 * z);
-  await p.mouse.click(box.x + 25 * z, box.y + 5 * z);
-  assert.ok(Math.abs((await p.evaluate(() => state.settings.calibration)) - 0.5) < 1e-9);
-  await p.getByRole('button', { name: '3 Segment', exact: true }).click();
+  // Maps imported without the crop dialog take their scale from the field on the Data step.
+  await p.locator('[data-step="data"]').click();
+  await p.locator('#calibration').fill('0.5');
+  await p.locator('#calibration').press('Tab');
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
+  assert.equal(await p.locator('#scaleMark').isVisible(), true);
+  await p.locator('[data-step="segment"]').click();
+  await p.evaluate(() => {
+    if (!document.querySelector('#segAdjust').open)
+      document.querySelector('#segAdjust > summary').click();
+  });
   await p.locator('#segChannel').selectOption('secondary');
   // The ratio map is only offered for the Mn-based additive.
   assert.equal(await p.locator('#ratio').count(), 0);
@@ -131,7 +143,7 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#import').click();
   await p.locator('[data-remove="f"]').click();
   await waitMask();
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await p.locator('[data-step="analyze"]').click();
   await p.locator('#analyze').click();
   await p.waitForFunction(() => state.results !== null);
   assert.equal(await p.evaluate(() => state.results.binderCoverage), null);
@@ -140,17 +152,18 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#import').click();
   await p.locator('#material').selectOption('Al2O3');
   await p.locator('#view').selectOption('cross');
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await p.locator('[data-step="analyze"]').click();
   await p.locator('#analyze').click();
   assert.ok((await p.locator('#status').innerText()).includes('collector'));
+  assert.match(await p.locator('#analysisWarnings').textContent(), /current collector excluded/);
+  assert.equal(await p.locator('#roiTools').getAttribute('open'), '');
   // Empty ROI is an explicit analysis error.
   await p.locator('#import').click();
   await p.locator('#material').selectOption('TiO2');
-  await p.getByRole('button', { name: '2 ROI', exact: true }).click();
+  await p.locator('[data-step="analyze"]').click();
+  // The area tool is folded away until needed; the Al₂O₃ block above opened it.
+  assert.equal(await p.locator('#roiInvert').isVisible(), true);
   await p.locator('#roiInvert').check();
-  await waitMask();
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
-  await p.locator('#analyze').click();
   await p.waitForFunction(() =>
     document.querySelector('#status').textContent.includes('ROI is empty'),
   );
@@ -166,7 +179,7 @@ fs.mkdirSync('qa', { recursive: true });
           'PNG color and exact metrics',
           'JPG decoding',
           'image session roundtrip',
-          'scale bar click calibration',
+          'typed calibration',
           'ratio preview',
           'fill smoothing small object controls',
           'hover focus click popover',
@@ -181,7 +194,7 @@ fs.mkdirSync('qa', { recursive: true });
     ),
   );
   await browser.close();
-  console.log('PNG/JPG/CSV import, scale bar and guardrails passed');
+  console.log('PNG/JPG/CSV import, calibration and guardrails passed');
 })().catch(e => {
   console.error(e);
   process.exit(1);

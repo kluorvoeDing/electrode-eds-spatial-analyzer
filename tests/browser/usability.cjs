@@ -106,7 +106,24 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.locator('#cropLockSize').count(), 0);
   assert.match(await p.locator('#cropSizeStatus').textContent(), /Region suggested automatically/);
   assert.equal(await statusText(), 'Review the crop · NMC / Ni');
+  // The scale bar is still on the source image: it is found, and typing its printed length
+  // gives the scale. Nothing has to be measured by hand.
+  assert.match(
+    await p.locator('#cropScaleStatus').textContent(),
+    /^Scale bar: 27 px · enter the length printed next to it\.$/,
+  );
+  await p.locator('#cropScaleUm').fill('13.5');
+  assert.match(await p.locator('#cropScaleStatus').textContent(), /27 px → 0\.5000 μm \/ pixel$/);
   await confirm();
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
+  assert.deepEqual(await p.evaluate(() => state.channels.nmc.importInfo.scaleBar), {
+    x0: 6.5,
+    y0: 111,
+    x1: 33.5,
+    y1: 111,
+    um: 13.5,
+  });
+  assert.match(await statusText(), /0\.5000 μm \/ pixel/);
   assert.deepEqual(await p.evaluate(() => [state.channels.nmc.w, state.channels.nmc.h]), [100, 50]);
   assert.equal(await p.evaluate(() => state.channels.nmc.importInfo.kind), 'file');
   assert.equal(await p.evaluate(() => state.channels.nmc.name), 'report-ni.png');
@@ -120,8 +137,39 @@ fs.mkdirSync('qa', { recursive: true });
     /Keep the analysis grid size \(100 × 50\)/,
   );
   await confirm();
+  // A later image only reports what its bar comes to at the scale already set.
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
   await choose('f', 'report-f.png');
   assert.deepEqual(await rect(), { x: 20, y: 42, w: 100, h: 50 });
+  assert.match(
+    await p.locator('#cropScaleStatus').textContent(),
+    /^Scale bar: 27 px ≈ 13\.5 μm · at the scale already set/,
+  );
+  // The ends can be clicked instead; a length that contradicts the current scale is flagged.
+  const clickImage = async (x, y) => {
+    const box = await p.locator('#cropSource').boundingBox();
+    await p.mouse.click(
+      box.x + ((x + 0.5) * box.width) / 150,
+      box.y + ((y + 0.5) * box.height) / 118,
+    );
+  };
+  await p.locator('#cropScalePick').click();
+  assert.match(await p.locator('#cropScaleStatus').textContent(), /Click one end/);
+  await clickImage(20, 100);
+  assert.match(await p.locator('#cropScaleStatus').textContent(), /other end/);
+  await clickImage(60, 100);
+  assert.deepEqual(await rect(), { x: 20, y: 42, w: 100, h: 50 });
+  assert.match(await p.locator('#cropScaleStatus').textContent(), /^Scale bar: 40 px ≈ 20\.0 μm/);
+  await p.locator('#cropScaleUm').fill('40');
+  assert.match(
+    await p.locator('#cropScaleStatus').textContent(),
+    /1\.000 μm \/ pixel · differs from the scale already set \(0\.5000\)/,
+  );
+  assert.equal(
+    await p.locator('#cropScaleStatus').evaluate(e => e.classList.contains('warning')),
+    true,
+  );
+  await p.locator('#cropScaleUm').fill('');
   // "Detect" brings the selection back after it has been moved.
   await p.locator('[data-nudge="1,0"]').click({ modifiers: ['Shift'] });
   assert.deepEqual(await rect(), { x: 30, y: 42, w: 100, h: 50 });
@@ -130,6 +178,43 @@ fs.mkdirSync('qa', { recursive: true });
   await confirm();
   assert.equal(await p.evaluate(() => sizeError()), false);
   assert.equal(await notice().isVisible(), false);
+
+  // The scale mark sits under the image, in round micrometres, and matches the scale.
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
+  assert.equal(await p.locator('#scaleMark').isVisible(), true);
+  const markText = await p.locator('#scaleMark').textContent(),
+    markWidth = (await p.locator('#scaleMark .bar').boundingBox()).width;
+  assert.match(markText, /^(1|2|5)0* μm$/);
+  assert.ok(
+    Math.abs(markWidth - (parseFloat(markText) / 0.5) * (await p.evaluate(() => zoom))) < 1,
+  );
+  // The scale bar and the averaging radius survive a save and reload; bad values are refused.
+  const roundTrip = await p.evaluate(() => {
+    const saved = JSON.parse(JSON.stringify(snapshot())),
+      loaded = normalizeSession(saved),
+      refuses = change => {
+        const copy = JSON.parse(JSON.stringify(saved));
+        change(copy);
+        try {
+          normalizeSession(copy);
+          return false;
+        } catch (_) {
+          return true;
+        }
+      };
+    return {
+      bar: loaded.channels.nmc.importInfo.scaleBar,
+      denoise: loaded.seg.nmc.denoise,
+      badRadius: refuses(c => (c.seg.nmc.denoise = 9)),
+      badBar: refuses(c => (c.channels.nmc.importInfo.scaleBar.um = 0)),
+    };
+  });
+  assert.deepEqual(roundTrip, {
+    bar: { x0: 6.5, y0: 111, x1: 33.5, y1: 111, um: 13.5 },
+    denoise: 2,
+    badRadius: true,
+    badBar: true,
+  });
 
   // 3. The micrograph opens on the frame's inside, scaled to the grid whatever the reference is.
   await choose('sem', 'report-sem.png');
@@ -177,6 +262,19 @@ fs.mkdirSync('qa', { recursive: true });
   await p.screenshot({ path: 'qa/usability-elements.png' });
 
   // 4b. Micrograph first, maps second: confirming the first map leads straight into scaling SEM.
+  // Re-cropping the channel that carried the scale bar keeps the scale: its length is remembered.
+  await p.locator('#import').click();
+  await p.locator('[data-crop="nmc"]').click();
+  await p.locator('#cropSource').waitFor();
+  assert.equal(await p.locator('#cropScaleUm').inputValue(), '13.5');
+  await p.locator('[data-nudge="1,0"]').click();
+  await confirm();
+  assert.equal(await p.evaluate(() => state.settings.calibration), 0.5);
+  // The micrograph is resampled, so its own bar says nothing about the grid: not offered there.
+  await p.locator('[data-crop="sem"]').click();
+  await p.locator('#cropSource').waitFor();
+  assert.equal(await p.locator('#cropScaleUm').count(), 0);
+  await p.locator('#cropCancel').click();
   await p.locator('#settings').click();
   await p.locator('#clearData').click();
   await choose('sem', 'report-sem.png');
@@ -205,15 +303,37 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.evaluate(() => sizeError()), false);
   await p.locator('#channel').selectOption('sem');
 
-  // 5. Step guidance: one hint per step, a way forward, and a view that suits the step.
+  // 5. Three steps, each with one hint and a way forward: data, check masks, analyse.
+  assert.deepEqual(await p.locator('nav [data-step]').allTextContents(), [
+    '1 Data',
+    '2 Check masks',
+    '3 Analyze',
+  ]);
   await p.locator('#nextStep').click();
-  assert.equal(await p.evaluate(() => step), 'roi');
-  assert.match(await p.locator('.hint').textContent(), /region is optional.*μm \/ pixel/);
-  await p.locator('#nextStep').click();
+  await p.waitForFunction(() => !busy);
   assert.deepEqual(await p.evaluate(() => [step, display]), ['segment', 'overlay']);
-  assert.match(await p.locator('#maskLabel').textContent(), /^Mask: /);
-  // The segmentation panel shows channel, auto / manual and threshold; the rest is folded away.
+  assert.match(await p.locator('.hint').first().textContent(), /where each element is counted/);
+  // Every mask is shown at once, in its channel colour, with the share of the area it covers.
+  const ALL_MASKS = 'Mask: NMC / Ni · Secondary phase / Additive · PVDF / F';
+  assert.equal(await p.locator('#maskLabel').textContent(), ALL_MASKS);
+  assert.equal(await p.locator('#maskLabel .swatch').count(), 3);
+  assert.equal(await p.locator('.legend [data-coverage]').count(), 3);
+  for (const key of ['nmc', 'secondary', 'f'])
+    assert.match(
+      await p.locator(`[data-coverage="${key}"]`).textContent(),
+      /^Auto · \d+\.\d\d%$/,
+      key,
+    );
+  // New work averages the count map before its threshold.
+  assert.deepEqual(await p.evaluate(() => ANALYSIS_KEYS.map(k => state.seg[k].denoise)), [2, 2, 2]);
+  // Nothing has to be adjusted: the controls are folded away. Opened, they show one mask alone.
+  assert.equal(await p.locator('#thresholdNumber').isVisible(), false);
+  assert.equal(await p.locator('#segAdjust > summary').textContent(), 'Adjust a mask');
+  await p.locator('#segAdjust > summary').click();
   assert.equal(await p.locator('#thresholdNumber').isVisible(), true);
+  await p.locator('#segChannel').selectOption('nmc');
+  assert.equal(await p.locator('#maskLabel').textContent(), 'Mask: NMC / Ni');
+  assert.equal(await p.locator('#denoise').inputValue(), '2');
   assert.equal(await p.locator('#segAdvanced summary').textContent(), 'Advanced');
   for (const id of ['invert', 'fill', 'smooth', 'minObject'])
     assert.equal(await p.locator('#' + id).isVisible(), false, id);
@@ -221,21 +341,96 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#segAdvanced summary').click();
   await p.locator('#smooth').check();
   await p.waitForFunction(() => !busy);
-  // An option in use keeps the section open and says so, also after coming back to the step.
+  // An option in use keeps its section open and says so, also after coming back to the step.
   assert.equal(await p.locator('#segAdvanced summary').textContent(), 'Advanced (in use)');
-  await p.locator('[data-step="roi"]').click();
+  assert.equal(await p.locator('#segAdjust > summary').textContent(), 'Adjust a mask (in use)');
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-step="segment"]').click();
   assert.equal(await p.locator('#smooth').isVisible(), true);
   await p.locator('#smooth').uncheck();
   await p.waitForFunction(() => !busy);
   await p.locator('#segAdvanced summary').click();
   assert.equal(await p.locator('#smooth').isVisible(), false);
-  await p.locator('#segChannel').selectOption('nmc');
-  assert.equal(await p.locator('#smooth').isVisible(), false);
+  await p.locator('#segAdjust > summary').click();
+  assert.equal(await p.locator('#segAdjust > summary').textContent(), 'Adjust a mask');
+  assert.equal(await p.locator('#maskLabel').textContent(), ALL_MASKS);
+
+  // 5b. Arriving at the analysis runs it: the grid is on the image, each cell labelled with its
+  //     local share of the secondary phase, and the panel shows the whole region.
   await p.locator('#nextStep').click();
+  await p.waitForFunction(() => state.results && !busy);
   assert.equal(await p.evaluate(() => step), 'analyze');
   assert.equal(await p.locator('#nextStep').count(), 0);
   assert.equal(await p.locator('#analysisWarnings').textContent(), '');
+  const tiles = p.locator('#gridOverlay .tile'),
+    resultTiles = () => p.evaluate(() => state.results.tiles);
+  assert.equal(await tiles.count(), 25);
+  const computed = await resultTiles();
+  assert.deepEqual(
+    await tiles.allTextContents(),
+    computed.map(t => (t.fraction * 100).toFixed(1) + '%'),
+  );
+  assert.deepEqual(
+    computed.slice(0, 2).map(t => [t.x0, t.y0, t.x1, t.y1]),
+    [
+      [0, 0, 20, 10],
+      [20, 0, 40, 10],
+    ],
+  );
+  // The cells sit exactly on the pixels they were computed from.
+  const canvasBox = await p.locator('#canvas').boundingBox(),
+    lastBox = await tiles.nth(24).boundingBox();
+  assert.ok(Math.abs(lastBox.x + lastBox.width - (canvasBox.x + canvasBox.width)) < 0.6);
+  assert.ok(Math.abs(lastBox.y + lastBox.height - (canvasBox.y + canvasBox.height)) < 0.6);
+  const panel = () => p.locator('#results').textContent(),
+    headline = () => p.locator('#results .metric .value').first().textContent();
+  assert.match(await panel(), /Whole region/);
+  assert.match(await panel(), /Uniformity CV/);
+  assert.match(await panel(), /Share of this area covered by the secondary phase\./);
+  assert.equal(await p.locator('#hist').count(), 1);
+  const whole = await p.evaluate(() => state.results.secondaryAreaFraction);
+  assert.equal((await headline()).trim(), (whole * 100).toFixed(2) + '%');
+  // Clicking a cell shows that cell's values; clicking it again returns to the whole region.
+  const clickTile = async n => {
+    const box = await tiles.nth(n).boundingBox();
+    await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  };
+  await clickTile(7);
+  assert.equal(await p.evaluate(() => regionTile), 7);
+  assert.match(await p.locator('#results .region').textContent(), /Row 2 · column 3/);
+  assert.equal((await headline()).trim(), (computed[7].fraction * 100).toFixed(2) + '%');
+  assert.match(await panel(), /Uniformity CV: whole region only/);
+  assert.equal(await p.locator('#hist').count(), 0);
+  assert.equal(await tiles.nth(7).evaluate(e => e.classList.contains('selected')), true);
+  assert.ok(
+    ['interparticleOccupancy', 'targetingEfficiency', 'distanceMedian', 'binderCoverage'].every(
+      k => k in computed[7],
+    ),
+  );
+  await clickTile(7);
+  assert.equal(await p.evaluate(() => regionTile), null);
+  assert.equal(await p.locator('#hist').count(), 1);
+  await clickTile(12);
+  await p.locator('#regionAll').click();
+  assert.equal(await p.evaluate(() => regionTile), null);
+  assert.equal(await p.locator('#gridOverlay .tile.selected').count(), 0);
+  // Changing the grid analyses again; the optional area tool stays folded away.
+  await p.locator('#grid').selectOption('3');
+  await p.waitForFunction(() => state.results && !busy);
+  assert.equal(await tiles.count(), 9);
+  await p.locator('#grid').selectOption('5');
+  await p.waitForFunction(() => state.results && !busy);
+  assert.equal(await p.locator('#drawROI').isVisible(), false);
+  assert.equal(
+    await p.locator('#roiTools > summary').textContent(),
+    'Limit the analysed area (optional)',
+  );
+  // The grid belongs to the analysis step only.
+  await p.locator('[data-step="segment"]').click();
+  assert.equal(await p.locator('#gridOverlay').isVisible(), false);
+  // This workspace was started again without typing a scale-bar length: no scale, no mark.
+  assert.equal(await p.evaluate(() => state.settings.calibration), null);
+  assert.equal(await p.locator('#scaleMark').isVisible(), false);
 
   // 6. The reported failure: one channel a pixel larger than the rest. Everything stops, and the
   //    notice above the image names that channel and leads to the fix.
@@ -255,7 +450,7 @@ fs.mkdirSync('qa', { recursive: true });
     'Fix NMC / Ni 101 × 51',
   ]);
   assert.deepEqual(await p.evaluate(() => Object.keys(masks)), []);
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await p.locator('[data-step="analyze"]').click();
   assert.match(await p.locator('#analysisWarnings').textContent(), /Channel sizes differ/);
   await p.screenshot({ path: 'qa/usability-mismatch.png' });
   await notice().locator('[data-fix="nmc"]').click();
@@ -272,7 +467,7 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#import').click();
   await p.locator('#view').selectOption('cross');
   await p.locator('#material').selectOption('LFP');
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await p.locator('[data-step="analyze"]').click();
   assert.equal(await p.locator('#analysisWarnings').textContent(), '');
   await p.locator('#analyze').click();
   await p.waitForFunction(() =>
@@ -342,7 +537,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.locator('[data-display="overlay"]').textContent(), '遮罩疊圖');
   await p.locator('#import').click();
   assert.match(await p.locator('.hint').textContent(), /自動框出有效區域/);
-  assert.match(await p.locator('#nextStep').textContent(), /下一步：分析區域|下一步: 分析區域/);
+  assert.equal(await p.locator('#nextStep').textContent(), '下一步：確認遮罩');
   await p.setViewportSize({ width: 390, height: 844 });
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 
@@ -350,7 +545,7 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(external, []);
   await browser.close();
   console.log(
-    'Automatic crop, grid-size lock, mismatch notice and fix, element view and step guidance passed',
+    'Automatic crop and scale bar, grid-size lock, mismatch notice, coloured masks, grid cells and step guidance passed',
   );
 })().catch(e => {
   console.error(e);

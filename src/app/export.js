@@ -165,32 +165,69 @@ function exportPNG() {
   const old = display;
   display = 'overlay';
   draw();
+  // Small maps are enlarged by a whole factor, pixels kept sharp, so the grid labels are legible.
   const source = $('#canvas'),
-    out = document.createElement('canvas');
-  out.width = Math.max(640, source.width);
-  out.height = source.height + 100;
+    out = document.createElement('canvas'),
+    k = Math.max(1, Math.min(8, Math.ceil(960 / source.width))),
+    imageHeight = source.height * k;
+  out.width = Math.max(640, source.width * k);
+  out.height = imageHeight + 100;
   const ctx = out.getContext('2d');
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, out.width, out.height);
-  ctx.drawImage(source, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, 0, 0, source.width * k, imageHeight);
+  // The analysis grid with each cell's share of the secondary phase, as on screen.
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  for (const tile of state.results.tiles) {
+    if (tile.x1 == null) break;
+    const width = (tile.x1 - tile.x0) * k,
+      height = (tile.y1 - tile.y0) * k,
+      label = Math.min(22, width / 4.2, height / 1.7);
+    ctx.strokeStyle = '#ffffffb0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(tile.x0 * k + 0.5, tile.y0 * k + 0.5, width - 1, height - 1);
+    if (!tile.area || label < 7) continue;
+    const text = (tile.fraction * 100).toFixed(1) + '%',
+      x = tile.x0 * k + width / 2,
+      y = tile.y0 * k + height / 2;
+    ctx.font = `600 ${label}px system-ui`;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = Math.max(2, label / 5);
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, x, y);
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#242b35';
   const size = Math.max(12, Math.min(20, out.width / 35));
+  const mark = scaleMark(140 / k);
+  if (mark) {
+    ctx.fillRect(out.width - 12 - mark.pixels * k, imageHeight + 18, mark.pixels * k, 4);
+    ctx.font = `${size * 0.8}px system-ui`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`${mark.um} μm`, out.width - 12, imageHeight + 44);
+    ctx.textAlign = 'left';
+  }
   ctx.font = `${size}px system-ui`;
   ctx.fillText(
     `${state.sample} · ${t(state.view === 'top' ? 'Top View' : 'Cross Section')} · v${VERSION}`,
     12,
-    source.height + 28,
+    imageHeight + 28,
   );
   ctx.font = `${size * 0.8}px system-ui`;
   ctx.fillText(
     `CV ${fmt(state.results.uniformityCV)} | ${t('Occupancy')} ${fmt(state.results.interparticleOccupancy, true)} | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}`,
     12,
-    source.height + 55,
+    imageHeight + 55,
   );
   ctx.fillText(
     `${t('2D image quantification')} · ${t(state.settings.calibration ? 'calibrated' : 'uncalibrated (px)')}`,
     12,
-    source.height + 80,
+    imageHeight + 80,
   );
   out.toBlob(b => download(safeName() + '.overlay.png', b), 'image/png');
   display = old;

@@ -1,4 +1,4 @@
-# Algorithms — v0.2.1
+# Algorithms — v0.3.0
 
 所有計算為二維影像量化。所有 mask 先裁切有效 ROI；面積與比例使用 ROI 像素數。無法計算的值輸出 JSON `null`、介面 `—`，不是零。
 
@@ -6,11 +6,13 @@
 
 CSV 無表頭、逗號分隔、矩形、有限數值，保留原值。PNG/JPEG 由瀏覽器解碼為 RGB8，intensity=max(R,G,B)，Original 保留解碼後彩色影像。影像 LUT、JPEG 壓縮、EDS 軟體自動對比、標籤與背景會影響結果，優先使用原始 numeric map。
 
+Averaging（v0.3.0）：取閾值前先對 intensity 做局部平均，預設半徑 2 px，可設 0～5，0 為關閉。作法是沿 x、y 各做兩次寬度 `2r+1` 的 box filter（合起來近似三角形權重），視窗在影像邊緣截斷並以實際像素數平均。EDS 元素圖是稀疏的計數點，不平均時單一閾值只會挑出亮點而非區域；平均後才是局部計數密度。平均不受 ROI 限制，只用於決定 mask；Pearson 仍使用原始 intensity。Manual threshold、slider 範圍與 Otsu 都作用在平均後的數值上，因此改變半徑會把該通道切回 Auto。半徑記錄於 `segmentation.<channel>.denoise`；舊版 Session 沒有此欄位，載入時視為 0，數值與舊版相同。內建的合成示範資料為無雜訊參考圖，固定為 0。
+
 Auto：在有效 ROI 內，以 256-bin histogram 計算 Otsu 最大類間變異。Histogram range 取完整 map min/max；threshold 放在最佳 bin 上緣附近。常數 map 的 threshold 等於常數，非反轉 mask 為空。Manual：`intensity > threshold`；Invert：反轉此 predicate，ROI 外一律 false。
 
 依序執行 3×3 majority smooth（選填）、fill holes（從圖邊與 ROI 外背景作 4-neighbor flood fill，選填）、移除面積小於 Min object size 的 4-connected foreground。輸出 mask 為 0/1。
 
-Mn/(Ni+ε) 僅用於 Secondary segmentation，不取代 raw Secondary intensity 與 F 的 Pearson 分析。使用時 Mn map 須載入「次要相／添加物」通道，程式計算的是 `Secondary / (Ni + ε)`；ε 預設為 1。ε 使用原始 Ni intensity 單位；低 Ni 區域的 ratio 可能被放大，不能視為完整 MnO₂ 光譜分離。
+Mn/(Ni+ε) 使用時，兩張圖各自先做相同半徑的平均再相除。Mn/(Ni+ε) 僅用於 Secondary segmentation，不取代 raw Secondary intensity 與 F 的 Pearson 分析。使用時 Mn map 須載入「次要相／添加物」通道，程式計算的是 `Secondary / (Ni + ε)`；ε 預設為 1。ε 使用原始 Ni intensity 單位；低 Ni 區域的 ratio 可能被放大，不能視為完整 MnO₂ 光譜分離。
 
 ## Channels / alignment
 
@@ -39,6 +41,10 @@ SEM 白框：列亮度取中央 60% 欄位的平均。自影像中心向外找�
 
 分析格點：已載入通道依尺寸分組，取含分析通道最多者，同數時取通道總數較多者。匯入某通道時不計該通道本身。
 
+## Scale bar
+
+比例尺在裁切視窗的原圖上量測（v0.3.0），因為裁切後它已不在影像內。偵測：在裁切框以外的列，找出亮底上最長的深色水平線（長度 ≥ 12 px 且 ≤ 影像寬度的 90%、不貼影像邊緣、厚度 ≤ 6 px）。兩端有向上或向下的刻度時，長度取兩端刻度中心的距離；沒有刻度的實心線取全長。使用者輸入圖上標示的長度後，`μm/pixel = 長度 / 像素數`；也可以自行點選兩端。量測的不確定度約 ±1 px（50 px 的比例尺約 ±2%）。分析通道不重採樣，所以原圖的 μm/pixel 就是分析格點的 μm/pixel。SEM 會被重採樣，不提供此量測。比例尺的端點與長度記錄於 `importInfo.scaleBar`，重新裁切同一通道時沿用。
+
 ## Element view
 
 僅為顯示。底圖為 SEM（與格點同尺寸時），否則為黑色。每個勾選的元素圖以其像素 `max(R,G,B)/255` 乘以透明度滑桿的兩倍（上限 1）作為混合權重，顏色取該像素色相的全亮度；CSV 通道使用固定色調。
@@ -47,7 +53,9 @@ SEM 白框：列亮度取中央 60% 欄位的平均。自影像中心向外找�
 
 Rectangle 與 Polygon 判斷 pixel centre `(x+0.5,y+0.5)`。有效 ROI = include 聯集（沒有 include 時為全圖）；選擇 Invert 時反轉 include；最後扣除 exclude 聯集。空 ROI 拒絕分析。
 
-Grid 使用有效 ROI 的 bounding rectangle 切為 3×3、5×5、8×8。每格分母只取有效 ROI 像素；無有效 ROI 的格子不參與 CV。各格等權，SD 為母體 SD，不是 sample SD。`CV = sqrt(mean((f_i − mean(f))²))/mean(f)`，無因次，介面不乘 100。
+Grid 使用有效 ROI 的 bounding rectangle 切為 3×3、5×5、8×8；第 g 格的邊界為 `origin + floor(g × size / grid)`，結果中的每格帶有 `x0, y0, x1, y1`（右、下邊界不含），畫面上的網格直接使用這些值。每格分母只取有效 ROI 像素；無有效 ROI 的格子不參與 CV。各格等權，SD 為母體 SD，不是 sample SD。`CV = sqrt(mean((f_i − mean(f))²))/mean(f)`，無因次，介面不乘 100。
+
+每格另外輸出與全區相同定義、但只計入該格像素的數值（v0.3.0）：`secondaryPixels`、`interparticleOccupancy`、`targetingEfficiency`、`distanceMedian`、`distanceMean`、`binderCoverage`。距離使用全圖的距離場，不會把格子邊界當成沒有顆粒；分母為 0 時為 `null`。CV 是各格之間的差異，沒有單格的值。格子越小，像素越少，數值越不穩定。
 
 ## Interparticle metrics
 
@@ -81,6 +89,6 @@ Cross Section：沿所選 X/Y 軸，以有效 ROI bounding extent 作 0–100% �
 
 ## Trace / session
 
-結果與 comparison snapshot 保留版本、日期、原始檔名、尺寸、intensity range、匯入檔 SHA-256（合成資料無原始檔 hash）、ROI、threshold、segmentation、校正與分析設定。Session 包含完整 intensity，圖片另存 embedded PNG；重載重算結果。Session 維持 `schemaVersion: 1`，v0.2.0 新增欄位（`settings.binderRadiusCustom`、`importInfo` 的縮放資訊）皆為選填。載入時先驗證全部欄位並解碼內嵌 PNG，確認其實際尺寸與通道尺寸相符後才取代目前工作區；未知欄位捨棄。Analysis JSON 匯出數值及 trace；要重新載入工作專案，使用 Session JSON。
+結果與 comparison snapshot 保留版本、日期、原始檔名、尺寸、intensity range、匯入檔 SHA-256（合成資料無原始檔 hash）、ROI、threshold、segmentation、校正與分析設定。Session 包含完整 intensity，圖片另存 embedded PNG；重載重算結果。Session 維持 `schemaVersion: 1`，v0.3.0 新增選填欄位 `seg.<channel>.denoise` 與 `importInfo.scaleBar`；v0.2.0 新增欄位（`settings.binderRadiusCustom`、`importInfo` 的縮放資訊）皆為選填。載入時先驗證全部欄位並解碼內嵌 PNG，確認其實際尺寸與通道尺寸相符後才取代目前工作區；未知欄位捨棄。Analysis JSON 匯出數值及 trace；要重新載入工作專案，使用 Session JSON。
 
 所有計算在本機。Worker 的流程實作於 `Core.createPipeline()`，快取 intensity、ROI 與未變更的 mask（ROI 改變時全部重算；分割參數改變時只重算該通道；ratio／ε 只影響次要相）；Worker 層級錯誤會結束所有等待中的請求。每次送回 mask 副本，避免 transferable buffer 使 cache 失效。最新 revision 才可更新畫面，設定變更時清除舊結果。無網路 API、CDN、IndexedDB 或 localStorage；CSP 拒絕外部連線。

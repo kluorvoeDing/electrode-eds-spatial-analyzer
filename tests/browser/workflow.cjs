@@ -27,7 +27,7 @@ fs.mkdirSync('qa', { recursive: true });
   await page.waitForFunction(
     () => document.querySelector('#status').textContent === 'Mask updated',
   );
-  await page.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await page.locator('[data-step="analyze"]').click();
   await page.locator('#analyze').click();
   await page.waitForFunction(() =>
     document.querySelector('#status').textContent.startsWith('Analysis complete'),
@@ -59,7 +59,7 @@ fs.mkdirSync('qa', { recursive: true });
   const restored = await page.evaluate(() => state.results);
   assert.equal(restored.interparticleOccupancy, metrics.r.interparticleOccupancy);
   await page.locator('#view').selectOption('cross');
-  await page.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await page.locator('[data-step="analyze"]').click();
   await page.locator('#analyze').click();
   await page.waitForFunction(() =>
     document.querySelector('#status').textContent.startsWith('Analysis complete'),
@@ -79,7 +79,11 @@ fs.mkdirSync('qa', { recursive: true });
     assert.ok(fs.statSync('qa/' + file).size > 0);
   }
   await page.locator('#closeDialog').click();
-  await page.getByRole('button', { name: '2 ROI', exact: true }).click();
+  await page.locator('[data-step="analyze"]').click();
+  await page.evaluate(() => {
+    if (!document.querySelector('#roiTools').open)
+      document.querySelector('#roiTools > summary').click();
+  });
   await page.locator('#roiMode').selectOption('rect');
   await page.locator('#drawROI').click();
   let box = await page.locator('#canvas').boundingBox();
@@ -87,9 +91,8 @@ fs.mkdirSync('qa', { recursive: true });
   await page.mouse.down();
   await page.mouse.move(box.x + 150, box.y + 150);
   await page.mouse.up();
-  await page.waitForFunction(
-    () => document.querySelector('#status').textContent === 'Mask updated',
-  );
+  // On the analysis step a new region is analysed at once.
+  await page.waitForFunction(() => !busy && state.results !== null);
   assert.equal(await page.evaluate(() => state.rois.length), 1);
   await page.locator('#roiMode').selectOption('polygon');
   await page.locator('#exclude').check();
@@ -102,14 +105,17 @@ fs.mkdirSync('qa', { recursive: true });
   ])
     await page.mouse.click(box.x + x, box.y + y);
   await page.locator('#finishPolygon').click();
-  await page.waitForFunction(
-    () => document.querySelector('#status').textContent === 'Mask updated',
-  );
+  await page.waitForFunction(() => !busy && state.results !== null);
   assert.equal(await page.evaluate(() => state.rois.length), 2);
+  await page.locator('[data-step="data"]').click();
   await page.locator('#calibration').fill('0.1');
   await page.locator('#calibration').dispatchEvent('change');
   assert.equal(await page.evaluate(() => state.settings.calibration), 0.1);
-  await page.getByRole('button', { name: '3 Segment', exact: true }).click();
+  await page.locator('[data-step="segment"]').click();
+  await page.evaluate(() => {
+    if (!document.querySelector('#segAdjust').open)
+      document.querySelector('#segAdjust > summary').click();
+  });
   await page.locator('#segChannel').selectOption('secondary');
   await page.locator('#manual').click();
   await page.locator('#thresholdNumber').fill('999');
@@ -117,17 +123,21 @@ fs.mkdirSync('qa', { recursive: true });
   await page.waitForFunction(
     () => document.querySelector('#status').textContent === 'Mask updated',
   );
-  await page.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await page.locator('[data-step="analyze"]').click();
   await page.locator('#analyze').click();
   await page.waitForFunction(() =>
     document.querySelector('#status').textContent.includes('Secondary mask is empty'),
   );
-  await page.getByRole('button', { name: '3 Segment', exact: true }).click();
+  await page.locator('[data-step="segment"]').click();
+  await page.evaluate(() => {
+    if (!document.querySelector('#segAdjust').open)
+      document.querySelector('#segAdjust > summary').click();
+  });
   await page.locator('#auto').click();
   await page.waitForFunction(
     () => document.querySelector('#status').textContent === 'Mask updated',
   );
-  await page.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await page.locator('[data-step="analyze"]').click();
   await page.locator('#analyze').click();
   await page.waitForFunction(() =>
     document.querySelector('#status').textContent.startsWith('Analysis complete'),
@@ -148,7 +158,7 @@ fs.mkdirSync('qa', { recursive: true });
   await page.waitForFunction(() =>
     document.querySelector('#status').textContent.includes('dimensions differ'),
   );
-  await page.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await page.locator('[data-step="analyze"]').click();
   await page.locator('#analyze').click();
   assert.ok((await page.locator('#status').innerText()).includes('dimensions differ'));
   assert.deepEqual(errors, []);

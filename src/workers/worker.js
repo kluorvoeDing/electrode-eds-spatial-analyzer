@@ -2,12 +2,13 @@
 const run = Core.createPipeline();
 onmessage = event => {
   try {
-    const { roi, masks, thresholds, results } = run(event.data.payload);
+    const { roi, masks, thresholds, ranges, results } = run(event.data.payload);
     // Copies are transferred so the cached arrays stay usable for the next request.
     const result = {
       roi: new Uint8Array(roi),
       masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),
       thresholds,
+      ranges,
       results,
     };
     postMessage({ id: event.data.id, result }, [

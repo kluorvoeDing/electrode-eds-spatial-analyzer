@@ -42,13 +42,12 @@ const { chromium } = require('playwright'),
     page.evaluate(() =>
       JSON.stringify({ state, revision, selected, display, opacity, masks, roi: effectiveROI }),
     );
-  for (const step of ['data', 'roi', 'segment', 'analyze']) {
+  for (const step of ['data', 'segment', 'analyze']) {
     await page.locator(`[data-step="${step}"]`).click();
+    // Arriving at the analysis may run it; wait so the snapshot is of a settled workspace.
+    await page.waitForFunction(() => !busy);
     // Each step opens on its own view; switching language must not change it or anything else.
-    assert.equal(
-      await page.evaluate(() => display),
-      step === 'data' || step === 'roi' ? 'elements' : 'overlay',
-    );
+    assert.equal(await page.evaluate(() => display), step === 'data' ? 'elements' : 'overlay');
     const before = await capture();
     for (const lang of ['zh-Hant', 'en']) {
       await page.locator('#language').selectOption(lang);

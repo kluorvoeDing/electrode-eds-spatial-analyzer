@@ -67,7 +67,7 @@ fs.mkdirSync('qa', { recursive: true });
   const gridState = () =>
     p.evaluate(() => ({ rois: state.rois.length, calibration: state.settings.calibration }));
   async function analyze() {
-    await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+    await p.locator('[data-step="analyze"]').click();
     await p.locator('#analyze').click();
     await p.waitForFunction(() =>
       document.querySelector('#status').textContent.startsWith('Analysis complete'),

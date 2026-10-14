@@ -1,6 +1,11 @@
 const test = require('node:test'),
   assert = require('node:assert/strict');
-const { detectMapRegion, detectFrame, placeLocked } = require('../../src/ui/image-import.js');
+const {
+  detectMapRegion,
+  detectFrame,
+  detectScaleBar,
+  placeLocked,
+} = require('../../src/ui/image-import.js');
 
 const PAGE = [238, 242, 248];
 function canvas(w, h, colour) {
@@ -112,4 +117,62 @@ test('a locked box keeps the grid size and is centred on the detected region', (
   assert.deepEqual(placeLocked(null, target, 240, 110), { x: 80, y: 35, w: 80, h: 40 });
   // The grid does not fit inside this image.
   assert.equal(placeLocked(null, target, 60, 110), null);
+});
+
+// A report with the map at (10, 30) and room below it for a scale bar drawn by `bar`.
+function reportWithBar(bar) {
+  const w = 140,
+    h = 110,
+    map = { x: 10, y: 30, w: 120, h: 50 },
+    image = canvas(w, h, (x, y) =>
+      x >= map.x && x < map.x + map.w && y >= map.y && y < map.y + map.h
+        ? (x * 7 + y * 13) % 5 === 0
+          ? [255, 140, 0]
+          : [0, 0, 0]
+        : PAGE,
+    );
+  // Title strokes: dark, but short.
+  for (let x = 40; x < 48; x++) image.set(x, 8, [20, 20, 20]);
+  bar?.(image.set);
+  return { rgba: image.rgba, w, h, map };
+}
+test('a bracket scale bar is measured between the centres of its end ticks', () => {
+  // The bar as an EDS report prints it: a line, a tick down at each end, the label inside.
+  const { rgba, w, h, map } = reportWithBar(set => {
+    for (let x = 14; x <= 66; x++) set(x, 92, [10, 10, 10]);
+    for (let y = 93; y <= 98; y++) for (const x of [14, 66]) set(x, y, [10, 10, 10]);
+    for (let x = 30; x < 38; x++) set(x, 97, [30, 30, 30]);
+  });
+  assert.deepEqual(detectScaleBar(rgba, w, h, map), { x0: 14, y0: 92, x1: 66, y1: 92 });
+});
+test('a plain scale bar is measured over its full extent', () => {
+  const { rgba, w, h, map } = reportWithBar(set => {
+    for (let y = 92; y <= 94; y++) for (let x = 20; x < 60; x++) set(x, y, [0, 0, 0]);
+  });
+  const bar = detectScaleBar(rgba, w, h, map);
+  assert.deepEqual(bar, { x0: 19.5, y0: 93, x1: 59.5, y1: 93 });
+  assert.equal(bar.x1 - bar.x0, 40);
+});
+test('scale-bar detection ignores the map, long rules, thick blocks and short strokes', () => {
+  // Nothing but the title: its strokes are too short.
+  const none = reportWithBar();
+  assert.equal(detectScaleBar(none.rgba, none.w, none.h, none.map), null);
+  // A rule across the page and a solid block are not scale bars.
+  const clutter = reportWithBar(set => {
+    for (let x = 1; x < 139; x++) set(x, 100, [0, 0, 0]);
+    for (let y = 84; y <= 96; y++) for (let x = 80; x < 120; x++) set(x, y, [0, 0, 0]);
+  });
+  assert.equal(detectScaleBar(clutter.rgba, clutter.w, clutter.h, clutter.map), null);
+  // The longest qualifying line wins over a shorter one.
+  const two = reportWithBar(set => {
+    for (let x = 20; x < 40; x++) set(x, 90, [0, 0, 0]);
+    for (let x = 60; x < 110; x++) set(x, 100, [0, 0, 0]);
+  });
+  assert.equal(detectScaleBar(two.rgba, two.w, two.h, two.map).y0, 100);
+  // Rows of the map are skipped, so dark gaps between counts are never taken for a bar.
+  const gaps = reportWithBar(set => {
+    for (let x = 30; x < 70; x++) set(x, 50, [0, 0, 0]);
+    for (let x = 30; x < 70; x++) for (const y of [48, 52]) set(x, y, [255, 255, 255]);
+  });
+  assert.equal(detectScaleBar(gaps.rgba, gaps.w, gaps.h, gaps.map), null);
 });

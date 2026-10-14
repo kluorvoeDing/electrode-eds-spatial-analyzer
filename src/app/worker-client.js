@@ -21,15 +21,6 @@ worker.onerror = e => {
   status(message, true);
   for (const call of pending) call({ error: message });
 };
-function segIntensity(key) {
-  const ch = state.channels[key];
-  if (key === 'secondary' && state.settings.ratio && state.channels.nmc)
-    return Float64Array.from(
-      ch.data,
-      (v, i) => v / (state.channels.nmc.data[i] + state.settings.epsilon),
-    );
-  return ch.data;
-}
 function schedulePreview() {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(preview, 80);
@@ -96,11 +87,13 @@ async function compute(analyze = false) {
     return;
   }
   masks = response.result.masks;
+  segRanges = response.result.ranges;
   effectiveROI = response.result.roi;
   for (const [k, t] of Object.entries(response.result.thresholds)) {
     if (state.seg[k].auto) state.seg[k].threshold = t;
   }
   if (analyze) {
+    regionTile = null;
     state.results = response.result.results;
     state.results.elapsedMs = performance.now() - start;
     state.results.analyzedAt = new Date().toISOString();
@@ -117,9 +110,15 @@ async function compute(analyze = false) {
     if (step === 'segment') {
       const t = state.seg[selected]?.threshold;
       if ($('#thresholdNumber') && t != null) {
+        const range = segRanges[selected];
+        if (range) {
+          $('#thresholdSlider').min = range.min;
+          $('#thresholdSlider').max = range.max === range.min ? range.max + 1 : range.max;
+        }
         $('#thresholdNumber').value = Number(t.toPrecision(7));
         $('#thresholdSlider').value = t;
       }
+      updateMaskLegend();
     }
     status('Mask updated');
   }

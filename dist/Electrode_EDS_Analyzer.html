@@ -98,7 +98,7 @@ aside.right {
 }
 nav {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   margin: -16px -16px 14px;
   padding: 12px 16px 10px;
@@ -109,8 +109,9 @@ nav {
   border-bottom: 1px solid var(--line);
 }
 nav button {
-  padding: 9px 10px;
-  text-align: left;
+  padding: 9px 4px;
+  white-space: nowrap;
+  font-size: 13px;
 }
 details {
   margin: 14px 0 4px;
@@ -262,11 +263,104 @@ label.field select {
   background: #30353b;
   touch-action: none;
 }
+#stage {
+  position: relative;
+  width: fit-content;
+  margin: 20px auto;
+}
 #canvas {
   display: block;
-  margin: 20px auto;
   max-width: none;
   cursor: crosshair;
+}
+#gridOverlay {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+}
+#scaleMark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: #e8ebee;
+  font-size: 12px;
+}
+#scaleMark .bar {
+  display: inline-block;
+  height: 3px;
+  background: #e8ebee;
+}
+#gridOverlay .tile {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 1px solid #ffffffb0;
+  color: #fff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 3px #000,
+    0 0 3px #000,
+    0 1px 2px #000;
+  overflow: hidden;
+}
+#gridOverlay .tile.selected {
+  border: 3px solid #ffd54a;
+  background: #ffd54a2e;
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+.legend .row {
+  align-items: center;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.legend .spacer {
+  flex: 1;
+}
+.metric .note {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.region {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 2px 0 6px;
+  font-size: 14px;
+}
+.region button {
+  margin-left: auto;
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.crop-scale {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.crop-scale .row {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.crop-scale label {
+  font-size: 11px;
+}
+.crop-scale input {
+  display: block;
+  width: 110px;
+  margin-top: 4px;
 }
 .empty {
   position: absolute;
@@ -763,6 +857,44 @@ const Core = (() => {
       }
     return out;
   }
+  /* Local average of a count map: two passes of a (2r + 1)-wide box filter along each axis, which
+     together weight neighbours like a triangle. Sparse X-ray counts become a density that a
+     single threshold can separate; without it a threshold only picks out the lit pixels.
+     Windows are clipped at the image border, so the edge is the mean of what exists. */
+  function denoise(a, w, h, radius) {
+    const r = Math.floor(radius);
+    if (!(r > 0)) return a;
+    const box = (src, length, stride, lines, lineStride) => {
+      const out = new Float64Array(src.length);
+      for (let line = 0; line < lines; line++) {
+        const base = line * lineStride;
+        let total = 0,
+          count = 0;
+        for (let i = 0; i < Math.min(r, length); i++) {
+          total += src[base + i * stride];
+          count++;
+        }
+        for (let i = 0; i < length; i++) {
+          if (i + r < length) {
+            total += src[base + (i + r) * stride];
+            count++;
+          }
+          if (i - r - 1 >= 0) {
+            total -= src[base + (i - r - 1) * stride];
+            count--;
+          }
+          out[base + i * stride] = total / count;
+        }
+      }
+      return out;
+    };
+    let out = a;
+    for (let pass = 0; pass < 2; pass++) {
+      out = box(out, w, 1, h, w);
+      out = box(out, h, w, w, 1);
+    }
+    return out;
+  }
   function segment(a, w, h, roi, p) {
     const threshold = p.auto ? otsu(a, roi) : p.threshold;
     let m = new Uint8Array(a.length);
@@ -907,26 +1039,24 @@ const Core = (() => {
       }
     const rw = xmax - xmin + 1,
       rh = ymax - ymin + 1;
-    const tiles = [];
+    // Tile edges, shared by the counts below and by the grid drawn over the image.
+    const edge = (origin, size, g) => origin + Math.floor((g * size) / grid),
+      tiles = [];
     for (let gy = 0; gy < grid; gy++)
       for (let gx = 0; gx < grid; gx++) {
+        const x0 = edge(xmin, rw, gx),
+          x1 = edge(xmin, rw, gx + 1),
+          y0 = edge(ymin, rh, gy),
+          y1 = edge(ymin, rh, gy + 1);
         let a = 0,
           b = 0;
-        for (
-          let y = ymin + Math.floor((gy * rh) / grid);
-          y < ymin + Math.floor(((gy + 1) * rh) / grid);
-          y++
-        )
-          for (
-            let x = xmin + Math.floor((gx * rw) / grid);
-            x < xmin + Math.floor(((gx + 1) * rw) / grid);
-            x++
-          ) {
+        for (let y = y0; y < y1; y++)
+          for (let x = x0; x < x1; x++) {
             const i = y * w + x;
             a += roi[i];
             b += secondary[i];
           }
-        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null });
+        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null, x0, y0, x1, y1 });
       }
     const dist = edt(perimeter(nmc, w, h), w, h),
       values = new Float64Array(ns),
@@ -938,6 +1068,51 @@ const Core = (() => {
         values[k++] = dist[i] * scale;
         total += dist[i] * scale;
       }
+    // The same measures inside each tile. Distances come from the whole-image fields above, so a
+    // tile is not treated as if nothing existed beyond its edge.
+    const medianOf = list => {
+      if (!list.length) return null;
+      const sorted = Float64Array.from(list).sort(),
+        p = 0.5 * (sorted.length - 1),
+        lo = Math.floor(p),
+        hi = Math.ceil(p);
+      return sorted[lo] + (sorted[hi] - sorted[lo]) * (p - lo);
+    };
+    const secondaryEdge = f && nf ? perimeter(secondary, w, h) : null,
+      binderDistance = f && nf ? edt(f, w, h) : null;
+    for (const tile of tiles) {
+      const distances = [];
+      let gap = 0,
+        inGap = 0,
+        count = 0,
+        sumDistance = 0,
+        edgePixels = 0,
+        covered = 0;
+      for (let y = tile.y0; y < tile.y1; y++)
+        for (let x = tile.x0; x < tile.x1; x++) {
+          const i = y * w + x;
+          if (!roi[i]) continue;
+          if (!nmc[i]) {
+            gap++;
+            inGap += secondary[i];
+          }
+          if (secondary[i]) {
+            count++;
+            distances.push(dist[i] * scale);
+            sumDistance += dist[i] * scale;
+          }
+          if (secondaryEdge?.[i]) {
+            edgePixels++;
+            if (binderDistance[i] * scale <= binderRadius) covered++;
+          }
+        }
+      tile.secondaryPixels = count;
+      tile.interparticleOccupancy = fraction(inGap, gap);
+      tile.targetingEfficiency = fraction(inGap, count);
+      tile.distanceMedian = medianOf(distances);
+      tile.distanceMean = count ? sumDistance / count : null;
+      tile.binderCoverage = !f ? null : nf ? fraction(covered, edgePixels) : count ? 0 : null;
+    }
     values.sort();
     const quantile = q => {
       const p = q * (values.length - 1),
@@ -953,8 +1128,8 @@ const Core = (() => {
     for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;
     let coverage = null;
     if (f && nf) {
-      const sp = perimeter(secondary, w, h),
-        fd = edt(f, w, h);
+      const sp = secondaryEdge,
+        fd = binderDistance;
       let p = 0,
         hit = 0;
       for (let i = 0; i < sp.length; i++)
@@ -1040,7 +1215,10 @@ const Core = (() => {
   const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],
     MAX_PIXELS = 16e6,
     GRID_OPTIONS = [3, 5, 8],
-    BINDER_DEFAULT = { px: 3, um: 0.5 };
+    BINDER_DEFAULT = { px: 3, um: 0.5 },
+    // Averaging radius (pixels) applied to a map before its threshold; 0 turns it off.
+    DENOISE_DEFAULT = 2,
+    DENOISE_MAX = 5;
   /* Binder neighbourhood after the calibration changes from `from` to `to` (μm per pixel, or
      null for pixels). The default follows the unit; a radius the user chose keeps its physical
      size, so it is converted when the unit changes and left alone otherwise. */
@@ -1071,11 +1249,14 @@ const Core = (() => {
       }
       const masks = {},
         intensities = {},
-        thresholds = {};
+        thresholds = {},
+        ranges = {};
       for (const key of ANALYSIS_KEYS)
         if (channelCache[key]) {
           const param = p.seg[key],
+            radius = param.denoise || 0,
             signature = JSON.stringify([
+              radius,
               param.auto,
               param.auto ? null : param.threshold,
               param.invert,
@@ -1086,17 +1267,22 @@ const Core = (() => {
               key === 'secondary' ? settings.epsilon : null,
             ]);
           if (segCache[key]?.signature !== signature) {
-            let data = channelCache[key].data;
-            if (key === 'secondary' && settings.ratio)
-              data = Float64Array.from(
-                data,
-                (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),
-              );
-            segCache[key] = { signature, ...segment(data, w, h, roiCache, param) };
+            // Both maps of a ratio are averaged first; a ratio of raw counts is mostly noise.
+            let data = denoise(channelCache[key].data, w, h, radius);
+            if (key === 'secondary' && settings.ratio) {
+              const main = denoise(channelCache.nmc.data, w, h, radius);
+              data = Float64Array.from(data, (x, i) => x / (main[i] + settings.epsilon));
+            }
+            segCache[key] = {
+              signature,
+              range: range(data),
+              ...segment(data, w, h, roiCache, param),
+            };
           }
           masks[key] = segCache[key].mask;
           intensities[key] = channelCache[key].data;
           thresholds[key] = segCache[key].threshold;
+          ranges[key] = segCache[key].range;
         }
       const results = p.analyze
         ? analyze({
@@ -1111,7 +1297,7 @@ const Core = (() => {
             ...settings,
           })
         : null;
-      return { roi: roiCache, masks, thresholds, results };
+      return { roi: roiCache, masks, thresholds, ranges, results };
     };
   }
   function process(p) {
@@ -1125,6 +1311,7 @@ const Core = (() => {
     range,
     otsu,
     roiMask,
+    denoise,
     segment,
     perimeter,
     edt,
@@ -1136,6 +1323,8 @@ const Core = (() => {
     MAX_PIXELS,
     GRID_OPTIONS,
     BINDER_DEFAULT,
+    DENOISE_DEFAULT,
+    DENOISE_MAX,
     rescaleBinderRadius,
   };
 })();
@@ -1462,6 +1651,66 @@ Object.assign(UI_ZH, {
   'No image in clipboard. Copy the displayed image or a screenshot.':
     '剪貼簿內沒有影像。請複製顯示出的影像或截圖。',
 });
+Object.assign(UI_ZH, {
+  'Check masks': '確認遮罩',
+  'The coloured areas are where each element is counted as present. If they look like the element maps, go on; adjust only when one is clearly too large or too small.':
+    '彩色區域是工具判定「有這個元素」的位置，所有數值都從這裡算出。和元素圖看起來相符就按下一步；明顯太多或太少時才調整。',
+  'Each cell shows the local share of the secondary phase. Click a cell to see its values on the right; click it again for the whole region.':
+    '每一格標示次要相的局部面積比例。點一格，右側顯示該格的數值；再點一次回到全區。',
+  'Limit the analysed area (optional)': '限定分析範圍（選用）',
+  'Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.':
+    '只有影像中包含不該計入的部分（例如集流體或空白邊緣）時才需要。',
+  'Adjust a mask': '遮罩不對時再調整',
+  'Averaging radius (px)': '平滑半徑 (px)',
+  Off: '關閉',
+  'Al₂O₃ cross sections need the current collector excluded; draw the area below.':
+    'Al₂O₃ 截面須先排除集流體；請在下方繪製範圍。',
+  'set from the scale bar when cropping': '裁切時由比例尺換算',
+  'Scale bar': '比例尺',
+  'Length printed on the image (μm)': '圖上標示的長度 (μm)',
+  'Click the two ends': '點選比例尺兩端',
+  'Click one end of the scale bar on the image.': '請在影像上點比例尺的一端。',
+  'Now click the other end of the scale bar.': '再點比例尺的另一端。',
+  'No scale bar found. Click its two ends, or enter μm / pixel on the Data step.':
+    '找不到比例尺。請點選它的兩端，或在「資料」頁輸入 μm／像素。',
+  pixel: '像素',
+  'differs from the scale already set': '與目前的尺度不同',
+  'at the scale already set': '依目前的尺度',
+  'enter the length printed next to it.': '請輸入旁邊標示的長度。',
+  'Secondary area fraction': '次要相面積比例',
+  'Share of this area covered by the secondary phase.': '次要相佔這個範圍的面積比例。',
+  'How much that share differs from cell to cell. Lower is more even.':
+    '各格面積比例的差異程度；越小代表分布越均勻。',
+  'Share of the space between main-phase particles filled by the secondary phase.':
+    '主相顆粒之間的空隙，有多少被次要相佔據。',
+  'Share of the secondary phase that lies between particles rather than on them.':
+    '次要相有多少落在顆粒之間，而不是疊在主相上。',
+  'Typical distance from the secondary phase to the nearest main-phase surface.':
+    '次要相到最近主相顆粒表面的典型距離。',
+  'Share of the secondary-phase outline with binder within the set distance.':
+    '次要相邊緣在設定距離內有黏結劑的比例。',
+  'How much that share differs between the top, middle and bottom thirds. Lower is more even.':
+    '上、中、下三層面積比例的差異程度；越小代表越均勻。',
+  'Row {r} · column {c}': '第 {r} 列 · 第 {c} 欄',
+  'Whole region': '全區',
+  'Values of this cell only. The smaller the cell, the less steady the numbers.':
+    '以下只是這一格的數值；格子越小，數值越不穩定。',
+  'Click a cell on the image to see its values.': '點影像上的格子，可看該格的數值。',
+  'whole region only': '只有全區才有',
+  'already set': '已設定，可不填',
+});
+HELP_ZH.scaleBar =
+  '比例尺還在這張原圖上，裁切後就看不到了。工具會標出找到的比例尺（橘線），請輸入旁邊標示的長度，即可換算 μm／像素。位置不對時按「點選比例尺兩端」自行指定。長度以兩端刻度的中心計算，誤差約 ±1 像素。';
+HELP_EN.scaleBar =
+  'The scale bar is still on this source image; after cropping it is gone. The bar that was found is drawn in orange: type the length printed next to it to get μm per pixel. If it is in the wrong place, click its two ends yourself. Length runs between the centres of the end ticks, give or take one pixel.';
+HELP_ZH.denoise =
+  '取閾值前先對元素圖做局部平均。EDS 元素圖是稀疏的計數點，不平均時閾值只會挑出亮點而不是區域。半徑越大區域越完整、細節越少；0 為關閉。舊版專案檔維持關閉。';
+HELP_EN.denoise =
+  'Local averaging of the map before its threshold. EDS maps are sparse counts; without averaging a threshold picks out lit pixels rather than regions. A larger radius gives fuller regions and less detail; 0 turns it off. Sessions from older versions stay off.';
+HELP_ZH.cal =
+  'μm／像素；空白或 0 表示未校正，距離以像素顯示。裁切視窗會由原圖上的比例尺換算，也可以在這裡直接輸入。';
+HELP_EN.cal =
+  'μm per pixel; blank or zero means distances stay in pixels. The crop dialog works it out from the scale bar on the source image, or type it here.';
 HELP_ZH.pasteCrop =
   '在 VDI 複製影像或截圖，點選通道的貼上按鈕，再按 Ctrl+V。拖曳只框選有效元素圖，移除標題與比例尺。套用參考圖尺寸只改變裁切框的寬高，不會拉伸影像；各圖應以相同顯示倍率截圖並保留同一掃描範圍。尺寸相同不代表已對位，須以混合預覽人工確認。更換或重新裁切既有的分析通道（Ni／次要相／F），或影像尺寸改變時，會清除 ROI 與校正，截圖距離須重新校正；SEM 與其他元素僅供顯示，尺寸不變時保留。';
 HELP_EN.pasteCrop =
@@ -1768,6 +2017,58 @@ function detectFrame(rgba, w, h) {
   if (left < 0 || right < 0 || right - left < 18) return null;
   return { x: left + 1, y: top + 1, w: right - left - 1, h: bottom - top - 1 };
 }
+/* Finds the scale bar a report prints beside the map: the longest thin, dark, horizontal line on
+   the light page in the rows outside `exclude`. Returns the two ends, or null. A bar closed by
+   end ticks is measured between the tick centres, a plain bar over its full extent. Only a
+   suggestion; the user sees it drawn on the image and can click the ends instead. */
+function detectScaleBar(rgba, w, h, exclude = null) {
+  const level = (x, y) =>
+      Math.max(rgba[(y * w + x) * 4], rgba[(y * w + x) * 4 + 1], rgba[(y * w + x) * 4 + 2]),
+    dark = (x, y) => x >= 0 && x < w && y >= 0 && y < h && level(x, y) < 110,
+    page = (x, y) => y >= 0 && y < h && level(x, y) >= 170,
+    // Rows of dark pixels in column x, counted outwards from row y.
+    column = (x, y) => {
+      let top = y,
+        bottom = y;
+      while (dark(x, top - 1)) top--;
+      while (dark(x, bottom + 1)) bottom++;
+      return { top, bottom, height: bottom - top + 1 };
+    };
+  let best = null;
+  for (let y = 0; y < h; y++) {
+    if (exclude && y >= exclude.y && y < exclude.y + exclude.h) continue;
+    let start = -1;
+    for (let x = 0; x <= w; x++) {
+      if (x < w && dark(x, y)) {
+        if (start < 0) start = x;
+        continue;
+      }
+      if (start < 0) continue;
+      const x0 = start,
+        x1 = x - 1,
+        length = x1 - x0 + 1,
+        line = column((x0 + x1) >> 1, y);
+      start = -1;
+      // A line on the page: not touching the image edge, a few pixels thick at most.
+      if (length < 12 || length > 0.9 * w || x0 === 0 || x1 === w - 1) continue;
+      const middle = (x0 + x1) >> 1;
+      if (line.height > 6 || !(page(middle, line.top - 2) || page(middle, line.bottom + 2)))
+        continue;
+      if (!best || length > best.length) best = { x0, x1, line, length };
+    }
+  }
+  if (!best) return null;
+  const { x0, x1, line } = best,
+    y = (line.top + line.bottom) / 2,
+    ticked = [x0, x1].every(x => column(x, line.top).height >= line.height + 3);
+  return ticked ? { x0, y0: y, x1, y1: y } : { x0: x0 - 0.5, y0: y, x1: x1 + 0.5, y1: y };
+}
+const scaleBarPixels = bar => (bar ? Math.hypot(bar.x1 - bar.x0, bar.y1 - bar.y0) : 0);
+/* μm per pixel from the bar marked in the dialog and the length typed for it, or null. */
+function scaleFromBar(p) {
+  const pixels = scaleBarPixels(p.scaleBar);
+  return pixels > 0 && p.scaleUm > 0 ? p.scaleUm / pixels : null;
+}
 /* A crop of exactly the grid size, centred on `region` (or on the image) and kept inside the
    image; null when the grid is larger than the image. */
 function placeLocked(region, target, w, h) {
@@ -1946,6 +2247,18 @@ async function openImageImport(file, key, existing = null, origin = {}) {
       if (saved && p.lockSize && !p.detected) p.rect = placeLocked(saved, target, w, h);
       p.rect = p.rect || { x: 0, y: 0, w, h };
     }
+    // The scale bar is still in this image; after cropping it is gone. SEM is resampled onto the
+    // grid, so its bar does not give the grid's scale and is not offered.
+    const savedBar = existing?.sourceImage && existing.importInfo?.scaleBar;
+    p.scaleBar = savedBar
+      ? { x0: savedBar.x0, y0: savedBar.y0, x1: savedBar.x1, y1: savedBar.y1 }
+      : key === 'sem'
+        ? null
+        : p.rect.h < h
+          ? detectScaleBar(rgba, w, h, p.rect)
+          : null;
+    p.scaleUm = savedBar ? savedBar.um : null;
+    p.scalePick = null;
     renderImageImport();
   } catch (e) {
     if (ticket !== imageImportTicket) return;
@@ -1969,7 +2282,7 @@ function renderImageImport() {
     `<button type="button" data-nudge="${dx},${dy}" aria-label="${t(label)}" title="${t(label)}">${arrow}</button>`;
   showDialog(
     'Crop and review',
-    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropDetect">${t('Detect map region')}</button><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div><div class="crop-fit">${p.target ? `<label><input id="cropLockSize" type="checkbox" ${p.lockSize ? 'checked' : ''}> ${t('Keep the analysis grid size')} (${gridLabel}) ${info('lockSize')}</label>` : ''}${canFit ? `<label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label>` : ''}</div></div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button></div>`,
+    `<div class="crop-heading"><strong>${esc(t(channelNames[p.key]))}</strong><span>${p.w} × ${p.h} px</span>${info('pasteCrop')}</div><div class="crop-layout"><div><div class="crop-source-wrap"><canvas id="cropSource" tabindex="0" aria-label="${t('Drag to select image region')}"></canvas></div><div class="crop-coordinates">${['x', 'y', 'w', 'h'].map(k => `<label>${t({ x: 'Left (px)', y: 'Top (px)', w: 'Width (px)', h: 'Height (px)' }[k])}<input id="crop-${k}" type="number" step="1" min="${k === 'w' || k === 'h' ? 1 : 0}" value="${p.rect[k]}"></label>`).join('')}</div><div class="row crop-nudge"><span class="compact">${t('Nudge (px)')} ${info('nudge')}</span>${nudge(-1, 0, 'Move left', '←')}${nudge(0, -1, 'Move up', '↑')}${nudge(0, 1, 'Move down', '↓')}${nudge(1, 0, 'Move right', '→')}<span class="muted compact">${t('Shift = 10 px')}</span></div><div class="row"><button id="cropDetect">${t('Detect map region')}</button><button id="cropFull">${t('Use full image')}</button>${others.length ? `<button id="cropMatch">${t('Use reference dimensions')}</button>` : ''}</div><div class="crop-fit">${p.target ? `<label><input id="cropLockSize" type="checkbox" ${p.lockSize ? 'checked' : ''}> ${t('Keep the analysis grid size')} (${gridLabel}) ${info('lockSize')}</label>` : ''}${canFit ? `<label><input id="cropFit" type="checkbox" ${p.fit ? 'checked' : ''}> ${t('Scale selection to reference size (SEM only)')} ${info('semFit')}</label><label><input id="cropLock" type="checkbox" ${p.lockAspect ? 'checked' : ''}> ${t('Lock reference aspect ratio')}</label>` : ''}</div>${p.key === 'sem' ? '' : `<div class="crop-scale"><strong>${t('Scale bar')} ${info('scaleBar')}</strong><div id="cropScaleStatus" class="compact"></div><div class="row"><label>${t('Length printed on the image (μm)')}<input id="cropScaleUm" type="number" min="0" step="any" value="${p.scaleUm ?? ''}" placeholder="${state.settings.calibration ? t('already set') : ''}"></label><button id="cropScalePick" type="button">${t('Click the two ends')}</button></div></div>`}</div><div><h3>${t('Crop preview')}</h3><canvas id="cropPreview"></canvas>${others.length ? `<label class="field">${t('Reference channel')}<select id="cropReference">${others.map(k => `<option value="${k}">${esc(t(channelNames[k]))} · ${state.channels[k].w}×${state.channels[k].h}</option>`).join('')}</select></label><label class="field">${t('Preview mode')}<select id="cropView"><option value="blend">${t('Blend')}</option><option value="difference">${t('Difference')}</option></select></label><label class="field">${t('Image / reference blend')}<input id="cropBlend" type="range" min="0" max="1" step=".05" value=".5"></label><button id="cropFlip" type="button">${t('Hold to show reference')}</button>` : ''}<div id="cropSizeStatus" class="compact"></div></div></div><label class="crop-confirm"><input id="cropReviewed" type="checkbox"> ${t('I checked the image region, orientation and alignment.')}</label><div class="row"><button id="cropApply" class="primary" disabled>${t('Apply to channel')}</button><button id="cropCancel">${t('Cancel')}</button></div>`,
   );
   $('#cropSource').width = p.w;
   $('#cropSource').height = p.h;
@@ -2101,6 +2414,17 @@ function renderImageImport() {
   };
   $('#cropCancel').onclick = () => $('#dialog').close();
   $('#cropApply').onclick = applyImageImport;
+  if ($('#cropScaleUm')) {
+    $('#cropScaleUm').oninput = e => {
+      const value = Number(e.target.value);
+      p.scaleUm = value > 0 && Number.isFinite(value) ? value : null;
+      drawImageImport();
+    };
+    $('#cropScalePick').onclick = () => {
+      p.scalePick = [];
+      drawImageImport();
+    };
+  }
   let start = null;
   const c = $('#cropSource');
   c.onkeydown = e => {
@@ -2137,6 +2461,17 @@ function renderImageImport() {
     changed();
   };
   c.onpointerdown = e => {
+    // While marking the scale bar, clicks set its ends and leave the selection alone.
+    if (p.scalePick) {
+      p.scalePick.push(point(e));
+      if (p.scalePick.length === 2) {
+        const [[x0, y0], [x1, y1]] = p.scalePick;
+        p.scalePick = null;
+        if (x0 !== x1 || y0 !== y1) p.scaleBar = { x0, y0, x1, y1 };
+      }
+      drawImageImport();
+      return;
+    }
     start = point(e);
     c.setPointerCapture(e.pointerId);
     resetCropReview();
@@ -2186,6 +2521,12 @@ function drawImageImport(fast = false) {
   ctx.drawImage(p.canvas, 0, 0);
   const valid = cropRectValid(r, p.w, p.h);
   $('#cropApply').disabled = !valid || !p.reviewed;
+  if ($('#cropScaleStatus')) {
+    const status = scaleBarStatus(p);
+    $('#cropScaleStatus').textContent = status.text;
+    $('#cropScaleStatus').classList.toggle('warning', status.warning);
+    $('#cropScalePick').classList.toggle('active', !!p.scalePick);
+  }
   const preview = $('#cropPreview'),
     label = $('#cropSizeStatus');
   if (!valid) {
@@ -2205,6 +2546,7 @@ function drawImageImport(fast = false) {
   ctx.lineWidth = Math.max(1, p.w / 500);
   ctx.strokeRect(r.x, r.y, r.w, r.h);
   ctx.restore();
+  drawScaleBar(p, ctx);
   const ref = state.channels[p.reference],
     target = fitTarget(p),
     outW = target ? target.w : r.w,
@@ -2251,6 +2593,70 @@ function drawImageImport(fast = false) {
   label.classList.toggle('warning', offGrid);
   label.textContent = `${r.w} × ${r.h} px · ${t(offGrid ? 'Dimensions differ. Adjust the crop or crop the other channels before analysis.' : p.target ? 'Equal dimensions; check alignment using the blend slider.' : 'First channel: select only the map region.')}${p.detected ? ' · ' + t('Region suggested automatically; please check it.') : ''}`;
 }
+/* One line on the scale bar: what was found, what it gives, and whether it agrees with the scale
+   already set by another channel. */
+function scaleBarStatus(p) {
+  if (p.scalePick)
+    return {
+      text: t(
+        p.scalePick.length
+          ? 'Now click the other end of the scale bar.'
+          : 'Click one end of the scale bar on the image.',
+      ),
+      warning: false,
+    };
+  const pixels = scaleBarPixels(p.scaleBar),
+    current = state.settings.calibration,
+    measured = scaleFromBar(p);
+  if (!pixels)
+    return {
+      text: t('No scale bar found. Click its two ends, or enter μm / pixel on the Data step.'),
+      warning: false,
+    };
+  const length = `${t('Scale bar')}: ${Number(pixels.toFixed(1))} px`;
+  if (measured) {
+    const off = current ? Math.abs(measured / current - 1) : 0;
+    return {
+      text:
+        `${length} → ${measured.toPrecision(4)} μm / ${t('pixel')}` +
+        (off > 0.02
+          ? ` · ${t('differs from the scale already set')} (${current.toPrecision(4)})`
+          : ''),
+      warning: off > 0.02,
+    };
+  }
+  return {
+    text: current
+      ? `${length} ≈ ${(pixels * current).toPrecision(3)} μm · ${t('at the scale already set')} (${current.toPrecision(4)} μm / ${t('pixel')})`
+      : `${length} · ${t('enter the length printed next to it.')}`,
+    warning: false,
+  };
+}
+function drawScaleBar(p, ctx) {
+  const mark = Math.max(2, p.w / 250);
+  ctx.save();
+  ctx.strokeStyle = ctx.fillStyle = '#ff7a00';
+  ctx.lineWidth = Math.max(1.5, p.w / 400);
+  if (p.scaleBar && !p.scalePick) {
+    const { x0, y0, x1, y1 } = p.scaleBar,
+      length = Math.hypot(x1 - x0, y1 - y0) || 1,
+      nx = (-(y1 - y0) / length) * mark * 2,
+      ny = ((x1 - x0) / length) * mark * 2;
+    ctx.beginPath();
+    for (const [x, y] of [
+      [x0, y0],
+      [x1, y1],
+    ]) {
+      ctx.moveTo(x + 0.5 - nx, y + 0.5 - ny);
+      ctx.lineTo(x + 0.5 + nx, y + 0.5 + ny);
+    }
+    ctx.moveTo(x0 + 0.5, y0 + 0.5);
+    ctx.lineTo(x1 + 0.5, y1 + 0.5);
+    ctx.stroke();
+  }
+  for (const [x, y] of p.scalePick || []) ctx.fillRect(x - mark, y - mark, mark * 2, mark * 2);
+  ctx.restore();
+}
 async function applyImageImport() {
   const p = imageImport;
   if (!p || !p.reviewed || !cropRectValid(p.rect, p.w, p.h)) return;
@@ -2259,6 +2665,7 @@ async function applyImageImport() {
   try {
     const r = { ...p.rect },
       target = fitTarget(p),
+      measured = scaleFromBar(p),
       { rgba, w, h, info: pixelInfo } = importPixels(p.key, p.rgba, p.w, p.h, r, target),
       canvas = document.createElement('canvas');
     canvas.width = w;
@@ -2289,6 +2696,7 @@ async function applyImageImport() {
           crop: r,
           ...pixelInfo,
           ...(target ? { lockAspect: p.lockAspect } : {}),
+          ...(measured ? { scaleBar: { ...p.scaleBar, um: p.scaleUm } } : {}),
           reviewed: true,
           reference: p.reference || null,
           reviewedAt: new Date().toISOString(),
@@ -2301,6 +2709,11 @@ async function applyImageImport() {
     );
     $('#dialog').close();
     const cleared = replaceChannel(p.key, ch);
+    // After replaceChannel, which clears the scale when the grid changes.
+    if (measured) {
+      applyCalibration(measured);
+      dirty();
+    }
     renderControls();
     renderChannels();
     $('#channel').value = p.key;
@@ -2324,7 +2737,7 @@ async function applyImageImport() {
       fit();
       status(
         () =>
-          `${t('Image applied')} · ${t(channelNames[p.key])} · ${ch.w}×${ch.h}${target ? ' · ' + t('Display only, resampled') : ''}${cleared ? ' · ' + t('ROI and calibration cleared; recalibrate cropped screenshots.') : state.settings.calibration === null ? ' · ' + t('Calibrate screenshots before using micrometres.') : ''}`,
+          `${t('Image applied')} · ${t(channelNames[p.key])} · ${ch.w}×${ch.h}${target ? ' · ' + t('Display only, resampled') : ''}${measured ? ` · ${measured.toPrecision(4)} μm / ${t('pixel')}` : cleared ? ' · ' + t('ROI and calibration cleared; recalibrate cropped screenshots.') : state.settings.calibration === null ? ' · ' + t('Calibrate screenshots before using micrometres.') : ''}`,
       );
     }
   } catch (e) {
@@ -2368,11 +2781,12 @@ if (typeof module !== 'undefined')
     importPixels,
     detectMapRegion,
     detectFrame,
+    detectScaleBar,
     placeLocked,
   };
 
 /* Shared application state, defaults and constants. */
-const VERSION = '0.2.2';
+const VERSION = '0.3.0';
 const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
@@ -2386,6 +2800,7 @@ function info(key) {
 const defaults = () => ({
   auto: true,
   threshold: 128,
+  denoise: Core.DENOISE_DEFAULT,
   invert: false,
   min: 0,
   fill: false,
@@ -2404,6 +2819,15 @@ const DISPLAY_MODES = ['original', 'elements', 'overlay', 'mask'],
 let elementsShown = null;
 // Whether the user has opened the less common segmentation options.
 let segAdvancedOpen = false;
+// The steps of the workflow, in order, and the folded-away tools inside them.
+const STEP_ORDER = ['data', 'segment', 'analyze'],
+  STEP_LABELS = { data: 'Data', segment: 'Check masks', analyze: 'Analyze' };
+let segAdjustOpen = false,
+  roiToolsOpen = false;
+// Cell of the analysis grid whose values the results panel shows; null for the whole region.
+let regionTile = null;
+// Masks are drawn in the colour of their channel, the phase under study on top.
+const MASK_ORDER = ['nmc', 'f', 'secondary'];
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',
@@ -2433,6 +2857,8 @@ let step = 'data',
   zoom = 1,
   opacity = 0.45,
   masks = {},
+  // Value range of each map as it is thresholded (after averaging and the optional ratio).
+  segRanges = {},
   effectiveROI = null,
   revision = 0,
   busy = false,
@@ -2442,7 +2868,6 @@ let step = 'data',
   dragStart = null,
   drawMode = 'pan',
   exclude = false,
-  scalePoints = [],
   panStart = null,
   previewTimer = null,
   channelVersion = 0,
@@ -2459,7 +2884,7 @@ let lastStatus = 'Ready',
 
 /* Worker bootstrap and the segment / analyze request cycle. */
 const worker = new Worker(
-  URL.createObjectURL(new Blob(["'use strict';\n/* Deterministic numerical core, shared by the browser Worker and Node tests. */\nconst Core = (() => {\n  const sum = a => a.reduce((s, x) => s + x, 0);\n  const fraction = (a, b) => (b ? a / b : null);\n  function cv(a) {\n    const m = sum(a) / a.length;\n    return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;\n  }\n  function parseCSV(text) {\n    const rows = text\n      .replace(/^\\uFEFF/, '')\n      .trim()\n      .split(/\\r?\\n/)\n      .map(x =>\n        x\n          .trim()\n          .split(',')\n          .map(v => {\n            if (!v.trim() || !Number.isFinite(Number(v))) throw Error('CSV 含空值或非數值。');\n            return Number(v);\n          }),\n      );\n    if (!rows.length || !rows[0].length || rows.some(r => r.length !== rows[0].length))\n      throw Error('CSV 各列欄數不一致。');\n    return { w: rows[0].length, h: rows.length, data: new Float64Array(rows.flat()) };\n  }\n  function range(a) {\n    let min = Infinity,\n      max = -Infinity;\n    for (const x of a) {\n      if (!Number.isFinite(x)) throw Error('Map 含非有限數值。');\n      min = Math.min(min, x);\n      max = Math.max(max, x);\n    }\n    return { min, max };\n  }\n  function otsu(a, roi) {\n    const { min, max } = range(a);\n    if (max === min) return min;\n    const hist = new Float64Array(256);\n    let n = 0;\n    for (let i = 0; i < a.length; i++)\n      if (!roi || roi[i]) {\n        hist[Math.min(255, Math.floor(((a[i] - min) / (max - min)) * 255))]++;\n        n++;\n      }\n    let total = 0;\n    for (let i = 0; i < 256; i++) total += i * hist[i];\n    let wb = 0,\n      sb = 0,\n      best = -1,\n      t = 0;\n    for (let i = 0; i < 255; i++) {\n      wb += hist[i];\n      sb += i * hist[i];\n      const wf = n - wb;\n      if (!wb || !wf) continue;\n      const score = wb * wf * (sb / wb - (total - sb) / wf) ** 2;\n      if (score > best) {\n        best = score;\n        t = i;\n      }\n    }\n    return min + ((t + 0.5) / 255) * (max - min);\n  }\n  function polygonContains(x, y, pts) {\n    let inside = false;\n    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {\n      const [xi, yi] = pts[i],\n        [xj, yj] = pts[j];\n      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;\n    }\n    return inside;\n  }\n  function roiMask(w, h, rois = [], invert = false) {\n    const inc = rois.filter(r => !r.exclude),\n      exc = rois.filter(r => r.exclude),\n      out = new Uint8Array(w * h);\n    const contains = (r, x, y) =>\n      r.type === 'rect'\n        ? x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h\n        : polygonContains(x, y, r.points);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let inside = !inc.length || inc.some(r => contains(r, x + 0.5, y + 0.5));\n        if (invert) inside = !inside;\n        out[y * w + x] = inside && !exc.some(r => contains(r, x + 0.5, y + 0.5)) ? 1 : 0;\n      }\n    return out;\n  }\n  function neighbors(i, w, h, fn) {\n    const x = i % w,\n      y = Math.floor(i / w);\n    if (x) fn(i - 1);\n    if (x < w - 1) fn(i + 1);\n    if (y) fn(i - w);\n    if (y < h - 1) fn(i + w);\n  }\n  function removeSmall(mask, w, h, min) {\n    if (min <= 1) return mask;\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    for (let i = 0; i < mask.length; i++)\n      if (mask[i] && !seen[i]) {\n        let head = 0,\n          tail = 1;\n        q[0] = i;\n        seen[i] = 1;\n        while (head < tail) {\n          neighbors(q[head++], w, h, j => {\n            if (mask[j] && !seen[j]) {\n              seen[j] = 1;\n              q[tail++] = j;\n            }\n          });\n        }\n        if (tail < min) for (let j = 0; j < tail; j++) mask[q[j]] = 0;\n      }\n    return mask;\n  }\n  function fillHoles(mask, w, h, roi) {\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    let head = 0,\n      tail = 0;\n    const add = i => {\n      if (!mask[i] && !seen[i]) {\n        seen[i] = 1;\n        q[tail++] = i;\n      }\n    };\n    for (let i = 0; i < mask.length; i++)\n      if (!roi[i] || i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) add(i);\n    while (head < tail) neighbors(q[head++], w, h, add);\n    for (let i = 0; i < mask.length; i++) if (roi[i] && !seen[i]) mask[i] = 1;\n    return mask;\n  }\n  function smooth(mask, w, h, roi) {\n    const out = new Uint8Array(mask.length);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let count = 0,\n          n = 0;\n        for (let dy = -1; dy <= 1; dy++)\n          for (let dx = -1; dx <= 1; dx++) {\n            const xx = x + dx,\n              yy = y + dy;\n            if (xx >= 0 && xx < w && yy >= 0 && yy < h && roi[yy * w + xx]) {\n              n++;\n              count += mask[yy * w + xx];\n            }\n          }\n        out[y * w + x] = roi[y * w + x] && count > n / 2 ? 1 : 0;\n      }\n    return out;\n  }\n  function segment(a, w, h, roi, p) {\n    const threshold = p.auto ? otsu(a, roi) : p.threshold;\n    let m = new Uint8Array(a.length);\n    for (let i = 0; i < a.length; i++) m[i] = roi[i] && a[i] > threshold !== !!p.invert ? 1 : 0;\n    if (p.smooth) m = smooth(m, w, h, roi);\n    if (p.fill) m = fillHoles(m, w, h, roi);\n    m = removeSmall(m, w, h, p.min || 0);\n    return { mask: m, threshold };\n  }\n  function perimeter(m, w, h) {\n    const p = new Uint8Array(m.length);\n    for (let i = 0; i < m.length; i++)\n      if (m[i]) {\n        if (i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) p[i] = 1;\n        else\n          neighbors(i, w, h, j => {\n            if (!m[j]) p[i] = 1;\n          });\n      }\n    return p;\n  }\n  /* Felzenszwalb/Huttenlocher separable lower envelope; pixel-centre Euclidean distances. */\n  function edt(seed, w, h) {\n    const n = Math.max(w, h),\n      f = new Float64Array(n),\n      d = new Float64Array(n),\n      v = new Int32Array(n),\n      z = new Float64Array(n + 1),\n      tmp = new Float64Array(w * h),\n      out = new Float64Array(w * h),\n      INF = 1e20;\n    if (!seed.some(x => x)) {\n      out.fill(Infinity);\n      return out;\n    }\n    function line(len) {\n      let k = 0;\n      v[0] = 0;\n      z[0] = -Infinity;\n      z[1] = Infinity;\n      for (let q = 1; q < len; q++) {\n        let s;\n        do {\n          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\n          if (s <= z[k]) k--;\n          else break;\n        } while (k >= 0);\n        if (k < 0) {\n          k = 0;\n          v[0] = q;\n          z[0] = -Infinity;\n          z[1] = Infinity;\n        } else {\n          k++;\n          v[k] = q;\n          z[k] = s;\n          z[k + 1] = Infinity;\n        }\n      }\n      k = 0;\n      for (let q = 0; q < len; q++) {\n        while (z[k + 1] < q) k++;\n        d[q] = (q - v[k]) ** 2 + f[v[k]];\n      }\n    }\n    for (let x = 0; x < w; x++) {\n      for (let y = 0; y < h; y++) f[y] = seed[y * w + x] ? 0 : INF;\n      line(h);\n      for (let y = 0; y < h; y++) tmp[y * w + x] = d[y];\n    }\n    for (let y = 0; y < h; y++) {\n      for (let x = 0; x < w; x++) f[x] = tmp[y * w + x];\n      line(w);\n      for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(d[x]);\n    }\n    return out;\n  }\n  function pearson(a, b, roi) {\n    let n = 0,\n      ma = 0,\n      mb = 0,\n      va = 0,\n      vb = 0,\n      c = 0;\n    for (let i = 0; i < a.length; i++)\n      if (roi[i]) {\n        n++;\n        const da = a[i] - ma,\n          db = b[i] - mb;\n        ma += da / n;\n        mb += db / n;\n        va += da * (a[i] - ma);\n        vb += db * (b[i] - mb);\n        c += da * (b[i] - mb);\n      }\n    return va > 0 && vb > 0 ? Math.max(-1, Math.min(1, c / Math.sqrt(va * vb))) : null;\n  }\n  function analyze({\n    w,\n    h,\n    roi,\n    nmc,\n    secondary,\n    f,\n    secondaryIntensity,\n    fIntensity,\n    grid = 5,\n    calibration = null,\n    binderRadius = 3,\n    view = 'top',\n    depthAxis = 'y',\n    depthReverse = false,\n  }) {\n    const nr = sum(roi),\n      nn = sum(nmc),\n      ns = sum(secondary);\n    if (!nr) throw Error('ROI 為空。');\n    if (!nn) throw Error('NMC mask 為空，請調整 threshold。');\n    if (!ns) throw Error('Secondary mask 為空，請調整 threshold。');\n    let ng = 0,\n      sg = 0,\n      overlap = 0,\n      nf = f ? sum(f) : 0;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        if (!nmc[i]) {\n          ng++;\n          sg += secondary[i];\n        }\n        if (f && f[i] && secondary[i]) overlap++;\n      }\n    let xmin = w,\n      xmax = -1,\n      ymin = h,\n      ymax = -1;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        xmin = Math.min(xmin, i % w);\n        xmax = Math.max(xmax, i % w);\n        ymin = Math.min(ymin, Math.floor(i / w));\n        ymax = Math.max(ymax, Math.floor(i / w));\n      }\n    const rw = xmax - xmin + 1,\n      rh = ymax - ymin + 1;\n    const tiles = [];\n    for (let gy = 0; gy < grid; gy++)\n      for (let gx = 0; gx < grid; gx++) {\n        let a = 0,\n          b = 0;\n        for (\n          let y = ymin + Math.floor((gy * rh) / grid);\n          y < ymin + Math.floor(((gy + 1) * rh) / grid);\n          y++\n        )\n          for (\n            let x = xmin + Math.floor((gx * rw) / grid);\n            x < xmin + Math.floor(((gx + 1) * rw) / grid);\n            x++\n          ) {\n            const i = y * w + x;\n            a += roi[i];\n            b += secondary[i];\n          }\n        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null });\n      }\n    const dist = edt(perimeter(nmc, w, h), w, h),\n      values = new Float64Array(ns),\n      scale = calibration || 1;\n    let k = 0,\n      total = 0;\n    for (let i = 0; i < dist.length; i++)\n      if (secondary[i]) {\n        values[k++] = dist[i] * scale;\n        total += dist[i] * scale;\n      }\n    values.sort();\n    const quantile = q => {\n      const p = q * (values.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return values[lo] + (values[hi] - values[lo]) * (p - lo);\n    };\n    const bins = [0, 0, 0, 0],\n      edges = calibration ? [0.5, 1, 2] : [1, 2, 3];\n    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;\n    const max = values[values.length - 1],\n      hist = new Array(20).fill(0);\n    for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;\n    let coverage = null;\n    if (f && nf) {\n      const sp = perimeter(secondary, w, h),\n        fd = edt(f, w, h);\n      let p = 0,\n        hit = 0;\n      for (let i = 0; i < sp.length; i++)\n        if (sp[i]) {\n          p++;\n          if (fd[i] * scale <= binderRadius) hit++;\n        }\n      coverage = fraction(hit, p);\n    } else if (f) coverage = 0;\n    let depth = null;\n    if (view === 'cross') {\n      let min = Infinity,\n        max = -Infinity;\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coordinate = depthAxis === 'x' ? i % w : Math.floor(i / w);\n          min = Math.min(min, coordinate);\n          max = Math.max(max, coordinate);\n        }\n      const zones = Array.from({ length: 3 }, (_, j) => ({\n        zone: ['Top', 'Middle', 'Bottom'][j],\n        area: 0,\n        secondary: 0,\n        f: 0,\n        overlap: 0,\n      }));\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coord = depthAxis === 'x' ? i % w : Math.floor(i / w),\n            norm = (coord - min + 0.5) / (max - min + 1);\n          let z = Math.min(2, Math.floor(norm * 3));\n          if (depthReverse) z = 2 - z;\n          const a = zones[z];\n          a.area++;\n          a.secondary += secondary[i];\n          a.f += f ? f[i] : 0;\n          a.overlap += f && f[i] && secondary[i] ? 1 : 0;\n        }\n      for (const a of zones) {\n        a.secondaryFraction = fraction(a.secondary, a.area);\n        a.fFraction = f ? fraction(a.f, a.area) : null;\n        a.overlapFraction = f ? fraction(a.overlap, a.area) : null;\n      }\n      depth = {\n        zones,\n        cv: cv(zones.filter(z => z.area).map(z => z.secondaryFraction)),\n        fCV: f ? cv(zones.filter(z => z.area).map(z => z.fFraction)) : null,\n      };\n    }\n    return {\n      roiPixels: nr,\n      nmcPixels: nn,\n      secondaryPixels: ns,\n      fPixels: f ? nf : null,\n      secondaryAreaFraction: ns / nr,\n      uniformityCV: cv(tiles.filter(t => t.area).map(t => t.fraction)),\n      interparticleOccupancy: fraction(sg, ng),\n      targetingEfficiency: sg / ns,\n      distance: {\n        unit: calibration ? 'μm' : 'px',\n        mean: total / ns,\n        median: quantile(0.5),\n        p90: quantile(0.9),\n        max,\n        bins,\n        edges,\n        histogram: hist,\n      },\n      pearson: f ? pearson(secondaryIntensity, fIntensity, roi) : null,\n      fWithSecondary: f ? fraction(overlap, nf) : null,\n      secondaryWithF: f ? overlap / ns : null,\n      binderCoverage: coverage,\n      depth,\n      tiles,\n      warnings: [\n        nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,\n        ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,\n        f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,\n        ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,\n      ].filter(Boolean),\n    };\n  }\n  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],\n    MAX_PIXELS = 16e6,\n    GRID_OPTIONS = [3, 5, 8],\n    BINDER_DEFAULT = { px: 3, um: 0.5 };\n  /* Binder neighbourhood after the calibration changes from `from` to `to` (μm per pixel, or\n     null for pixels). The default follows the unit; a radius the user chose keeps its physical\n     size, so it is converted when the unit changes and left alone otherwise. */\n  function rescaleBinderRadius(radius, custom, from, to) {\n    if (!custom) return to ? BINDER_DEFAULT.um : BINDER_DEFAULT.px;\n    if (!from && to) return Number((radius * to).toPrecision(6));\n    if (from && !to) return Number((radius / from).toPrecision(6));\n    return radius;\n  }\n  /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI\n     mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */\n  function createPipeline() {\n    let channelCache = {},\n      roiKey = '',\n      roiCache = null,\n      segCache = {};\n    return function run(p) {\n      const { w, h, settings } = p;\n      if (p.channels) {\n        channelCache = p.channels;\n        segCache = {};\n      }\n      const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);\n      if (nextROIKey !== roiKey) {\n        roiCache = roiMask(w, h, p.rois, p.roiInvert);\n        roiKey = nextROIKey;\n        segCache = {};\n      }\n      const masks = {},\n        intensities = {},\n        thresholds = {};\n      for (const key of ANALYSIS_KEYS)\n        if (channelCache[key]) {\n          const param = p.seg[key],\n            signature = JSON.stringify([\n              param.auto,\n              param.auto ? null : param.threshold,\n              param.invert,\n              param.min,\n              param.fill,\n              param.smooth,\n              key === 'secondary' ? settings.ratio : false,\n              key === 'secondary' ? settings.epsilon : null,\n            ]);\n          if (segCache[key]?.signature !== signature) {\n            let data = channelCache[key].data;\n            if (key === 'secondary' && settings.ratio)\n              data = Float64Array.from(\n                data,\n                (x, i) => x / (channelCache.nmc.data[i] + settings.epsilon),\n              );\n            segCache[key] = { signature, ...segment(data, w, h, roiCache, param) };\n          }\n          masks[key] = segCache[key].mask;\n          intensities[key] = channelCache[key].data;\n          thresholds[key] = segCache[key].threshold;\n        }\n      const results = p.analyze\n        ? analyze({\n            w,\n            h,\n            roi: roiCache,\n            nmc: masks.nmc,\n            secondary: masks.secondary,\n            f: masks.f,\n            secondaryIntensity: intensities.secondary,\n            fIntensity: intensities.f,\n            ...settings,\n          })\n        : null;\n      return { roi: roiCache, masks, thresholds, results };\n    };\n  }\n  function process(p) {\n    return createPipeline()(p);\n  }\n  return {\n    sum,\n    fraction,\n    cv,\n    parseCSV,\n    range,\n    otsu,\n    roiMask,\n    segment,\n    perimeter,\n    edt,\n    pearson,\n    analyze,\n    process,\n    createPipeline,\n    ANALYSIS_KEYS,\n    MAX_PIXELS,\n    GRID_OPTIONS,\n    BINDER_DEFAULT,\n    rescaleBinderRadius,\n  };\n})();\nif (typeof module !== 'undefined') module.exports = Core;\n\n/* Message plumbing only; the cached pipeline lives in Core so it can be unit tested. */\nconst run = Core.createPipeline();\nonmessage = event => {\n  try {\n    const { roi, masks, thresholds, results } = run(event.data.payload);\n    // Copies are transferred so the cached arrays stay usable for the next request.\n    const result = {\n      roi: new Uint8Array(roi),\n      masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),\n      thresholds,\n      results,\n    };\n    postMessage({ id: event.data.id, result }, [\n      result.roi.buffer,\n      ...Object.values(result.masks).map(x => x.buffer),\n    ]);\n  } catch (e) {\n    postMessage({ id: event.data.id, error: e.message });\n  }\n};\n"], { type: 'text/javascript' })),
+  URL.createObjectURL(new Blob(["'use strict';\n/* Deterministic numerical core, shared by the browser Worker and Node tests. */\nconst Core = (() => {\n  const sum = a => a.reduce((s, x) => s + x, 0);\n  const fraction = (a, b) => (b ? a / b : null);\n  function cv(a) {\n    const m = sum(a) / a.length;\n    return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;\n  }\n  function parseCSV(text) {\n    const rows = text\n      .replace(/^\\uFEFF/, '')\n      .trim()\n      .split(/\\r?\\n/)\n      .map(x =>\n        x\n          .trim()\n          .split(',')\n          .map(v => {\n            if (!v.trim() || !Number.isFinite(Number(v))) throw Error('CSV 含空值或非數值。');\n            return Number(v);\n          }),\n      );\n    if (!rows.length || !rows[0].length || rows.some(r => r.length !== rows[0].length))\n      throw Error('CSV 各列欄數不一致。');\n    return { w: rows[0].length, h: rows.length, data: new Float64Array(rows.flat()) };\n  }\n  function range(a) {\n    let min = Infinity,\n      max = -Infinity;\n    for (const x of a) {\n      if (!Number.isFinite(x)) throw Error('Map 含非有限數值。');\n      min = Math.min(min, x);\n      max = Math.max(max, x);\n    }\n    return { min, max };\n  }\n  function otsu(a, roi) {\n    const { min, max } = range(a);\n    if (max === min) return min;\n    const hist = new Float64Array(256);\n    let n = 0;\n    for (let i = 0; i < a.length; i++)\n      if (!roi || roi[i]) {\n        hist[Math.min(255, Math.floor(((a[i] - min) / (max - min)) * 255))]++;\n        n++;\n      }\n    let total = 0;\n    for (let i = 0; i < 256; i++) total += i * hist[i];\n    let wb = 0,\n      sb = 0,\n      best = -1,\n      t = 0;\n    for (let i = 0; i < 255; i++) {\n      wb += hist[i];\n      sb += i * hist[i];\n      const wf = n - wb;\n      if (!wb || !wf) continue;\n      const score = wb * wf * (sb / wb - (total - sb) / wf) ** 2;\n      if (score > best) {\n        best = score;\n        t = i;\n      }\n    }\n    return min + ((t + 0.5) / 255) * (max - min);\n  }\n  function polygonContains(x, y, pts) {\n    let inside = false;\n    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {\n      const [xi, yi] = pts[i],\n        [xj, yj] = pts[j];\n      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;\n    }\n    return inside;\n  }\n  function roiMask(w, h, rois = [], invert = false) {\n    const inc = rois.filter(r => !r.exclude),\n      exc = rois.filter(r => r.exclude),\n      out = new Uint8Array(w * h);\n    const contains = (r, x, y) =>\n      r.type === 'rect'\n        ? x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h\n        : polygonContains(x, y, r.points);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let inside = !inc.length || inc.some(r => contains(r, x + 0.5, y + 0.5));\n        if (invert) inside = !inside;\n        out[y * w + x] = inside && !exc.some(r => contains(r, x + 0.5, y + 0.5)) ? 1 : 0;\n      }\n    return out;\n  }\n  function neighbors(i, w, h, fn) {\n    const x = i % w,\n      y = Math.floor(i / w);\n    if (x) fn(i - 1);\n    if (x < w - 1) fn(i + 1);\n    if (y) fn(i - w);\n    if (y < h - 1) fn(i + w);\n  }\n  function removeSmall(mask, w, h, min) {\n    if (min <= 1) return mask;\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    for (let i = 0; i < mask.length; i++)\n      if (mask[i] && !seen[i]) {\n        let head = 0,\n          tail = 1;\n        q[0] = i;\n        seen[i] = 1;\n        while (head < tail) {\n          neighbors(q[head++], w, h, j => {\n            if (mask[j] && !seen[j]) {\n              seen[j] = 1;\n              q[tail++] = j;\n            }\n          });\n        }\n        if (tail < min) for (let j = 0; j < tail; j++) mask[q[j]] = 0;\n      }\n    return mask;\n  }\n  function fillHoles(mask, w, h, roi) {\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    let head = 0,\n      tail = 0;\n    const add = i => {\n      if (!mask[i] && !seen[i]) {\n        seen[i] = 1;\n        q[tail++] = i;\n      }\n    };\n    for (let i = 0; i < mask.length; i++)\n      if (!roi[i] || i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) add(i);\n    while (head < tail) neighbors(q[head++], w, h, add);\n    for (let i = 0; i < mask.length; i++) if (roi[i] && !seen[i]) mask[i] = 1;\n    return mask;\n  }\n  function smooth(mask, w, h, roi) {\n    const out = new Uint8Array(mask.length);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let count = 0,\n          n = 0;\n        for (let dy = -1; dy <= 1; dy++)\n          for (let dx = -1; dx <= 1; dx++) {\n            const xx = x + dx,\n              yy = y + dy;\n            if (xx >= 0 && xx < w && yy >= 0 && yy < h && roi[yy * w + xx]) {\n              n++;\n              count += mask[yy * w + xx];\n            }\n          }\n        out[y * w + x] = roi[y * w + x] && count > n / 2 ? 1 : 0;\n      }\n    return out;\n  }\n  /* Local average of a count map: two passes of a (2r + 1)-wide box filter along each axis, which\n     together weight neighbours like a triangle. Sparse X-ray counts become a density that a\n     single threshold can separate; without it a threshold only picks out the lit pixels.\n     Windows are clipped at the image border, so the edge is the mean of what exists. */\n  function denoise(a, w, h, radius) {\n    const r = Math.floor(radius);\n    if (!(r > 0)) return a;\n    const box = (src, length, stride, lines, lineStride) => {\n      const out = new Float64Array(src.length);\n      for (let line = 0; line < lines; line++) {\n        const base = line * lineStride;\n        let total = 0,\n          count = 0;\n        for (let i = 0; i < Math.min(r, length); i++) {\n          total += src[base + i * stride];\n          count++;\n        }\n        for (let i = 0; i < length; i++) {\n          if (i + r < length) {\n            total += src[base + (i + r) * stride];\n            count++;\n          }\n          if (i - r - 1 >= 0) {\n            total -= src[base + (i - r - 1) * stride];\n            count--;\n          }\n          out[base + i * stride] = total / count;\n        }\n      }\n      return out;\n    };\n    let out = a;\n    for (let pass = 0; pass < 2; pass++) {\n      out = box(out, w, 1, h, w);\n      out = box(out, h, w, w, 1);\n    }\n    return out;\n  }\n  function segment(a, w, h, roi, p) {\n    const threshold = p.auto ? otsu(a, roi) : p.threshold;\n    let m = new Uint8Array(a.length);\n    for (let i = 0; i < a.length; i++) m[i] = roi[i] && a[i] > threshold !== !!p.invert ? 1 : 0;\n    if (p.smooth) m = smooth(m, w, h, roi);\n    if (p.fill) m = fillHoles(m, w, h, roi);\n    m = removeSmall(m, w, h, p.min || 0);\n    return { mask: m, threshold };\n  }\n  function perimeter(m, w, h) {\n    const p = new Uint8Array(m.length);\n    for (let i = 0; i < m.length; i++)\n      if (m[i]) {\n        if (i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) p[i] = 1;\n        else\n          neighbors(i, w, h, j => {\n            if (!m[j]) p[i] = 1;\n          });\n      }\n    return p;\n  }\n  /* Felzenszwalb/Huttenlocher separable lower envelope; pixel-centre Euclidean distances. */\n  function edt(seed, w, h) {\n    const n = Math.max(w, h),\n      f = new Float64Array(n),\n      d = new Float64Array(n),\n      v = new Int32Array(n),\n      z = new Float64Array(n + 1),\n      tmp = new Float64Array(w * h),\n      out = new Float64Array(w * h),\n      INF = 1e20;\n    if (!seed.some(x => x)) {\n      out.fill(Infinity);\n      return out;\n    }\n    function line(len) {\n      let k = 0;\n      v[0] = 0;\n      z[0] = -Infinity;\n      z[1] = Infinity;\n      for (let q = 1; q < len; q++) {\n        let s;\n        do {\n          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\n          if (s <= z[k]) k--;\n          else break;\n        } while (k >= 0);\n        if (k < 0) {\n          k = 0;\n          v[0] = q;\n          z[0] = -Infinity;\n          z[1] = Infinity;\n        } else {\n          k++;\n          v[k] = q;\n          z[k] = s;\n          z[k + 1] = Infinity;\n        }\n      }\n      k = 0;\n      for (let q = 0; q < len; q++) {\n        while (z[k + 1] < q) k++;\n        d[q] = (q - v[k]) ** 2 + f[v[k]];\n      }\n    }\n    for (let x = 0; x < w; x++) {\n      for (let y = 0; y < h; y++) f[y] = seed[y * w + x] ? 0 : INF;\n      line(h);\n      for (let y = 0; y < h; y++) tmp[y * w + x] = d[y];\n    }\n    for (let y = 0; y < h; y++) {\n      for (let x = 0; x < w; x++) f[x] = tmp[y * w + x];\n      line(w);\n      for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(d[x]);\n    }\n    return out;\n  }\n  function pearson(a, b, roi) {\n    let n = 0,\n      ma = 0,\n      mb = 0,\n      va = 0,\n      vb = 0,\n      c = 0;\n    for (let i = 0; i < a.length; i++)\n      if (roi[i]) {\n        n++;\n        const da = a[i] - ma,\n          db = b[i] - mb;\n        ma += da / n;\n        mb += db / n;\n        va += da * (a[i] - ma);\n        vb += db * (b[i] - mb);\n        c += da * (b[i] - mb);\n      }\n    return va > 0 && vb > 0 ? Math.max(-1, Math.min(1, c / Math.sqrt(va * vb))) : null;\n  }\n  function analyze({\n    w,\n    h,\n    roi,\n    nmc,\n    secondary,\n    f,\n    secondaryIntensity,\n    fIntensity,\n    grid = 5,\n    calibration = null,\n    binderRadius = 3,\n    view = 'top',\n    depthAxis = 'y',\n    depthReverse = false,\n  }) {\n    const nr = sum(roi),\n      nn = sum(nmc),\n      ns = sum(secondary);\n    if (!nr) throw Error('ROI 為空。');\n    if (!nn) throw Error('NMC mask 為空，請調整 threshold。');\n    if (!ns) throw Error('Secondary mask 為空，請調整 threshold。');\n    let ng = 0,\n      sg = 0,\n      overlap = 0,\n      nf = f ? sum(f) : 0;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        if (!nmc[i]) {\n          ng++;\n          sg += secondary[i];\n        }\n        if (f && f[i] && secondary[i]) overlap++;\n      }\n    let xmin = w,\n      xmax = -1,\n      ymin = h,\n      ymax = -1;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        xmin = Math.min(xmin, i % w);\n        xmax = Math.max(xmax, i % w);\n        ymin = Math.min(ymin, Math.floor(i / w));\n        ymax = Math.max(ymax, Math.floor(i / w));\n      }\n    const rw = xmax - xmin + 1,\n      rh = ymax - ymin + 1;\n    // Tile edges, shared by the counts below and by the grid drawn over the image.\n    const edge = (origin, size, g) => origin + Math.floor((g * size) / grid),\n      tiles = [];\n    for (let gy = 0; gy < grid; gy++)\n      for (let gx = 0; gx < grid; gx++) {\n        const x0 = edge(xmin, rw, gx),\n          x1 = edge(xmin, rw, gx + 1),\n          y0 = edge(ymin, rh, gy),\n          y1 = edge(ymin, rh, gy + 1);\n        let a = 0,\n          b = 0;\n        for (let y = y0; y < y1; y++)\n          for (let x = x0; x < x1; x++) {\n            const i = y * w + x;\n            a += roi[i];\n            b += secondary[i];\n          }\n        tiles.push({ x: gx, y: gy, area: a, fraction: a ? b / a : null, x0, y0, x1, y1 });\n      }\n    const dist = edt(perimeter(nmc, w, h), w, h),\n      values = new Float64Array(ns),\n      scale = calibration || 1;\n    let k = 0,\n      total = 0;\n    for (let i = 0; i < dist.length; i++)\n      if (secondary[i]) {\n        values[k++] = dist[i] * scale;\n        total += dist[i] * scale;\n      }\n    // The same measures inside each tile. Distances come from the whole-image fields above, so a\n    // tile is not treated as if nothing existed beyond its edge.\n    const medianOf = list => {\n      if (!list.length) return null;\n      const sorted = Float64Array.from(list).sort(),\n        p = 0.5 * (sorted.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return sorted[lo] + (sorted[hi] - sorted[lo]) * (p - lo);\n    };\n    const secondaryEdge = f && nf ? perimeter(secondary, w, h) : null,\n      binderDistance = f && nf ? edt(f, w, h) : null;\n    for (const tile of tiles) {\n      const distances = [];\n      let gap = 0,\n        inGap = 0,\n        count = 0,\n        sumDistance = 0,\n        edgePixels = 0,\n        covered = 0;\n      for (let y = tile.y0; y < tile.y1; y++)\n        for (let x = tile.x0; x < tile.x1; x++) {\n          const i = y * w + x;\n          if (!roi[i]) continue;\n          if (!nmc[i]) {\n            gap++;\n            inGap += secondary[i];\n          }\n          if (secondary[i]) {\n            count++;\n            distances.push(dist[i] * scale);\n            sumDistance += dist[i] * scale;\n          }\n          if (secondaryEdge?.[i]) {\n            edgePixels++;\n            if (binderDistance[i] * scale <= binderRadius) covered++;\n          }\n        }\n      tile.secondaryPixels = count;\n      tile.interparticleOccupancy = fraction(inGap, gap);\n      tile.targetingEfficiency = fraction(inGap, count);\n      tile.distanceMedian = medianOf(distances);\n      tile.distanceMean = count ? sumDistance / count : null;\n      tile.binderCoverage = !f ? null : nf ? fraction(covered, edgePixels) : count ? 0 : null;\n    }\n    values.sort();\n    const quantile = q => {\n      const p = q * (values.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return values[lo] + (values[hi] - values[lo]) * (p - lo);\n    };\n    const bins = [0, 0, 0, 0],\n      edges = calibration ? [0.5, 1, 2] : [1, 2, 3];\n    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;\n    const max = values[values.length - 1],\n      hist = new Array(20).fill(0);\n    for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;\n    let coverage = null;\n    if (f && nf) {\n      const sp = secondaryEdge,\n        fd = binderDistance;\n      let p = 0,\n        hit = 0;\n      for (let i = 0; i < sp.length; i++)\n        if (sp[i]) {\n          p++;\n          if (fd[i] * scale <= binderRadius) hit++;\n        }\n      coverage = fraction(hit, p);\n    } else if (f) coverage = 0;\n    let depth = null;\n    if (view === 'cross') {\n      let min = Infinity,\n        max = -Infinity;\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coordinate = depthAxis === 'x' ? i % w : Math.floor(i / w);\n          min = Math.min(min, coordinate);\n          max = Math.max(max, coordinate);\n        }\n      const zones = Array.from({ length: 3 }, (_, j) => ({\n        zone: ['Top', 'Middle', 'Bottom'][j],\n        area: 0,\n        secondary: 0,\n        f: 0,\n        overlap: 0,\n      }));\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coord = depthAxis === 'x' ? i % w : Math.floor(i / w),\n            norm = (coord - min + 0.5) / (max - min + 1);\n          let z = Math.min(2, Math.floor(norm * 3));\n          if (depthReverse) z = 2 - z;\n          const a = zones[z];\n          a.area++;\n          a.secondary += secondary[i];\n          a.f += f ? f[i] : 0;\n          a.overlap += f && f[i] && secondary[i] ? 1 : 0;\n        }\n      for (const a of zones) {\n        a.secondaryFraction = fraction(a.secondary, a.area);\n        a.fFraction = f ? fraction(a.f, a.area) : null;\n        a.overlapFraction = f ? fraction(a.overlap, a.area) : null;\n      }\n      depth = {\n        zones,\n        cv: cv(zones.filter(z => z.area).map(z => z.secondaryFraction)),\n        fCV: f ? cv(zones.filter(z => z.area).map(z => z.fFraction)) : null,\n      };\n    }\n    return {\n      roiPixels: nr,\n      nmcPixels: nn,\n      secondaryPixels: ns,\n      fPixels: f ? nf : null,\n      secondaryAreaFraction: ns / nr,\n      uniformityCV: cv(tiles.filter(t => t.area).map(t => t.fraction)),\n      interparticleOccupancy: fraction(sg, ng),\n      targetingEfficiency: sg / ns,\n      distance: {\n        unit: calibration ? 'μm' : 'px',\n        mean: total / ns,\n        median: quantile(0.5),\n        p90: quantile(0.9),\n        max,\n        bins,\n        edges,\n        histogram: hist,\n      },\n      pearson: f ? pearson(secondaryIntensity, fIntensity, roi) : null,\n      fWithSecondary: f ? fraction(overlap, nf) : null,\n      secondaryWithF: f ? overlap / ns : null,\n      binderCoverage: coverage,\n      depth,\n      tiles,\n      warnings: [\n        nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,\n        ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,\n        f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,\n        ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,\n      ].filter(Boolean),\n    };\n  }\n  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f'],\n    MAX_PIXELS = 16e6,\n    GRID_OPTIONS = [3, 5, 8],\n    BINDER_DEFAULT = { px: 3, um: 0.5 },\n    // Averaging radius (pixels) applied to a map before its threshold; 0 turns it off.\n    DENOISE_DEFAULT = 2,\n    DENOISE_MAX = 5;\n  /* Binder neighbourhood after the calibration changes from `from` to `to` (μm per pixel, or\n     null for pixels). The default follows the unit; a radius the user chose keeps its physical\n     size, so it is converted when the unit changes and left alone otherwise. */\n  function rescaleBinderRadius(radius, custom, from, to) {\n    if (!custom) return to ? BINDER_DEFAULT.um : BINDER_DEFAULT.px;\n    if (!from && to) return Number((radius * to).toPrecision(6));\n    if (from && !to) return Number((radius / from).toPrecision(6));\n    return radius;\n  }\n  /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI\n     mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */\n  function createPipeline() {\n    let channelCache = {},\n      roiKey = '',\n      roiCache = null,\n      segCache = {};\n    return function run(p) {\n      const { w, h, settings } = p;\n      if (p.channels) {\n        channelCache = p.channels;\n        segCache = {};\n      }\n      const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);\n      if (nextROIKey !== roiKey) {\n        roiCache = roiMask(w, h, p.rois, p.roiInvert);\n        roiKey = nextROIKey;\n        segCache = {};\n      }\n      const masks = {},\n        intensities = {},\n        thresholds = {},\n        ranges = {};\n      for (const key of ANALYSIS_KEYS)\n        if (channelCache[key]) {\n          const param = p.seg[key],\n            radius = param.denoise || 0,\n            signature = JSON.stringify([\n              radius,\n              param.auto,\n              param.auto ? null : param.threshold,\n              param.invert,\n              param.min,\n              param.fill,\n              param.smooth,\n              key === 'secondary' ? settings.ratio : false,\n              key === 'secondary' ? settings.epsilon : null,\n            ]);\n          if (segCache[key]?.signature !== signature) {\n            // Both maps of a ratio are averaged first; a ratio of raw counts is mostly noise.\n            let data = denoise(channelCache[key].data, w, h, radius);\n            if (key === 'secondary' && settings.ratio) {\n              const main = denoise(channelCache.nmc.data, w, h, radius);\n              data = Float64Array.from(data, (x, i) => x / (main[i] + settings.epsilon));\n            }\n            segCache[key] = {\n              signature,\n              range: range(data),\n              ...segment(data, w, h, roiCache, param),\n            };\n          }\n          masks[key] = segCache[key].mask;\n          intensities[key] = channelCache[key].data;\n          thresholds[key] = segCache[key].threshold;\n          ranges[key] = segCache[key].range;\n        }\n      const results = p.analyze\n        ? analyze({\n            w,\n            h,\n            roi: roiCache,\n            nmc: masks.nmc,\n            secondary: masks.secondary,\n            f: masks.f,\n            secondaryIntensity: intensities.secondary,\n            fIntensity: intensities.f,\n            ...settings,\n          })\n        : null;\n      return { roi: roiCache, masks, thresholds, ranges, results };\n    };\n  }\n  function process(p) {\n    return createPipeline()(p);\n  }\n  return {\n    sum,\n    fraction,\n    cv,\n    parseCSV,\n    range,\n    otsu,\n    roiMask,\n    denoise,\n    segment,\n    perimeter,\n    edt,\n    pearson,\n    analyze,\n    process,\n    createPipeline,\n    ANALYSIS_KEYS,\n    MAX_PIXELS,\n    GRID_OPTIONS,\n    BINDER_DEFAULT,\n    DENOISE_DEFAULT,\n    DENOISE_MAX,\n    rescaleBinderRadius,\n  };\n})();\nif (typeof module !== 'undefined') module.exports = Core;\n\n/* Message plumbing only; the cached pipeline lives in Core so it can be unit tested. */\nconst run = Core.createPipeline();\nonmessage = event => {\n  try {\n    const { roi, masks, thresholds, ranges, results } = run(event.data.payload);\n    // Copies are transferred so the cached arrays stay usable for the next request.\n    const result = {\n      roi: new Uint8Array(roi),\n      masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),\n      thresholds,\n      ranges,\n      results,\n    };\n    postMessage({ id: event.data.id, result }, [\n      result.roi.buffer,\n      ...Object.values(result.masks).map(x => x.buffer),\n    ]);\n  } catch (e) {\n    postMessage({ id: event.data.id, error: e.message });\n  }\n};\n"], { type: 'text/javascript' })),
 );
 let waiter = new Map();
 worker.onmessage = ({ data }) => {
@@ -2480,15 +2905,6 @@ worker.onerror = e => {
   status(message, true);
   for (const call of pending) call({ error: message });
 };
-function segIntensity(key) {
-  const ch = state.channels[key];
-  if (key === 'secondary' && state.settings.ratio && state.channels.nmc)
-    return Float64Array.from(
-      ch.data,
-      (v, i) => v / (state.channels.nmc.data[i] + state.settings.epsilon),
-    );
-  return ch.data;
-}
 function schedulePreview() {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(preview, 80);
@@ -2555,11 +2971,13 @@ async function compute(analyze = false) {
     return;
   }
   masks = response.result.masks;
+  segRanges = response.result.ranges;
   effectiveROI = response.result.roi;
   for (const [k, t] of Object.entries(response.result.thresholds)) {
     if (state.seg[k].auto) state.seg[k].threshold = t;
   }
   if (analyze) {
+    regionTile = null;
     state.results = response.result.results;
     state.results.elapsedMs = performance.now() - start;
     state.results.analyzedAt = new Date().toISOString();
@@ -2576,9 +2994,15 @@ async function compute(analyze = false) {
     if (step === 'segment') {
       const t = state.seg[selected]?.threshold;
       if ($('#thresholdNumber') && t != null) {
+        const range = segRanges[selected];
+        if (range) {
+          $('#thresholdSlider').min = range.min;
+          $('#thresholdSlider').max = range.max === range.min ? range.max + 1 : range.max;
+        }
         $('#thresholdNumber').value = Number(t.toPrecision(7));
         $('#thresholdSlider').value = t;
       }
+      updateMaskLegend();
     }
     status('Mask updated');
   }
@@ -2587,7 +3011,7 @@ async function compute(analyze = false) {
 
 /* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
-  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${['data', 'roi', 'segment', 'analyze'].map((s, i) => `<button data-step="${s}">${i + 1} ${t(s === 'roi' ? 'ROI' : s[0].toUpperCase() + s.slice(1))}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><span id="maskLabel" class="compact muted"></span><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="elementChips" class="chips hidden"></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><canvas id="canvas"></canvas><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+  `<header><strong id="appName">${t('Electrode EDS Analyzer')}</strong><select id="language" aria-label="Language / 介面語言"><option value="zh-Hant">繁體中文</option><option value="en">English</option></select><input id="sample" aria-label="Sample name" value="Untitled"><button id="import">${t('Import')}</button><button id="save">${t('Save Session')}</button><button id="export">${t('Export')}</button><button id="settings">${t('Settings')}</button><button id="about">${t('About')}</button></header><main><aside><nav>${STEP_ORDER.map((s, i) => `<button data-step="${s}">${i + 1} ${t(STEP_LABELS[s])}</button>`).join('')}</nav><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><select id="channel" aria-label="Display channel"></select><div class="row" style="margin:0">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(x[0].toUpperCase() + x.slice(1))}</button>`).join('')}</div><span id="maskLabel" class="compact muted"></span><label class="row compact"><span id="opacityLabel">${t('Opacity')}</span> <input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><span class="spacer"></span><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" title="Pan">${t('Pan')}</button></div><div id="elementChips" class="chips hidden"></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div id="scaleMark" class="hidden"></div></div><div class="empty" id="empty">${t('Import map')}</div></div></section><aside class="right"><button id="collapse" aria-label="Toggle results">⇥</button><div id="results"></div></aside></main><footer><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
 function status(message, error = false) {
   lastStatus = message;
   lastStatusError = error;
@@ -2640,6 +3064,7 @@ function renderNotice() {
 function dirty() {
   revision++;
   state.results = null;
+  regionTile = null;
   renderResults();
 }
 function baseChannel() {
@@ -2729,7 +3154,10 @@ $('#dialogbody').addEventListener('click', e => {
     channelVersion++;
     revision++;
     masks = {};
+    segRanges = {};
     effectiveROI = null;
+    regionTile = null;
+    segAdjustOpen = roiToolsOpen = false;
     $('#sample').value = 'Untitled';
     step = 'data';
     $('#dialog').close();
@@ -2788,19 +3216,16 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* Left-hand step panels: Data, ROI, Segment and Analyze. */
-const STEP_ORDER = ['data', 'roi', 'segment', 'analyze'],
-  STEP_LABELS = { data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' },
-  STEP_HINTS = {
-    data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
-    roi: 'The region is optional: leave it empty to analyse the whole image. Enter μm / pixel here if distances should be in micrometres.',
-    segment:
-      'Check that the mask of each channel covers the right areas; adjust the threshold if not.',
-    analyze: 'Run the analysis. Change a setting and run it again to compare.',
-  };
+/* Left-hand step panels: Data, Check masks and Analyze. */
+const STEP_HINTS = {
+  data: 'Paste or choose an image for each channel. The map area is found for you and every channel is kept the same size.',
+  segment:
+    'The coloured areas are where each element is counted as present. If they look like the element maps, go on; adjust only when one is clearly too large or too small.',
+  analyze:
+    'Each cell shows the local share of the secondary phase. Click a cell to see its values on the right; click it again for the whole region.',
+};
 const STEP_RENDERERS = {
   data: renderDataStep,
-  roi: renderROIStep,
   segment: renderSegmentStep,
   analyze: renderAnalyzeStep,
 };
@@ -2835,7 +3260,7 @@ function renderDataStep(c) {
     )
     .join(
       '',
-    )}<div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
+    )}<label class="field">${t('μm / pixel')} ${info('cal')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}" placeholder="${t('set from the scale bar when cropping')}"></label><div class="row"><button id="loadSession">${t('Load Session')}</button><button id="demo">${t('Synthetic')}</button></div>`;
   $('#view').value = state.view;
   $('#material').value = state.material;
   $('#view').onchange = e => {
@@ -2891,11 +3316,38 @@ function renderDataStep(c) {
         preview();
       }),
   );
+  $('#calibration').onchange = e => setCalibration(+e.target.value);
   $('#loadSession').onclick = () => $('#sessionFile').click();
   $('#demo').onclick = loadDemo;
 }
-function renderROIStep(c) {
-  c.innerHTML = `<h2>${t('ROI')} ${info('roi')}</h2><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div><h3>${t('Calibration')} ${info('cal')}</h3><label class="field">${t('μm / pixel')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}"></label><label class="field">${t('Scale bar length (\u03bcm)')}<input id="scaleLength" type="number" min="0" step="any" value="10"></label><button id="scaleBar">${t('Select scale bar endpoints')}</button>`;
+/* Why the analysis cannot run yet, as a message key; empty when it can. */
+function analysisBlocked() {
+  if (sizeError()) return 'Channel sizes differ; fix them with the notice above the image.';
+  if (!state.channels.nmc || !state.channels.secondary)
+    return 'Load the main-phase and secondary-phase maps first.';
+  if (state.material === 'Al2O3' && state.view === 'cross' && !state.rois.length)
+    return 'Al₂O₃ cross sections need the current collector excluded; draw the area below.';
+  return '';
+}
+function analyzeIfReady() {
+  return analysisBlocked() ? preview() : compute(true);
+}
+/* After a change to what is analysed: on the analysis step the numbers follow at once, elsewhere
+   only the masks are refreshed. */
+function recompute() {
+  return step === 'analyze' ? analyzeIfReady() : preview();
+}
+/* Optional tool for leaving part of the image out. Folded away: an accurately cropped map is
+   analysed whole. */
+function roiToolsHTML() {
+  const used = state.rois.length || state.roiInvert;
+  return `<details id="roiTools" ${roiToolsOpen ? 'open' : ''}><summary>${t('Limit the analysed area (optional)')}${used ? ` (${t('in use')})` : ''}</summary><p class="hint">${t('Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.')} ${info('roi')}</p><div class="row"><select id="roiMode"><option value="rect">${t('Rectangle')}</option><option value="polygon">${t('Polygon')}</option></select><button id="drawROI">${t('Draw')}</button></div><label><input id="exclude" type="checkbox"> ${t('Exclude region')}</label><div class="row"><button id="finishPolygon">${t('Finish Polygon')}</button><button id="cancelDraw">${t('Cancel')}</button></div><div class="row"><button id="fullROI">${t('Full image')}</button><button id="clearROI">${t('Clear')}</button></div><label><input id="roiInvert" type="checkbox"> ${t('Invert ROI')}</label><div class="roilist">${state.rois.map((r, i) => `<div class="row"><span>${i + 1}. ${t(r.exclude ? 'Exclude' : 'Include')} ${t(r.type === 'rect' ? 'Rectangle' : 'Polygon')}</span><button data-delroi="${i}">×</button></div>`).join('')}</div></details>`;
+}
+function bindROITools() {
+  // Recorded on the click itself: returning nothing, so the toggle is not cancelled.
+  $('#roiTools summary').onclick = () => {
+    roiToolsOpen = !$('#roiTools').open;
+  };
   $('#exclude').checked = exclude;
   $('#roiInvert').checked = state.roiInvert;
   $('#exclude').onchange = e => (exclude = e.target.checked);
@@ -2917,12 +3369,12 @@ function renderROIStep(c) {
     state.roiInvert = false;
     dirty();
     renderControls();
-    preview();
+    recompute();
   };
   $('#roiInvert').onchange = e => {
     state.roiInvert = e.target.checked;
     dirty();
-    preview();
+    recompute();
   };
   document.querySelectorAll('[data-delroi]').forEach(
     b =>
@@ -2930,42 +3382,61 @@ function renderROIStep(c) {
         state.rois.splice(+b.dataset.delroi, 1);
         dirty();
         renderControls();
-        preview();
+        recompute();
       }),
   );
-  $('#calibration').onchange = e => setCalibration(+e.target.value);
-  $('#scaleBar').onclick = () => {
-    if (!(+$('#scaleLength').value > 0)) {
-      status('Scale bar length 必須 > 0。', true);
-      return;
-    }
-    scalePoints = [];
-    drawMode = 'scale';
-    status('點選 Scale bar 兩端。');
-  };
 }
 const advancedInUse = p => p.invert || p.fill || p.smooth || p.min > 0,
-  advancedLabel = p => t('Advanced') + (advancedInUse(p) ? ` (${t('in use')})` : '');
+  advancedLabel = p => t('Advanced') + (advancedInUse(p) ? ` (${t('in use')})` : ''),
+  // A mask the user has taken away from the defaults.
+  maskAdjusted = p => !p.auto || advancedInUse(p) || p.denoise !== Core.DENOISE_DEFAULT,
+  adjustLabel = () =>
+    t('Adjust a mask') +
+    (ANALYSIS_KEYS.some(k => maskAdjusted(state.seg[k])) ? ` (${t('in use')})` : '');
+/* Share of the analysed area a mask covers, or null before it has been computed. */
+function maskCoverage(key) {
+  const mask = masks[key];
+  if (!mask) return null;
+  let covered = 0,
+    area = 0;
+  for (let i = 0; i < mask.length; i++) {
+    covered += mask[i];
+    area += effectiveROI ? effectiveROI[i] : 1;
+  }
+  return area ? covered / area : null;
+}
+function updateMaskLegend() {
+  document.querySelectorAll('[data-coverage]').forEach(el => {
+    const key = el.dataset.coverage;
+    el.textContent = `${t(state.seg[key].auto ? 'Auto' : 'Manual')} · ${fmt(maskCoverage(key), true)}`;
+  });
+}
 function renderSegmentStep(c) {
   const p = state.seg[selected] || state.seg.secondary,
     ch = state.channels[selected],
-    a = ch ? segIntensity(selected) : null,
-    r = a ? Core.range(a) : { min: 0, max: 255 },
+    r = segRanges[selected] || (ch ? Core.range(ch.data) : { min: 0, max: 255 }),
     // Clean-up options stay folded away unless one is in use, so an active setting is never hidden.
     advancedUsed = advancedInUse(p),
     // The Mn / Ni ratio only applies to Mn-based additives.
-    showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio);
-  c.innerHTML = `<h2>${t('Segmentation')} ${info('threshold')}</h2><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}`;
+    showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio),
+    loaded = ANALYSIS_KEYS.filter(k => state.channels[k]);
+  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<div class="row"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="spacer"></span><span class="muted compact" data-coverage="${k}"></span></div>`).join('') || `<div class="warning">${t('Load the main-phase and secondary-phase maps first.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="row"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
+  updateMaskLegend();
   $('#segChannel').value = selected;
+  $('#denoise').value = p.denoise;
   // Recorded on the click itself (the toggle event arrives later and also fires for a section
-  // that is merely rendered open), so a re-render keeps the section as the user left it.
-  $('#segAdvanced summary').onclick = () => {
+  // that is merely rendered open), so a re-render keeps the section as the user left it. While
+  // the section is open only the mask being adjusted is drawn.
+  $('#segAdjust > summary').onclick = () => {
     // No return value: returning false from a click handler would cancel the toggle itself.
+    segAdjustOpen = !$('#segAdjust').open;
+    draw();
+  };
+  $('#segAdvanced summary').onclick = () => {
     segAdvancedOpen = !$('#segAdvanced').open;
   };
   $('#segChannel').onchange = e => {
     selected = e.target.value;
-    if (state.channels[selected]) $('#channel').value = selected;
     renderControls();
     draw();
   };
@@ -2991,21 +3462,32 @@ function renderSegmentStep(c) {
     $('#thresholdSlider').value = value;
     $('#manual').classList.add('active');
     $('#auto').classList.remove('active');
+    $('#segAdjust > summary').textContent = adjustLabel();
     dirty();
     schedulePreview();
   }
   $('#thresholdNumber').onchange = e => thresholdChange(+e.target.value);
   $('#thresholdSlider').oninput = e => thresholdChange(+e.target.value);
+  // Averaging changes the scale of the values, so the threshold is found again.
+  $('#denoise').onchange = e => {
+    p.denoise = +e.target.value;
+    p.auto = true;
+    dirty();
+    renderControls();
+    preview();
+  };
   for (const key of ['invert', 'fill', 'smooth'])
     $('#' + key).onchange = e => {
       p[key] = e.target.checked;
       $('#segAdvanced summary').textContent = advancedLabel(p);
+      $('#segAdjust > summary').textContent = adjustLabel();
       dirty();
       preview();
     };
   $('#minObject').onchange = e => {
     p.min = Math.max(0, Math.floor(+e.target.value || 0));
     $('#segAdvanced summary').textContent = advancedLabel(p);
+    $('#segAdjust > summary').textContent = adjustLabel();
     dirty();
     preview();
   };
@@ -3029,11 +3511,16 @@ function renderSegmentStep(c) {
   }
 }
 function renderAnalyzeStep(c) {
-  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings"></div>`;
+  const blocked = analysisBlocked();
+  // The one case where the area tool is required: show it rather than only naming it.
+  if (blocked.startsWith('Al')) roiToolsOpen = true;
+  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}${roiToolsHTML()}<div class="row"><button class="primary full" id="analyze">${t('Analyze')}</button></div><div class="row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button></div><button id="showComparison">${t('Comparison')} (${state.comparison.length})</button><div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>`;
+  bindROITools();
   $('#grid').value = state.settings.grid;
   $('#grid').onchange = e => {
     state.settings.grid = +e.target.value;
     dirty();
+    analyzeIfReady();
   };
   $('#radius').onchange = e => {
     if (!Number.isFinite(+e.target.value) || +e.target.value < 0) {
@@ -3044,24 +3531,21 @@ function renderAnalyzeStep(c) {
     state.settings.binderRadius = +e.target.value;
     state.settings.binderRadiusCustom = +e.target.value !== Core.BINDER_DEFAULT[unit];
     dirty();
+    analyzeIfReady();
   };
   if ($('#depthAxis')) {
     $('#depthAxis').value = state.settings.depthAxis;
     $('#depthAxis').onchange = e => {
       state.settings.depthAxis = e.target.value;
       dirty();
+      analyzeIfReady();
     };
     $('#depthReverse').onchange = e => {
       state.settings.depthReverse = e.target.checked;
       dirty();
+      analyzeIfReady();
     };
   }
-  const blocked = sizeError()
-    ? 'Channel sizes differ; fix them with the notice above the image.'
-    : !state.channels.nmc || !state.channels.secondary
-      ? 'Load the main-phase and secondary-phase maps first.'
-      : '';
-  if (blocked) $('#analysisWarnings').innerHTML = `<div class="warning">${t(blocked)}</div>`;
   $('#analyze').onclick = () => compute(true);
   $('#addComparison').onclick = addComparison;
   $('#showComparison').onclick = showComparison;
@@ -3104,7 +3588,7 @@ function finishPolygon() {
   drawMode = 'pan';
   dirty();
   renderControls();
-  preview();
+  recompute();
 }
 
 /* File and drag-and-drop import, plus the synthetic demo. */
@@ -3261,14 +3745,20 @@ function loadDemo() {
   state.settings.ratio = false;
   state.settings.binderRadiusCustom = false;
   applyCalibration(null);
-  state.seg = { nmc: defaults(), secondary: defaults(), f: defaults() };
+  // Noise-free reference maps: thresholded as they are, so the expected values stay exact.
+  const exact = () => ({ ...defaults(), denoise: 0 });
+  state.seg = { nmc: exact(), secondary: exact(), f: exact() };
   dirty();
   renderControls();
   renderChannels();
   preview().then(fit);
 }
 
-/* Viewport drawing, zoom, pan and ROI / scale-bar pointer input. */
+/* Viewport drawing, the analysis grid over it, zoom, pan and ROI pointer input. */
+/* Channel whose mask is shown alone: the one being adjusted. Otherwise every mask is shown. */
+function focusedMask() {
+  return step === 'segment' && segAdjustOpen && masks[selected] ? selected : null;
+}
 function draw() {
   const ch = state.channels[$('#channel').value] || baseChannel(),
     canvas = $('#canvas'),
@@ -3287,17 +3777,29 @@ function draw() {
   const r = Core.range(ch.data),
     image = ctx.createImageData(ch.w, ch.h),
     key = $('#channel').value,
-    maskKey = masks[key] ? key : selected,
+    maskKey = focusedMask() || (masks[key] ? key : selected),
     mask = masks[maskKey],
+    // The mask overlay: each channel's mask in its own colour over a grey backdrop.
+    shownMasks =
+      display === 'overlay'
+        ? MASK_ORDER.filter(k => masks[k] && (!focusedMask() || k === focusedMask()))
+        : [],
     layers = display === 'elements' ? elementLayers(ch) : null;
   $('#elementChips').classList.toggle(
     'hidden',
     display !== 'elements' || !shownElements().loaded.length,
   );
-  $('#maskLabel').textContent =
-    mask && (display === 'overlay' || display === 'mask')
-      ? `${t('Mask')}: ${t(channelNames[maskKey])}`
-      : '';
+  $('#maskLabel').innerHTML =
+    display === 'overlay' && shownMasks.length
+      ? `${t('Mask')}: ${ANALYSIS_KEYS.filter(k => shownMasks.includes(k))
+          .map(
+            k =>
+              `<span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span>${esc(t(channelNames[k]))}`,
+          )
+          .join(' · ')}`
+      : mask && display === 'mask'
+        ? `${t('Mask')}: ${esc(t(channelNames[maskKey]))}`
+        : '';
   for (let i = 0; i < ch.data.length; i++) {
     let g = r.max === r.min ? 0 : Math.round(((ch.data[i] - r.min) / (r.max - r.min)) * 255),
       rr = ch.rgba ? ch.rgba[i * 4] : g,
@@ -3315,10 +3817,15 @@ function draw() {
       }
     } else if (display === 'mask') {
       rr = gg = bb = mask?.[i] ? 255 : 0;
-    } else if (display === 'overlay' && mask?.[i]) {
-      rr = rr * (1 - opacity) + 7 * opacity;
-      gg = gg * (1 - opacity) + 170 * opacity;
-      bb = bb * (1 - opacity) + 183 * opacity;
+    } else if (display === 'overlay') {
+      rr = gg = bb = g * 0.85;
+      for (const k of shownMasks)
+        if (masks[k][i]) {
+          const tint = ELEMENT_TINT[k];
+          rr = rr * (1 - opacity) + tint[0] * opacity;
+          gg = gg * (1 - opacity) + tint[1] * opacity;
+          bb = bb * (1 - opacity) + tint[2] * opacity;
+        }
     }
     if (effectiveROI && !effectiveROI[i]) {
       rr *= 0.35;
@@ -3359,17 +3866,55 @@ function draw() {
       dragStart.end[1] - dragStart.y,
     );
   }
-  if (state.settings.calibration) {
-    const length = Math.min(ch.w * 0.2, 100 / zoom),
-      um = length * state.settings.calibration;
-    ctx.fillStyle = 'white';
-    ctx.fillRect(18 / zoom, ch.h - 28 / zoom, length, 3 / zoom);
-    ctx.font = `${12 / zoom}px system-ui`;
-    ctx.fillText(`${um.toPrecision(3)} μm`, 18 / zoom, ch.h - 10 / zoom);
-  }
+  // The scale mark sits under the image, where it stays sharp and never covers the grid.
+  const mark = scaleMark(110 / zoom);
+  $('#scaleMark').classList.toggle('hidden', !mark);
+  if (mark)
+    $('#scaleMark').innerHTML =
+      `<span class="bar" style="width:${mark.pixels * zoom}px"></span>${mark.um} μm`;
   document
     .querySelectorAll('[data-display]')
     .forEach(b => b.classList.toggle('active', b.dataset.display === display));
+  renderGridOverlay();
+}
+/* A scale mark of a round length close to `pixels` image pixels; null without a calibration. */
+function scaleMark(pixels) {
+  const scale = state.settings.calibration;
+  if (!scale) return null;
+  const raw = pixels * scale,
+    power = 10 ** Math.floor(Math.log10(raw)),
+    um = (raw / power >= 5 ? 5 : raw / power >= 2 ? 2 : 1) * power;
+  return { um: Number(um.toPrecision(1)), pixels: um / scale };
+}
+/* The analysis grid over the image, each cell labelled with its local share of the secondary
+   phase. Drawn as page elements so the labels stay sharp on a small map; clicks pass through to
+   the canvas, which picks the cell. */
+function renderGridOverlay() {
+  const el = $('#gridOverlay'),
+    tiles = state.results?.tiles,
+    show = step === 'analyze' && !!tiles?.length && tiles[0].x1 != null && !!baseChannel();
+  el.classList.toggle('hidden', !show);
+  el.innerHTML = show
+    ? tiles
+        .map((tile, i) => {
+          const width = (tile.x1 - tile.x0) * zoom,
+            height = (tile.y1 - tile.y0) * zoom,
+            size = Math.min(14, width / 4.2, height / 1.7),
+            label = tile.area && size >= 7 ? (tile.fraction * 100).toFixed(1) + '%' : '';
+          return `<div class="tile${i === regionTile ? ' selected' : ''}" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
+        })
+        .join('')
+    : '';
+}
+/* Picks the grid cell under an image point; picking the selected cell again returns to the
+   whole region. */
+function selectTileAt([x, y]) {
+  const index = state.results.tiles.findIndex(
+    tile => x >= tile.x0 && x < tile.x1 && y >= tile.y0 && y < tile.y1,
+  );
+  regionTile = index < 0 || index === regionTile ? null : index;
+  renderResults();
+  renderGridOverlay();
 }
 /* Pixel readers for the element view: SEM (when it shares the grid) as the grey backdrop and the
    ticked element maps on top in their own colours, brightness setting how strongly each shows. */
@@ -3402,15 +3947,17 @@ function elementLayers(ch) {
     }),
   };
 }
-/* Each step opens on the view that suits it: element colours while importing and drawing the
-   ROI, the mask while segmenting and analysing. Any view can still be picked by hand. */
+/* Each step opens on the view that suits it: element colours while importing, the masks while
+   checking them and analysing. Any view can still be picked by hand. Arriving at the analysis
+   runs it, so the grid and the numbers are there without another click. */
 function setStep(next) {
-  step = next;
+  step = STEP_ORDER.includes(next) ? next : 'data';
   drawMode = 'pan';
-  if ((step === 'data' || step === 'roi') && display === 'overlay') display = 'elements';
-  if ((step === 'segment' || step === 'analyze') && display === 'elements') display = 'overlay';
+  if (step === 'data' && display === 'overlay') display = 'elements';
+  if (step !== 'data' && display === 'elements') display = 'overlay';
   renderControls();
   draw();
+  if (step === 'analyze' && !state.results && !busy) analyzeIfReady();
 }
 function fit() {
   const ch = state.channels[$('#channel').value] || baseChannel();
@@ -3440,17 +3987,6 @@ $('#canvas').onpointerdown = e => {
   if (drawMode === 'polygon') {
     pendingPolygon.push(p);
     draw();
-    return;
-  }
-  if (drawMode === 'scale') {
-    scalePoints.push(p);
-    if (scalePoints.length === 2) {
-      const distance = Math.hypot(scalePoints[0][0] - p[0], scalePoints[0][1] - p[1]);
-      if (distance > 0) {
-        setCalibration(+$('#scaleLength').value / distance);
-      } else status('兩端不能相同。', true);
-      drawMode = 'pan';
-    }
     return;
   }
   if (drawMode === 'rect') dragStart = { x: p[0], y: p[1] };
@@ -3489,10 +4025,18 @@ $('#canvas').onpointerup = e => {
       state.rois.push(r);
       dirty();
       renderControls();
-      preview();
+      recompute();
     }
     drawMode = 'pan';
   }
+  // A click without dragging, on the analysed image, picks a grid cell.
+  if (
+    panStart &&
+    step === 'analyze' &&
+    state.results &&
+    Math.hypot(e.clientX - panStart.x, e.clientY - panStart.y) < 4
+  )
+    selectTileAt(point(e));
   panStart = null;
 };
 $('#channel').onchange = () => {
@@ -3538,16 +4082,52 @@ function fmt(v, percent = false) {
       ? (v * 100).toFixed(2) + '%'
       : v.toFixed(3);
 }
+/* One plain sentence per figure, shown under it. */
+const METRIC_NOTES = {
+  area: 'Share of this area covered by the secondary phase.',
+  cv: 'How much that share differs from cell to cell. Lower is more even.',
+  occupancy: 'Share of the space between main-phase particles filled by the secondary phase.',
+  targeting: 'Share of the secondary phase that lies between particles rather than on them.',
+  distance: 'Typical distance from the secondary phase to the nearest main-phase surface.',
+  binder: 'Share of the secondary-phase outline with binder within the set distance.',
+  depth:
+    'How much that share differs between the top, middle and bottom thirds. Lower is more even.',
+};
+/* The results panel shows either the whole analysed region or the grid cell picked on the image. */
 function renderResults() {
   const r = state.results;
   if (!r) {
     $('#results').innerHTML = '';
     return;
   }
-  const m = (name, value, key, unit = '') =>
-    `<div class="metric"><div class="label">${t(name)} ${info(key)}</div><div class="value">${value} <small>${unit}</small></div></div>`;
+  const tile = regionTile == null ? null : r.tiles[regionTile],
+    grid = Math.round(Math.sqrt(r.tiles.length)),
+    m = (name, value, key, unit = '', note = key) =>
+      `<div class="metric"><div class="label">${t(name)} ${info(key)}</div><div class="value">${value} <small>${unit}</small></div><div class="note">${t(METRIC_NOTES[note])}</div></div>`,
+    binder = state.channels.f
+      ? m('Binder Coverage', fmt((tile || r).binderCoverage, true), 'binder')
+      : '',
+    region = tile
+      ? `<div class="region"><strong>${t('Row {r} · column {c}')
+          .replace('{r}', tile.y + 1)
+          .replace(
+            '{c}',
+            tile.x + 1,
+          )}</strong><span class="muted compact">${grid} × ${grid}</span><button id="regionAll" type="button">${t('Whole region')}</button></div><p class="hint">${t('Values of this cell only. The smaller the cell, the less steady the numbers.')}</p>`
+      : `<div class="region"><strong>${t('Whole region')}</strong></div><p class="hint">${t('Click a cell on the image to see its values.')}</p>`;
+  if (tile) {
+    $('#results').innerHTML =
+      `<h2>${t('Results')}</h2>${region}${m('Secondary area fraction', fmt(tile.fraction, true), 'cv', '', 'area')}${m('Interparticle Occupancy', fmt(tile.interparticleOccupancy, true), 'occupancy')}${m('Targeting Efficiency', fmt(tile.targetingEfficiency, true), 'targeting')}${m('Median Distance', fmt(tile.distanceMedian), 'distance', r.distance.unit)}<div class="row compact">${t('Mean')} ${fmt(tile.distanceMean)}</div>${binder}<div class="row compact muted">${t('Uniformity CV')}: ${t('whole region only')} · ${tile.area} px</div>`;
+    $('#regionAll').onclick = () => {
+      regionTile = null;
+      renderResults();
+      renderGridOverlay();
+    };
+    setupTooltips();
+    return;
+  }
   $('#results').innerHTML =
-    `<h2>${t('Results')}</h2>${m('Uniformity CV', fmt(r.uniformityCV), 'cv')}${m('Interparticle Occupancy', fmt(r.interparticleOccupancy, true), 'occupancy')}${m('Targeting Efficiency', fmt(r.targetingEfficiency, true), 'targeting')}${m('Median Distance', fmt(r.distance.median), 'distance', r.distance.unit)}<div class="row compact">${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}</div>${state.channels.f ? m('Binder Coverage', fmt(r.binderCoverage, true), 'binder') : ''}<h3>${t('Distance distribution')} ${info('distance')}</h3><canvas id="hist" class="chart" width="260" height="130"></canvas><div class="compact" id="bins"></div><h3>${t('Local area fraction')} ${info('cv')}</h3><canvas id="tileChart" class="chart" width="260" height="130"></canvas>${state.channels.f ? `<h3>${t('F colocalization')} ${info('overlap')}</h3><div class="row">${t('Pearson r')} ${info('pearson')} <strong>${fmt(r.pearson)}</strong></div><div class="row compact">${t('F with Secondary')} <strong>${fmt(r.fWithSecondary, true)}</strong></div><div class="row compact">${t('Secondary with F')} <strong>${fmt(r.secondaryWithF, true)}</strong></div>` : ''}${r.depth ? `${m('Depth CV', fmt(r.depth.cv), 'depth')}<table><tr><th>${t('Zone')}</th><th>${t('Additive')}</th><th>F</th><th>${t('Overlap')}</th></tr>${r.depth.zones.map(z => `<tr><td>${t(z.zone)}</td><td>${fmt(z.secondaryFraction, true)}</td><td>${fmt(z.fFraction, true)}</td><td>${fmt(z.overlapFraction, true)}</td></tr>`).join('')}</table><div class="compact">${t('F Depth CV')} ${fmt(r.depth.fCV)}</div>` : ''}${r.warnings.map(w => `<div class="warning">${esc(messageText(w))}</div>`).join('')}`;
+    `<h2>${t('Results')}</h2>${region}${m('Secondary area fraction', fmt(r.secondaryAreaFraction, true), 'cv', '', 'area')}${m('Uniformity CV', fmt(r.uniformityCV), 'cv')}${m('Interparticle Occupancy', fmt(r.interparticleOccupancy, true), 'occupancy')}${m('Targeting Efficiency', fmt(r.targetingEfficiency, true), 'targeting')}${m('Median Distance', fmt(r.distance.median), 'distance', r.distance.unit)}<div class="row compact">${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}</div>${binder}<h3>${t('Distance distribution')} ${info('distance')}</h3><canvas id="hist" class="chart" width="260" height="130"></canvas><div class="compact" id="bins"></div>${state.channels.f ? `<h3>${t('F colocalization')} ${info('overlap')}</h3><div class="row">${t('Pearson r')} ${info('pearson')} <strong>${fmt(r.pearson)}</strong></div><div class="row compact">${t('F with Secondary')} <strong>${fmt(r.fWithSecondary, true)}</strong></div><div class="row compact">${t('Secondary with F')} <strong>${fmt(r.secondaryWithF, true)}</strong></div>` : ''}${r.depth ? `${m('Depth CV', fmt(r.depth.cv), 'depth')}<table><tr><th>${t('Zone')}</th><th>${t('Additive')}</th><th>F</th><th>${t('Overlap')}</th></tr>${r.depth.zones.map(z => `<tr><td>${t(z.zone)}</td><td>${fmt(z.secondaryFraction, true)}</td><td>${fmt(z.fFraction, true)}</td><td>${fmt(z.overlapFraction, true)}</td></tr>`).join('')}</table><div class="compact">${t('F Depth CV')} ${fmt(r.depth.fCV)}</div>` : ''}${r.warnings.map(w => `<div class="warning">${esc(messageText(w))}</div>`).join('')}`;
   const ctx = $('#hist').getContext('2d'),
     max = Math.max(...r.distance.histogram, 1);
   ctx.fillStyle = '#078491';
@@ -3565,17 +4145,6 @@ function renderResults() {
         `${['< ' + r.distance.edges[0], r.distance.edges[0] + ' – ' + r.distance.edges[1], r.distance.edges[1] + ' – ' + r.distance.edges[2], '> ' + r.distance.edges[2]][i]} ${r.distance.unit}: ${fmt(v / r.secondaryPixels, true)}`,
     )
     .join('<br>');
-  const tc = $('#tileChart').getContext('2d'),
-    grid = state.settings.grid,
-    tm = Math.max(...r.tiles.map(t => t.fraction || 0), 0.01),
-    cell = 120 / grid;
-  r.tiles.forEach(t => {
-    tc.fillStyle = t.area ? `rgba(7,132,145,${0.1 + (0.9 * (t.fraction || 0)) / tm})` : '#ddd';
-    tc.fillRect(5 + t.x * cell, 5 + t.y * cell, cell - 1, cell - 1);
-  });
-  tc.fillStyle = '#6b7380';
-  tc.font = '11px system-ui';
-  tc.fillText(`0 – ${fmt(tm, true)}`, 140, 22);
   setupTooltips();
 }
 
@@ -3628,6 +4197,7 @@ $('#sessionFile').onchange = async e => {
       results: null,
     };
     masks = {};
+    segRanges = {};
     effectiveROI = null;
     setUILanguage(s.uiLanguage || language);
     updateChrome();
@@ -3766,6 +4336,15 @@ function normalizeImportInfo(v) {
   keep('scaleY', positive);
   keep('lockAspect', isBool);
   keep('displayOnly', isBool);
+  keep(
+    'scaleBar',
+    b =>
+      isRecord(b) && ['x0', 'y0', 'x1', 'y1', 'um'].every(k => Number.isFinite(b[k])) && b.um > 0,
+  );
+  if (out.scaleBar) {
+    const { x0, y0, x1, y1, um } = v.scaleBar;
+    out.scaleBar = { x0, y0, x1, y1, um };
+  }
   keep('reviewed', isBool);
   keep('reviewedAt', isText);
   out.reference = isText(v.reference) && channelNames[v.reference] ? v.reference : null;
@@ -3774,7 +4353,10 @@ function normalizeImportInfo(v) {
 function normalizeSegmentation(p) {
   if (!isRecord(p) || !Number.isFinite(p.threshold) || !Number.isFinite(p.min) || p.min < 0)
     throw Error('Segmentation 不合法。');
-  const out = { ...defaults(), threshold: p.threshold, min: p.min };
+  // Sessions saved before averaging existed were thresholded on the raw map; keep them that way.
+  const out = { ...defaults(), threshold: p.threshold, min: p.min, denoise: p.denoise ?? 0 };
+  if (!Number.isInteger(out.denoise) || out.denoise < 0 || out.denoise > Core.DENOISE_MAX)
+    throw Error('Segmentation 不合法。');
   for (const flag of ['auto', 'invert', 'fill', 'smooth'])
     if (p[flag] != null) {
       if (!isBool(p[flag])) throw Error('Segmentation 不合法。');
@@ -4017,32 +4599,69 @@ function exportPNG() {
   const old = display;
   display = 'overlay';
   draw();
+  // Small maps are enlarged by a whole factor, pixels kept sharp, so the grid labels are legible.
   const source = $('#canvas'),
-    out = document.createElement('canvas');
-  out.width = Math.max(640, source.width);
-  out.height = source.height + 100;
+    out = document.createElement('canvas'),
+    k = Math.max(1, Math.min(8, Math.ceil(960 / source.width))),
+    imageHeight = source.height * k;
+  out.width = Math.max(640, source.width * k);
+  out.height = imageHeight + 100;
   const ctx = out.getContext('2d');
   ctx.fillStyle = 'white';
   ctx.fillRect(0, 0, out.width, out.height);
-  ctx.drawImage(source, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, 0, 0, source.width * k, imageHeight);
+  // The analysis grid with each cell's share of the secondary phase, as on screen.
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  for (const tile of state.results.tiles) {
+    if (tile.x1 == null) break;
+    const width = (tile.x1 - tile.x0) * k,
+      height = (tile.y1 - tile.y0) * k,
+      label = Math.min(22, width / 4.2, height / 1.7);
+    ctx.strokeStyle = '#ffffffb0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(tile.x0 * k + 0.5, tile.y0 * k + 0.5, width - 1, height - 1);
+    if (!tile.area || label < 7) continue;
+    const text = (tile.fraction * 100).toFixed(1) + '%',
+      x = tile.x0 * k + width / 2,
+      y = tile.y0 * k + height / 2;
+    ctx.font = `600 ${label}px system-ui`;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = Math.max(2, label / 5);
+    ctx.strokeText(text, x, y);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(text, x, y);
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#242b35';
   const size = Math.max(12, Math.min(20, out.width / 35));
+  const mark = scaleMark(140 / k);
+  if (mark) {
+    ctx.fillRect(out.width - 12 - mark.pixels * k, imageHeight + 18, mark.pixels * k, 4);
+    ctx.font = `${size * 0.8}px system-ui`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`${mark.um} μm`, out.width - 12, imageHeight + 44);
+    ctx.textAlign = 'left';
+  }
   ctx.font = `${size}px system-ui`;
   ctx.fillText(
     `${state.sample} · ${t(state.view === 'top' ? 'Top View' : 'Cross Section')} · v${VERSION}`,
     12,
-    source.height + 28,
+    imageHeight + 28,
   );
   ctx.font = `${size * 0.8}px system-ui`;
   ctx.fillText(
     `CV ${fmt(state.results.uniformityCV)} | ${t('Occupancy')} ${fmt(state.results.interparticleOccupancy, true)} | ${t('Median')} ${fmt(state.results.distance.median)} ${state.results.distance.unit}`,
     12,
-    source.height + 55,
+    imageHeight + 55,
   );
   ctx.fillText(
     `${t('2D image quantification')} · ${t(state.settings.calibration ? 'calibrated' : 'uncalibrated (px)')}`,
     12,
-    source.height + 80,
+    imageHeight + 80,
   );
   out.toBlob(b => download(safeName() + '.overlay.png', b), 'image/png');
   display = old;
@@ -4077,9 +4696,7 @@ function updateChrome() {
     $('#' + id).setAttribute('aria-label', t(key));
   document.querySelectorAll('[data-step]').forEach(b => {
     const s = b.dataset.step;
-    b.textContent =
-      { data: '1 ', roi: '2 ', segment: '3 ', analyze: '4 ' }[s] +
-      t({ data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' }[s]);
+    b.textContent = `${STEP_ORDER.indexOf(s) + 1} ${t(STEP_LABELS[s])}`;
   });
   document
     .querySelectorAll('[data-display]')
@@ -4093,7 +4710,7 @@ function updateChrome() {
 function changeLanguage(value) {
   if (!setUILanguage(value)) return;
   const transient = Object.fromEntries(
-    ['roiMode', 'scaleLength'].filter(id => $('#' + id)).map(id => [id, $('#' + id).value]),
+    ['roiMode'].filter(id => $('#' + id)).map(id => [id, $('#' + id).value]),
   );
   $('#tooltip').classList.add('hidden');
   $('#tooltip').classList.remove('pinned');

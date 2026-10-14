@@ -13,6 +13,7 @@ function info(key) {
 const defaults = () => ({
   auto: true,
   threshold: 128,
+  denoise: Core.DENOISE_DEFAULT,
   invert: false,
   min: 0,
   fill: false,
@@ -31,6 +32,15 @@ const DISPLAY_MODES = ['original', 'elements', 'overlay', 'mask'],
 let elementsShown = null;
 // Whether the user has opened the less common segmentation options.
 let segAdvancedOpen = false;
+// The steps of the workflow, in order, and the folded-away tools inside them.
+const STEP_ORDER = ['data', 'segment', 'analyze'],
+  STEP_LABELS = { data: 'Data', segment: 'Check masks', analyze: 'Analyze' };
+let segAdjustOpen = false,
+  roiToolsOpen = false;
+// Cell of the analysis grid whose values the results panel shows; null for the whole region.
+let regionTile = null;
+// Masks are drawn in the colour of their channel, the phase under study on top.
+const MASK_ORDER = ['nmc', 'f', 'secondary'];
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',
@@ -60,6 +70,8 @@ let step = 'data',
   zoom = 1,
   opacity = 0.45,
   masks = {},
+  // Value range of each map as it is thresholded (after averaging and the optional ratio).
+  segRanges = {},
   effectiveROI = null,
   revision = 0,
   busy = false,
@@ -69,7 +81,6 @@ let step = 'data',
   dragStart = null,
   drawMode = 'pan',
   exclude = false,
-  scalePoints = [],
   panStart = null,
   previewTimer = null,
   channelVersion = 0,

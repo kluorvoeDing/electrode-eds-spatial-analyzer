@@ -138,7 +138,8 @@ fs.writeFileSync('qa/legacy-v0.1.3.html', legacyHTML);
       sample: 'Legacy 樣品',
       channels: Object.keys(saved.channels),
       rois: saved.rois,
-      seg: saved.seg.secondary,
+      // Averaging did not exist then: an old session stays thresholded on the raw map.
+      seg: { ...saved.seg.secondary, denoise: 0 },
       calibration: 0.5,
       radius: 2,
       custom: true,
@@ -149,14 +150,23 @@ fs.writeFileSync('qa/legacy-v0.1.3.html', legacyHTML);
     },
   );
   // Same data and settings give the same numbers in both versions.
-  assert.deepEqual(await metrics(page), expected);
+  // Tiles have since gained their bounds and per-cell values; everything v0.1.3 reported is
+  // unchanged.
+  const current = await metrics(page);
+  assert.ok(current.tiles.every(t => t.x1 > t.x0 && 'interparticleOccupancy' in t));
+  current.tiles = current.tiles.map(({ x, y, area, fraction }) => ({ x, y, area, fraction }));
+  assert.deepEqual(current, expected);
+  assert.deepEqual(
+    await page.evaluate(() => ANALYSIS_KEYS.map(k => state.seg[k].denoise)),
+    [0, 0, 0],
+  );
   // The stored crop can be reopened and the comparison table still renders and exports.
   await page.locator('#import').click();
   await page.locator('[data-crop="f"]').click();
   await page.locator('#cropSource').waitFor();
   assert.deepEqual(await page.evaluate(() => imageImport.rect), { x: 10, y: 12, w: 240, h: 240 });
   await page.locator('#cropCancel').click();
-  await page.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await page.locator('[data-step="analyze"]').click();
   await page.locator('#showComparison').click();
   assert.equal(await page.locator('[data-key="note"]').inputValue(), 'batch A');
 

@@ -152,7 +152,9 @@ function loadDemo() {
   state.settings.ratio = false;
   state.settings.binderRadiusCustom = false;
   applyCalibration(null);
-  state.seg = { nmc: defaults(), secondary: defaults(), f: defaults() };
+  // Noise-free reference maps: thresholded as they are, so the expected values stay exact.
+  const exact = () => ({ ...defaults(), denoise: 0 });
+  state.seg = { nmc: exact(), secondary: exact(), f: exact() };
   dirty();
   renderControls();
   renderChannels();

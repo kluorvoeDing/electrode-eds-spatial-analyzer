@@ -319,6 +319,66 @@ Object.assign(UI_ZH, {
   'No image in clipboard. Copy the displayed image or a screenshot.':
     '剪貼簿內沒有影像。請複製顯示出的影像或截圖。',
 });
+Object.assign(UI_ZH, {
+  'Check masks': '確認遮罩',
+  'The coloured areas are where each element is counted as present. If they look like the element maps, go on; adjust only when one is clearly too large or too small.':
+    '彩色區域是工具判定「有這個元素」的位置，所有數值都從這裡算出。和元素圖看起來相符就按下一步；明顯太多或太少時才調整。',
+  'Each cell shows the local share of the secondary phase. Click a cell to see its values on the right; click it again for the whole region.':
+    '每一格標示次要相的局部面積比例。點一格，右側顯示該格的數值；再點一次回到全區。',
+  'Limit the analysed area (optional)': '限定分析範圍（選用）',
+  'Only needed when the image holds something that must not be counted, such as a current collector or an empty margin.':
+    '只有影像中包含不該計入的部分（例如集流體或空白邊緣）時才需要。',
+  'Adjust a mask': '遮罩不對時再調整',
+  'Averaging radius (px)': '平滑半徑 (px)',
+  Off: '關閉',
+  'Al₂O₃ cross sections need the current collector excluded; draw the area below.':
+    'Al₂O₃ 截面須先排除集流體；請在下方繪製範圍。',
+  'set from the scale bar when cropping': '裁切時由比例尺換算',
+  'Scale bar': '比例尺',
+  'Length printed on the image (μm)': '圖上標示的長度 (μm)',
+  'Click the two ends': '點選比例尺兩端',
+  'Click one end of the scale bar on the image.': '請在影像上點比例尺的一端。',
+  'Now click the other end of the scale bar.': '再點比例尺的另一端。',
+  'No scale bar found. Click its two ends, or enter μm / pixel on the Data step.':
+    '找不到比例尺。請點選它的兩端，或在「資料」頁輸入 μm／像素。',
+  pixel: '像素',
+  'differs from the scale already set': '與目前的尺度不同',
+  'at the scale already set': '依目前的尺度',
+  'enter the length printed next to it.': '請輸入旁邊標示的長度。',
+  'Secondary area fraction': '次要相面積比例',
+  'Share of this area covered by the secondary phase.': '次要相佔這個範圍的面積比例。',
+  'How much that share differs from cell to cell. Lower is more even.':
+    '各格面積比例的差異程度；越小代表分布越均勻。',
+  'Share of the space between main-phase particles filled by the secondary phase.':
+    '主相顆粒之間的空隙，有多少被次要相佔據。',
+  'Share of the secondary phase that lies between particles rather than on them.':
+    '次要相有多少落在顆粒之間，而不是疊在主相上。',
+  'Typical distance from the secondary phase to the nearest main-phase surface.':
+    '次要相到最近主相顆粒表面的典型距離。',
+  'Share of the secondary-phase outline with binder within the set distance.':
+    '次要相邊緣在設定距離內有黏結劑的比例。',
+  'How much that share differs between the top, middle and bottom thirds. Lower is more even.':
+    '上、中、下三層面積比例的差異程度；越小代表越均勻。',
+  'Row {r} · column {c}': '第 {r} 列 · 第 {c} 欄',
+  'Whole region': '全區',
+  'Values of this cell only. The smaller the cell, the less steady the numbers.':
+    '以下只是這一格的數值；格子越小，數值越不穩定。',
+  'Click a cell on the image to see its values.': '點影像上的格子，可看該格的數值。',
+  'whole region only': '只有全區才有',
+  'already set': '已設定，可不填',
+});
+HELP_ZH.scaleBar =
+  '比例尺還在這張原圖上，裁切後就看不到了。工具會標出找到的比例尺（橘線），請輸入旁邊標示的長度，即可換算 μm／像素。位置不對時按「點選比例尺兩端」自行指定。長度以兩端刻度的中心計算，誤差約 ±1 像素。';
+HELP_EN.scaleBar =
+  'The scale bar is still on this source image; after cropping it is gone. The bar that was found is drawn in orange: type the length printed next to it to get μm per pixel. If it is in the wrong place, click its two ends yourself. Length runs between the centres of the end ticks, give or take one pixel.';
+HELP_ZH.denoise =
+  '取閾值前先對元素圖做局部平均。EDS 元素圖是稀疏的計數點，不平均時閾值只會挑出亮點而不是區域。半徑越大區域越完整、細節越少；0 為關閉。舊版專案檔維持關閉。';
+HELP_EN.denoise =
+  'Local averaging of the map before its threshold. EDS maps are sparse counts; without averaging a threshold picks out lit pixels rather than regions. A larger radius gives fuller regions and less detail; 0 turns it off. Sessions from older versions stay off.';
+HELP_ZH.cal =
+  'μm／像素；空白或 0 表示未校正，距離以像素顯示。裁切視窗會由原圖上的比例尺換算，也可以在這裡直接輸入。';
+HELP_EN.cal =
+  'μm per pixel; blank or zero means distances stay in pixels. The crop dialog works it out from the scale bar on the source image, or type it here.';
 HELP_ZH.pasteCrop =
   '在 VDI 複製影像或截圖，點選通道的貼上按鈕，再按 Ctrl+V。拖曳只框選有效元素圖，移除標題與比例尺。套用參考圖尺寸只改變裁切框的寬高，不會拉伸影像；各圖應以相同顯示倍率截圖並保留同一掃描範圍。尺寸相同不代表已對位，須以混合預覽人工確認。更換或重新裁切既有的分析通道（Ni／次要相／F），或影像尺寸改變時，會清除 ROI 與校正，截圖距離須重新校正；SEM 與其他元素僅供顯示，尺寸不變時保留。';
 HELP_EN.pasteCrop =

@@ -26,9 +26,7 @@ function updateChrome() {
     $('#' + id).setAttribute('aria-label', t(key));
   document.querySelectorAll('[data-step]').forEach(b => {
     const s = b.dataset.step;
-    b.textContent =
-      { data: '1 ', roi: '2 ', segment: '3 ', analyze: '4 ' }[s] +
-      t({ data: 'Data', roi: 'ROI', segment: 'Segment', analyze: 'Analyze' }[s]);
+    b.textContent = `${STEP_ORDER.indexOf(s) + 1} ${t(STEP_LABELS[s])}`;
   });
   document
     .querySelectorAll('[data-display]')
@@ -42,7 +40,7 @@ function updateChrome() {
 function changeLanguage(value) {
   if (!setUILanguage(value)) return;
   const transient = Object.fromEntries(
-    ['roiMode', 'scaleLength'].filter(id => $('#' + id)).map(id => [id, $('#' + id).value]),
+    ['roiMode'].filter(id => $('#' + id)).map(id => [id, $('#' + id).value]),
   );
   $('#tooltip').classList.add('hidden');
   $('#tooltip').classList.remove('pinned');

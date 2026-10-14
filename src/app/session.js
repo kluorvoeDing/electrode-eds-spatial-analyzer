@@ -47,6 +47,7 @@ $('#sessionFile').onchange = async e => {
       results: null,
     };
     masks = {};
+    segRanges = {};
     effectiveROI = null;
     setUILanguage(s.uiLanguage || language);
     updateChrome();
@@ -185,6 +186,15 @@ function normalizeImportInfo(v) {
   keep('scaleY', positive);
   keep('lockAspect', isBool);
   keep('displayOnly', isBool);
+  keep(
+    'scaleBar',
+    b =>
+      isRecord(b) && ['x0', 'y0', 'x1', 'y1', 'um'].every(k => Number.isFinite(b[k])) && b.um > 0,
+  );
+  if (out.scaleBar) {
+    const { x0, y0, x1, y1, um } = v.scaleBar;
+    out.scaleBar = { x0, y0, x1, y1, um };
+  }
   keep('reviewed', isBool);
   keep('reviewedAt', isText);
   out.reference = isText(v.reference) && channelNames[v.reference] ? v.reference : null;
@@ -193,7 +203,10 @@ function normalizeImportInfo(v) {
 function normalizeSegmentation(p) {
   if (!isRecord(p) || !Number.isFinite(p.threshold) || !Number.isFinite(p.min) || p.min < 0)
     throw Error('Segmentation 不合法。');
-  const out = { ...defaults(), threshold: p.threshold, min: p.min };
+  // Sessions saved before averaging existed were thresholded on the raw map; keep them that way.
+  const out = { ...defaults(), threshold: p.threshold, min: p.min, denoise: p.denoise ?? 0 };
+  if (!Number.isInteger(out.denoise) || out.denoise < 0 || out.denoise > Core.DENOISE_MAX)
+    throw Error('Segmentation 不合法。');
   for (const flag of ['auto', 'invert', 'fill', 'smooth'])
     if (p[flag] != null) {
       if (!isBool(p[flag])) throw Error('Segmentation 不合法。');

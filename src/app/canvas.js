@@ -1,4 +1,8 @@
-/* Viewport drawing, zoom, pan and ROI / scale-bar pointer input. */
+/* Viewport drawing, the analysis grid over it, zoom, pan and ROI pointer input. */
+/* Channel whose mask is shown alone: the one being adjusted. Otherwise every mask is shown. */
+function focusedMask() {
+  return step === 'segment' && segAdjustOpen && masks[selected] ? selected : null;
+}
 function draw() {
   const ch = state.channels[$('#channel').value] || baseChannel(),
     canvas = $('#canvas'),
@@ -17,17 +21,29 @@ function draw() {
   const r = Core.range(ch.data),
     image = ctx.createImageData(ch.w, ch.h),
     key = $('#channel').value,
-    maskKey = masks[key] ? key : selected,
+    maskKey = focusedMask() || (masks[key] ? key : selected),
     mask = masks[maskKey],
+    // The mask overlay: each channel's mask in its own colour over a grey backdrop.
+    shownMasks =
+      display === 'overlay'
+        ? MASK_ORDER.filter(k => masks[k] && (!focusedMask() || k === focusedMask()))
+        : [],
     layers = display === 'elements' ? elementLayers(ch) : null;
   $('#elementChips').classList.toggle(
     'hidden',
     display !== 'elements' || !shownElements().loaded.length,
   );
-  $('#maskLabel').textContent =
-    mask && (display === 'overlay' || display === 'mask')
-      ? `${t('Mask')}: ${t(channelNames[maskKey])}`
-      : '';
+  $('#maskLabel').innerHTML =
+    display === 'overlay' && shownMasks.length
+      ? `${t('Mask')}: ${ANALYSIS_KEYS.filter(k => shownMasks.includes(k))
+          .map(
+            k =>
+              `<span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span>${esc(t(channelNames[k]))}`,
+          )
+          .join(' · ')}`
+      : mask && display === 'mask'
+        ? `${t('Mask')}: ${esc(t(channelNames[maskKey]))}`
+        : '';
   for (let i = 0; i < ch.data.length; i++) {
     let g = r.max === r.min ? 0 : Math.round(((ch.data[i] - r.min) / (r.max - r.min)) * 255),
       rr = ch.rgba ? ch.rgba[i * 4] : g,
@@ -45,10 +61,15 @@ function draw() {
       }
     } else if (display === 'mask') {
       rr = gg = bb = mask?.[i] ? 255 : 0;
-    } else if (display === 'overlay' && mask?.[i]) {
-      rr = rr * (1 - opacity) + 7 * opacity;
-      gg = gg * (1 - opacity) + 170 * opacity;
-      bb = bb * (1 - opacity) + 183 * opacity;
+    } else if (display === 'overlay') {
+      rr = gg = bb = g * 0.85;
+      for (const k of shownMasks)
+        if (masks[k][i]) {
+          const tint = ELEMENT_TINT[k];
+          rr = rr * (1 - opacity) + tint[0] * opacity;
+          gg = gg * (1 - opacity) + tint[1] * opacity;
+          bb = bb * (1 - opacity) + tint[2] * opacity;
+        }
     }
     if (effectiveROI && !effectiveROI[i]) {
       rr *= 0.35;
@@ -89,17 +110,55 @@ function draw() {
       dragStart.end[1] - dragStart.y,
     );
   }
-  if (state.settings.calibration) {
-    const length = Math.min(ch.w * 0.2, 100 / zoom),
-      um = length * state.settings.calibration;
-    ctx.fillStyle = 'white';
-    ctx.fillRect(18 / zoom, ch.h - 28 / zoom, length, 3 / zoom);
-    ctx.font = `${12 / zoom}px system-ui`;
-    ctx.fillText(`${um.toPrecision(3)} μm`, 18 / zoom, ch.h - 10 / zoom);
-  }
+  // The scale mark sits under the image, where it stays sharp and never covers the grid.
+  const mark = scaleMark(110 / zoom);
+  $('#scaleMark').classList.toggle('hidden', !mark);
+  if (mark)
+    $('#scaleMark').innerHTML =
+      `<span class="bar" style="width:${mark.pixels * zoom}px"></span>${mark.um} μm`;
   document
     .querySelectorAll('[data-display]')
     .forEach(b => b.classList.toggle('active', b.dataset.display === display));
+  renderGridOverlay();
+}
+/* A scale mark of a round length close to `pixels` image pixels; null without a calibration. */
+function scaleMark(pixels) {
+  const scale = state.settings.calibration;
+  if (!scale) return null;
+  const raw = pixels * scale,
+    power = 10 ** Math.floor(Math.log10(raw)),
+    um = (raw / power >= 5 ? 5 : raw / power >= 2 ? 2 : 1) * power;
+  return { um: Number(um.toPrecision(1)), pixels: um / scale };
+}
+/* The analysis grid over the image, each cell labelled with its local share of the secondary
+   phase. Drawn as page elements so the labels stay sharp on a small map; clicks pass through to
+   the canvas, which picks the cell. */
+function renderGridOverlay() {
+  const el = $('#gridOverlay'),
+    tiles = state.results?.tiles,
+    show = step === 'analyze' && !!tiles?.length && tiles[0].x1 != null && !!baseChannel();
+  el.classList.toggle('hidden', !show);
+  el.innerHTML = show
+    ? tiles
+        .map((tile, i) => {
+          const width = (tile.x1 - tile.x0) * zoom,
+            height = (tile.y1 - tile.y0) * zoom,
+            size = Math.min(14, width / 4.2, height / 1.7),
+            label = tile.area && size >= 7 ? (tile.fraction * 100).toFixed(1) + '%' : '';
+          return `<div class="tile${i === regionTile ? ' selected' : ''}" style="left:${tile.x0 * zoom}px;top:${tile.y0 * zoom}px;width:${width}px;height:${height}px;font-size:${Math.max(7, size)}px">${label}</div>`;
+        })
+        .join('')
+    : '';
+}
+/* Picks the grid cell under an image point; picking the selected cell again returns to the
+   whole region. */
+function selectTileAt([x, y]) {
+  const index = state.results.tiles.findIndex(
+    tile => x >= tile.x0 && x < tile.x1 && y >= tile.y0 && y < tile.y1,
+  );
+  regionTile = index < 0 || index === regionTile ? null : index;
+  renderResults();
+  renderGridOverlay();
 }
 /* Pixel readers for the element view: SEM (when it shares the grid) as the grey backdrop and the
    ticked element maps on top in their own colours, brightness setting how strongly each shows. */
@@ -132,15 +191,17 @@ function elementLayers(ch) {
     }),
   };
 }
-/* Each step opens on the view that suits it: element colours while importing and drawing the
-   ROI, the mask while segmenting and analysing. Any view can still be picked by hand. */
+/* Each step opens on the view that suits it: element colours while importing, the masks while
+   checking them and analysing. Any view can still be picked by hand. Arriving at the analysis
+   runs it, so the grid and the numbers are there without another click. */
 function setStep(next) {
-  step = next;
+  step = STEP_ORDER.includes(next) ? next : 'data';
   drawMode = 'pan';
-  if ((step === 'data' || step === 'roi') && display === 'overlay') display = 'elements';
-  if ((step === 'segment' || step === 'analyze') && display === 'elements') display = 'overlay';
+  if (step === 'data' && display === 'overlay') display = 'elements';
+  if (step !== 'data' && display === 'elements') display = 'overlay';
   renderControls();
   draw();
+  if (step === 'analyze' && !state.results && !busy) analyzeIfReady();
 }
 function fit() {
   const ch = state.channels[$('#channel').value] || baseChannel();
@@ -170,17 +231,6 @@ $('#canvas').onpointerdown = e => {
   if (drawMode === 'polygon') {
     pendingPolygon.push(p);
     draw();
-    return;
-  }
-  if (drawMode === 'scale') {
-    scalePoints.push(p);
-    if (scalePoints.length === 2) {
-      const distance = Math.hypot(scalePoints[0][0] - p[0], scalePoints[0][1] - p[1]);
-      if (distance > 0) {
-        setCalibration(+$('#scaleLength').value / distance);
-      } else status('兩端不能相同。', true);
-      drawMode = 'pan';
-    }
     return;
   }
   if (drawMode === 'rect') dragStart = { x: p[0], y: p[1] };
@@ -219,10 +269,18 @@ $('#canvas').onpointerup = e => {
       state.rois.push(r);
       dirty();
       renderControls();
-      preview();
+      recompute();
     }
     drawMode = 'pan';
   }
+  // A click without dragging, on the analysed image, picks a grid cell.
+  if (
+    panStart &&
+    step === 'analyze' &&
+    state.results &&
+    Math.hypot(e.clientX - panStart.x, e.clientY - panStart.y) < 4
+  )
+    selectTileAt(point(e));
   panStart = null;
 };
 $('#channel').onchange = () => {

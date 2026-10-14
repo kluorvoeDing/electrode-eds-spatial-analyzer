@@ -98,7 +98,7 @@ aside.right {
 }
 nav {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   margin: -16px -16px 14px;
   padding: 12px 16px 10px;
@@ -109,8 +109,9 @@ nav {
   border-bottom: 1px solid var(--line);
 }
 nav button {
-  padding: 9px 10px;
-  text-align: left;
+  padding: 9px 4px;
+  white-space: nowrap;
+  font-size: 13px;
 }
 details {
   margin: 14px 0 4px;
@@ -262,11 +263,104 @@ label.field select {
   background: #30353b;
   touch-action: none;
 }
+#stage {
+  position: relative;
+  width: fit-content;
+  margin: 20px auto;
+}
 #canvas {
   display: block;
-  margin: 20px auto;
   max-width: none;
   cursor: crosshair;
+}
+#gridOverlay {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+}
+#scaleMark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: #e8ebee;
+  font-size: 12px;
+}
+#scaleMark .bar {
+  display: inline-block;
+  height: 3px;
+  background: #e8ebee;
+}
+#gridOverlay .tile {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 1px solid #ffffffb0;
+  color: #fff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 3px #000,
+    0 0 3px #000,
+    0 1px 2px #000;
+  overflow: hidden;
+}
+#gridOverlay .tile.selected {
+  border: 3px solid #ffd54a;
+  background: #ffd54a2e;
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+.legend .row {
+  align-items: center;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.legend .spacer {
+  flex: 1;
+}
+.metric .note {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.region {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 2px 0 6px;
+  font-size: 14px;
+}
+.region button {
+  margin-left: auto;
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.crop-scale {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.crop-scale .row {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.crop-scale label {
+  font-size: 11px;
+}
+.crop-scale input {
+  display: block;
+  width: 110px;
+  margin-top: 4px;
 }
 .empty {
   position: absolute;

@@ -141,13 +141,13 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await radius(), 0.5);
   await p.evaluate(() => setCalibration(0));
   assert.equal(await radius(), 3);
-  await p.getByRole('button', { name: '4 Analyze', exact: true }).click();
+  await p.locator('[data-step="analyze"]').click();
   await p.locator('#radius').fill('5');
   await p.locator('#radius').press('Tab');
   assert.equal(await p.evaluate(() => state.settings.binderRadiusCustom), true);
   // Calibration is entered on the ROI step, as a user would.
   async function calibrate(value) {
-    await p.getByRole('button', { name: '2 ROI', exact: true }).click();
+    await p.locator('[data-step="data"]').click();
     await p.locator('#calibration').fill(String(value));
     await p.locator('#calibration').press('Tab');
   }
