@@ -42,7 +42,12 @@ function channelRow(key) {
   const ch = state.channels[key],
     required = key === 'nmc',
     analysed = ANALYSIS_KEYS.includes(key);
-  return `<div class="channel${ch ? ' loaded' : ''}${pasteTarget === key ? ' paste-target' : ''}" data-drop="${key}"><div class="channel-head"><span class="swatch" style="background:${tintCSS(key)}"></span><strong>${t(channelNames[key])}</strong>${key === 'secondary' ? info('secondary') : ''}<span class="channel-state">${ch ? `${ch.w} × ${ch.h}` : t(required ? 'Required' : analysed ? 'Optional' : 'Display only')}</span></div>${ch ? `<div class="filename" title="${esc(ch.name)}">${esc(ch.name)}</div>` : ''}<div class="channel-ops"><button data-paste="${key}" type="button" class="small">${icon('paste')}${t('Paste')}</button><label class="small button">${icon('file')}${t('Choose file')}<input type="file" data-file="${key}" aria-label="${t('Import')} ${t(channelNames[key])}" accept=".png,.jpg,.jpeg,.csv"></label>${ch?.image ? `<button data-crop="${key}" type="button" class="small">${icon('crop')}${t('Crop / review')}</button>` : ''}${ch ? `<button data-remove="${key}" type="button" class="small quiet icon-only" aria-label="${t('Remove')} ${t(channelNames[key])}" title="${t('Remove')}">${icon('close')}</button>` : ''}</div></div>`;
+  // Before an image is loaded the two ways in are spelled out; afterwards every action is an icon,
+  // so the file name and four actions share one line.
+  const name = t(channelNames[key]),
+    action = (attribute, iconName, label, extra = '') =>
+      `<button ${attribute}="${key}" type="button" class="small${ch ? ' icon-only' : ''}${extra}" title="${t(label)}" aria-label="${t(label)} · ${name}">${icon(iconName)}${ch ? '' : t(label)}</button>`;
+  return `<div class="channel${ch ? ' loaded' : ''}${pasteTarget === key ? ' paste-target' : ''}" data-drop="${key}"><div class="channel-head"><span class="swatch" style="background:${tintCSS(key)}"></span><strong>${name}</strong>${key === 'secondary' ? info('secondary') : ''}<span class="channel-state">${ch ? `${ch.w} × ${ch.h}` : t(required ? 'Required' : analysed ? 'Optional' : 'Display only')}</span></div><div class="channel-body"><span class="filename" title="${ch ? esc(ch.name) : ''}">${ch ? esc(ch.name) : ''}</span><div class="channel-ops">${action('data-paste', 'paste', 'Paste')}<label class="small button${ch ? ' icon-only' : ''}" title="${t('Choose file')}">${icon('file')}${ch ? '' : t('Choose file')}<input type="file" data-file="${key}" aria-label="${t('Choose file')} · ${name}" accept=".png,.jpg,.jpeg,.csv"></label>${ch?.image ? action('data-crop', 'crop', 'Crop / review') : ''}${ch ? action('data-remove', 'close', 'Remove', ' quiet') : ''}</div></div></div>`;
 }
 function renderDataStep(c) {
   c.innerHTML = `<h2>${t('Data')} ${info('unit')}</h2><div class="field-pair"><label class="field">${t('View')}<select id="view"><option value="top">${t('Top View')}</option><option value="cross">${t('Cross Section')}</option></select></label><label class="field">${t('Additive')}<select id="material">${MATERIALS.map(x => `<option value="${x}">${t(x)}</option>`).join('')}</select></label></div><div id="materialWarning"></div><div class="group-label">${t('Maps to analyse')}</div>${['nmc', 'secondary', 'f', 'c'].map(channelRow).join('')}<div class="group-label">${t('Shown only, never measured')}</div>${['sem', 'other'].map(channelRow).join('')}<label class="field">${t('μm / pixel')} ${info('cal')}<input id="calibration" type="number" min="0" step="any" value="${state.settings.calibration || ''}" placeholder="${t('set from the scale bar when cropping')}"></label>`;
@@ -305,7 +310,7 @@ function renderAnalyzeStep(c) {
   const blocked = analysisBlocked();
   // The one case where the area tool is required: show it rather than only naming it.
   if (blocked.startsWith('Al')) roiToolsOpen = true;
-  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label>${state.view === 'cross' ? `<label class="field">${t('Depth axis')} ${info('depth')}<select id="depthAxis"><option value="y">${t('Y (vertical)')}</option><option value="x">${t('X (horizontal)')}</option></select></label><label class="check"><input id="depthReverse" type="checkbox" ${state.settings.depthReverse ? 'checked' : ''}> ${t('Reverse Top / Bottom')}</label>` : ''}<div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>${roiToolsHTML()}<section class="compare"><div class="group-label">${t('Comparison')} ${info('comparison')}</div><div class="button-row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button><button id="showComparison">${t('Open table')} (${state.comparison.length})</button></div></section><div class="panel-foot"><button id="analyze" class="quiet full">${t('Recalculate')}</button></div>`;
+  c.innerHTML = `<h2>${t('Analysis')}</h2><label class="field">${t('Grid')} ${info('cv')}<select id="grid">${GRID_OPTIONS.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label><label class="field">${t('Binder neighborhood')} (${state.settings.calibration ? 'μm' : 'px'}) ${info('radius')}<input id="radius" type="number" min="0" step="any" value="${state.settings.binderRadius}"></label><div id="analysisWarnings">${blocked ? `<div class="warning">${t(blocked)}</div>` : ''}</div>${roiToolsHTML()}<section class="compare"><div class="group-label">${t('Comparison')} ${info('comparison')}</div><div class="button-row"><button id="addComparison" ${state.results ? '' : 'disabled'}>${t('Add to Comparison')}</button><button id="showComparison">${t('Open table')} (${state.comparison.length})</button></div></section><div class="panel-foot"><button id="analyze" class="quiet full">${t('Recalculate')}</button></div>`;
   bindROITools();
   $('#grid').value = state.settings.grid;
   $('#grid').onchange = e => {
@@ -324,19 +329,6 @@ function renderAnalyzeStep(c) {
     dirty();
     analyzeIfReady();
   };
-  if ($('#depthAxis')) {
-    $('#depthAxis').value = state.settings.depthAxis;
-    $('#depthAxis').onchange = e => {
-      state.settings.depthAxis = e.target.value;
-      dirty();
-      analyzeIfReady();
-    };
-    $('#depthReverse').onchange = e => {
-      state.settings.depthReverse = e.target.checked;
-      dirty();
-      analyzeIfReady();
-    };
-  }
   $('#analyze').onclick = () => compute(true);
   $('#addComparison').onclick = addComparison;
   $('#showComparison').onclick = showComparison;

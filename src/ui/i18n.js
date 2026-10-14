@@ -185,6 +185,8 @@ const HELP_ZH = {
     '所有通道必須是相同的像素尺寸才能計算。勾選時裁切框固定為已載入影像的尺寸，拖曳只移動位置。只有要重新決定整組尺寸時才取消勾選。',
   carbon:
     'C 遮罩佔分析範圍的面積比例。注意 C 訊號不只來自導電碳：PVDF 黏結劑與 LFP 的碳包覆也含碳，判讀導電碳分散時請一併參考 F 與次要相的分布。',
+  thirds:
+    '把影像沿水平方向切成左、中、右三等分（或沿垂直方向切成上、中、下），比較三段的面積比例。與網格大小無關，適合在不同樣品之間比較；截面影像的上中下就是厚度方向。',
   comparison:
     '把目前的結果加入比較表，換下一個樣品分析後再加入。比較表可以填入剝離強度等實驗值，並匯出 CSV。',
 };
@@ -452,7 +454,16 @@ HELP_EN.semFit =
   'SEM is a display backdrop and never enters the metrics, so it may be scaled. Select the area the element maps actually scanned (for example the white Map Data box); it is resampled to the reference channel size using area averaging when shrinking and bilinear interpolation when enlarging. Scale and method are recorded in the trace. Analysis channels (Ni, secondary phase, F) are never resampled.';
 HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
+Object.assign(UI_EN, {
+  'Left third': 'Left',
+  'Middle third': 'Middle',
+  'Right third': 'Right',
+  'Top third': 'Top',
+  'Bottom third': 'Bottom',
+});
 Object.assign(HELP_EN, {
+  thirds:
+    'The image is cut into left, middle and right thirds (or top, middle and bottom) and the shares of the three are compared. It does not depend on the grid size, so it suits comparing samples; on a cross section top / middle / bottom is the thickness direction.',
   carbon:
     'Share of the analysed area covered by the C mask. C counts do not come from conductive carbon alone: PVDF binder and the carbon coating of LFP contain carbon too, so read carbon dispersion together with the F and secondary-phase maps.',
   area: 'Mask pixels divided by the pixels of the analysed area: the share of the image the element covers.',
@@ -546,6 +557,17 @@ Object.assign(UI_ZH, {
   '{element}: share in each column and row': '{element} · 各欄與各列的面積比例',
   'Whole column / row': '整欄／整列',
   'Grid labels': '格內數字',
+  'Spread by direction': '方向差異',
+  'Left / right': '左右',
+  'Top / bottom': '上下',
+  'Thirds CV': '三等分 CV',
+  'Column / row CV': '逐欄／逐列 CV',
+  'Thirds of the image': '影像三等分',
+  'Left third': '左',
+  'Middle third': '中',
+  'Right third': '右',
+  'Top third': '上',
+  'Bottom third': '下',
   Show: '顯示',
   'Each row / column of cells': '單一列／欄',
   'already set': '已設定',

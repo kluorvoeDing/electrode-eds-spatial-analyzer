@@ -521,22 +521,29 @@ details[open] > summary {
 .channel:not(.loaded) .channel-state {
   font-family: inherit;
 }
+.channel-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0 18px;
+  min-width: 0;
+}
 .channel .filename {
-  margin: 2px 0 0 18px;
+  flex: 1;
+  min-width: 0;
   font-size: 11px;
   color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.channel:not(.loaded) .filename {
+  display: none;
+}
 .channel-ops {
   display: flex;
-  flex-wrap: wrap;
+  flex: none;
   gap: 4px;
-  margin: 8px 0 0 18px;
-}
-.channel-ops [data-remove] {
-  margin-left: auto;
 }
 .channel-ops input[type='file'] {
   position: absolute;
@@ -605,9 +612,10 @@ details[open] > summary {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 46px;
-  padding: 7px 12px;
-  flex-wrap: wrap;
+  height: 46px;
+  padding: 0 12px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
   border-bottom: 1px solid var(--viewer-line);
   color: var(--viewer-ink);
   font-size: 12px;
@@ -663,8 +671,14 @@ details[open] > summary {
 .chips input {
   accent-color: #a1a1aa;
 }
-.toolbar .spacer {
+.layer-slot {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+.layer-slot > * {
+  flex-wrap: nowrap !important;
 }
 .toolbar .range {
   display: flex;
@@ -829,6 +843,11 @@ details[open] > summary {
   margin-left: 8px;
   border-top: 1px solid #a1a1aa;
 }
+.trend-legend .key.band {
+  height: 10px;
+  border: 0;
+  background: #ececef;
+}
 .trend-legend .key.mean {
   border-top: 2px solid var(--tint);
   margin-left: 0;
@@ -843,8 +862,35 @@ details[open] > summary {
   min-width: 0;
 }
 .trend figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   color: var(--ink-3);
+}
+.trend figcaption b {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--ink);
+}
+.trend .band {
+  fill: #f4f4f5;
+}
+.trend .band-edge {
+  stroke: #e4e4e7;
+}
+.trend .band-label {
+  font: 10px var(--mono);
+  fill: var(--ink-2);
+}
+.trend .val,
+.trend .val-label {
+  font: 10px var(--mono);
+  fill: var(--ink-3);
+}
+.trend .val-hot .val,
+.trend .val-hot .val-label {
+  fill: var(--ink);
 }
 .trend-plot svg {
   display: block;
@@ -894,12 +940,6 @@ details[open] > summary {
   stroke-width: 2;
   pointer-events: none;
 }
-.trend-caption {
-  min-height: 16px;
-  font: 11px var(--mono);
-  color: var(--ink-2);
-}
-
 /* Results column. */
 #collapse {
   position: absolute;
@@ -1017,6 +1057,44 @@ details[open] > summary {
 .hist {
   padding: 10px 0 12px;
   border-bottom: 1px solid var(--line);
+}
+#bins {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+#bins div {
+  display: flex;
+  justify-content: space-between;
+  padding: 1px 0;
+}
+#bins dd {
+  margin: 0;
+  font-family: var(--mono);
+  color: var(--ink-2);
+}
+table.direction {
+  margin: 4px 0 4px;
+}
+table.direction :is(th, td) {
+  padding: 8px 0;
+  font-size: 12px;
+}
+table.direction td,
+table.direction tr:first-child th {
+  text-align: right;
+}
+table.direction th {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+table.direction tr:first-child th {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+table.direction td {
+  font: 600 15px var(--mono);
+  color: var(--ink);
 }
 .hist canvas {
   display: block;

@@ -113,3 +113,41 @@ test('cross sections report the carbon share by depth', () => {
   assert.equal(r.depth.cv, null);
   assert.ok(r.depth.cCV > 0);
 });
+
+test('image thirds use the depth bands, along both axes', () => {
+  // Width 7 does not split evenly: the bands must still match the depth zones pixel for pixel.
+  const W = 7,
+    H = 9,
+    area = C.roiMask(W, H),
+    mk = t => Uint8Array.from({ length: W * H }, (_, i) => (t(i % W, Math.floor(i / W)) ? 1 : 0)),
+    main = mk(x => x === 0),
+    binder = mk((x, y) => (x * 3 + y * 5) % 4 === 0),
+    carbon = mk((x, y) => y < 2 || x > 4),
+    along = axis =>
+      C.analyze({
+        w: W,
+        h: H,
+        roi: area,
+        nmc: main,
+        f: binder,
+        c: carbon,
+        grid: 3,
+        view: 'cross',
+        depthAxis: axis,
+      });
+  const vertical = along('y'),
+    horizontal = along('x');
+  for (const key of ['f', 'c']) {
+    const field = key + 'Fraction';
+    assert.deepEqual(
+      vertical.elements[key].thirds.rows,
+      vertical.depth.zones.map(z => z[field]),
+    );
+    assert.deepEqual(
+      vertical.elements[key].thirds.columns,
+      horizontal.depth.zones.map(z => z[field]),
+    );
+  }
+  near(vertical.elements.c.thirds.rowCV, vertical.depth.cCV);
+  near(horizontal.elements.f.thirds.columnCV, horizontal.depth.fCV);
+});

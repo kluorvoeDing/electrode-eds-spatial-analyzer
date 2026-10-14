@@ -515,15 +515,29 @@ const Core = (() => {
     }
     // Per element: its share of the area, how evenly it spreads over the grid, and the share in
     // each grid column and row (pixels over area, so a column is weighted by what it holds).
+    // Image thirds along each axis, banded exactly like the depth zones: pixel centres over the
+    // extent of the analysed area. Left / middle / right and top / middle / bottom of the image.
+    const third = (coordinate, origin, size) =>
+        Math.min(2, Math.floor(((coordinate - origin + 0.5) / size) * 3)),
+      thirdsArea = { columns: [0, 0, 0], rows: [0, 0, 0] };
+    for (let i = 0; i < roi.length; i++)
+      if (roi[i]) {
+        thirdsArea.columns[third(i % w, xmin, rw)]++;
+        thirdsArea.rows[third(Math.floor(i / w), ymin, rh)]++;
+      }
     const elementStats = (mask, key) => {
       if (!mask) return null;
       let pixels = 0,
         between = 0;
+      const inThird = { columns: [0, 0, 0], rows: [0, 0, 0] };
       for (let i = 0; i < roi.length; i++)
         if (roi[i] && mask[i]) {
           pixels++;
           if (!nmc[i]) between++;
+          inThird.columns[third(i % w, xmin, rw)]++;
+          inThird.rows[third(Math.floor(i / w), ymin, rh)]++;
         }
+      const thirds = axis => inThird[axis].map((n, z) => fraction(n, thirdsArea[axis][z]));
       const count = tile =>
           key === 'secondary' ? tile.secondaryPixels : key === 'f' ? tile.fPixels : tile.cPixels,
         local = tile => (tile.area ? count(tile) / tile.area : null),
@@ -550,6 +564,12 @@ const Core = (() => {
         columnCV: cv(present(columns)),
         rowCV: cv(present(rows)),
         betweenParticles: fraction(between, pixels),
+        thirds: {
+          columns: thirds('columns'),
+          rows: thirds('rows'),
+          columnCV: cv(present(thirds('columns'))),
+          rowCV: cv(present(thirds('rows'))),
+        },
       };
     };
     return {

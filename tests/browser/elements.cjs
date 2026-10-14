@@ -49,6 +49,22 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('[data-maskshow="c"]').check();
   await p.locator('[data-maskshow="f"]').check();
   await p.locator('[data-step="data"]').click();
+  // Switching views never moves the image: the toolbar keeps one height whatever it lists.
+  for (const [width, lang] of [
+    [1280, 'zh-Hant'],
+    [1366, 'en'],
+  ]) {
+    await p.setViewportSize({ width, height: 768 });
+    await p.locator('#language').selectOption(lang);
+    const top = async view => {
+      await p.locator(`[data-display="${view}"]`).click();
+      return (await p.locator('#canvas').boundingBox()).y;
+    };
+    const y = await top('elements');
+    for (const view of ['overlay', 'original', 'mask', 'elements'])
+      assert.equal(await top(view), y, `${view} at ${width} ${lang}`);
+  }
+  await p.locator('#language').selectOption('en');
   // The results column belongs to the analysis step.
   assert.equal(await p.locator('aside.right').isVisible(), false);
   await p.locator('[data-step="analyze"]').click();
@@ -89,14 +105,35 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.locator('[data-axis="columns"] .series').count(), 5);
   assert.equal(await p.locator('[data-axis="rows"] .series').count(), 5);
   assert.equal(await p.locator('[data-axis="columns"] .mean-dot').count(), 5);
-  const caption = () => p.locator('[data-axis="columns"] .trend-caption').textContent();
-  assert.equal(
-    await caption(),
-    `Whole columns: ${carbon.columns.map(v => (v * 100).toFixed(1)).join(' · ')} %`,
+  const caption = () => p.locator('[data-axis="columns"] .val-label').textContent(),
+    valueRow = () => p.locator('[data-axis="columns"] .val').allTextContents();
+  assert.equal(await caption(), 'Whole columns');
+  assert.deepEqual(
+    await valueRow(),
+    carbon.columns.map(v => (v * 100).toFixed(1)),
+  );
+  // Each value sits straight under its point.
+  const xs = await p
+    .locator('[data-axis="columns"] .val')
+    .evaluateAll(t => t.map(e => +e.getAttribute('x')));
+  const dots = await p
+    .locator('[data-axis="columns"] .mean-dot')
+    .evaluateAll(t => t.map(e => +e.getAttribute('cx')));
+  assert.deepEqual(xs, dots);
+  // The image thirds are shaded with their shares on top, and their CV in the caption.
+  assert.deepEqual(
+    await p.locator('[data-axis="columns"] .band-label').allTextContents(),
+    carbon.thirds.columns.map(
+      (v, i) => `${['Left', 'Middle', 'Right'][i]} ${(v * 100).toFixed(1)}%`,
+    ),
+  );
+  assert.match(
+    await p.locator('[data-axis="rows"] figcaption').textContent(),
+    new RegExp(`Thirds CV ${carbon.thirds.rowCV.toFixed(3)}`),
   );
   // Pointing at a thin line names it and lists its values.
   await p.locator('[data-axis="columns"] .series[data-series="2"]').dispatchEvent('mouseenter');
-  assert.match(await caption(), /^Row 3: /);
+  assert.match(await caption(), /^Row 3$/);
   await p.locator('[data-axis="columns"] .series[data-series="2"]').dispatchEvent('mouseleave');
   // Picking a cell marks its row and column in the charts and shows that cell's share.
   const box = await tiles.nth(7).boundingBox();
@@ -109,12 +146,13 @@ fs.mkdirSync('qa', { recursive: true });
     await p.locator('[data-axis="rows"] .series.picked').getAttribute('data-series'),
     '2',
   );
-  assert.match(await caption(), /^Row 2: /);
+  assert.equal(await caption(), 'Row 2');
   assert.match(await p.locator('#results .scope').textContent(), /Row 2 · column 3/);
   // The binder tab carries its own spread figures and its relation to the secondary phase.
   await p.locator('[data-metric="f"]').click();
   await p.locator('#regionAll').click();
-  assert.match(await p.locator('#results').textContent(), /Column CV/);
+  assert.match(await p.locator('#results').textContent(), /Spread by direction/);
+  assert.match(await p.locator('#results').textContent(), /Thirds CV/);
   assert.match(await p.locator('#results').textContent(), /With the secondary phase/);
   // The overlay shows the main phase and the element on show.
   assert.equal(await p.locator('#maskLabel').textContent(), 'NiF');

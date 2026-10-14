@@ -23,7 +23,9 @@ const groupLabel = text => `<div class="group-label">${t(text)}</div>`;
 /* Figures of one element for the whole analysed region. */
 function wholeRegionFigures(r, key) {
   const e = r.elements[key],
-    spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}<div class="kpi-pair">${kpi('Column CV', fmt(e.columnCV), { help: 'profileCV', note: 'Left to right' })}${kpi('Row CV', fmt(e.rowCV), { help: 'profileCV', note: 'Top to bottom' })}</div>`;
+    // Direction in one block: across the image (left / right) and down it (top / bottom), by
+    // thirds of the image and by grid column or row.
+    spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}${groupLabel('Spread by direction')}<table class="direction"><tr><th></th><th>${t('Left / right')}</th><th>${t('Top / bottom')}</th></tr><tr><th>${t('Thirds CV')} ${info('thirds')}</th><td>${fmt(e.thirds.columnCV)}</td><td>${fmt(e.thirds.rowCV)}</td></tr><tr><th>${t('Column / row CV')} ${info('profileCV')}</th><td>${fmt(e.columnCV)}</td><td>${fmt(e.rowCV)}</td></tr></table>`;
   let html = kpi('Area fraction', fmt(e.areaFraction, true), {
     help: { secondary: 'secondary', f: 'area', c: 'carbon' }[key],
     note: 'Share of the analysed area.',
@@ -31,18 +33,13 @@ function wholeRegionFigures(r, key) {
   });
   html += spread;
   if (key === 'secondary') {
-    html += `${groupLabel('Around the main-phase particles')}${kpi('Interparticle Occupancy', fmt(r.interparticleOccupancy, true), { help: 'occupancy', note: 'Share of the gaps between particles it fills.' })}${kpi('Between particles', fmt(r.targetingEfficiency, true), { help: 'targeting', note: 'Share of it lying between particles, not on them.' })}${kpi('Median Distance', fmt(r.distance.median), { help: 'distance', unit: r.distance.unit, note: `${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}` })}<div class="hist"><canvas id="hist" width="280" height="96"></canvas><div class="compact muted" id="bins"></div></div>`;
+    html += `${groupLabel('Around the main-phase particles')}${kpi('Interparticle Occupancy', fmt(r.interparticleOccupancy, true), { help: 'occupancy', note: 'Share of the gaps between particles it fills.' })}${kpi('Between particles', fmt(r.targetingEfficiency, true), { help: 'targeting', note: 'Share of it lying between particles, not on them.' })}${kpi('Median Distance', fmt(r.distance.median), { help: 'distance', unit: r.distance.unit, note: `${t('Mean')} ${fmt(r.distance.mean)} · P90 ${fmt(r.distance.p90)}` })}<div class="hist"><canvas id="hist" width="280" height="96"></canvas><dl id="bins"></dl></div>`;
     if (r.binderCoverage != null)
       html += `${groupLabel('With the binder')}${kpi('Binder Coverage', fmt(r.binderCoverage, true), { help: 'binder', note: 'Share of its outline with binder within the set distance.' })}`;
   } else {
     html += `${groupLabel('Around the main-phase particles')}${kpi('Between particles', fmt(e.betweenParticles, true), { help: 'between', note: 'Share of it lying between particles, not on them.' })}`;
     if (key === 'f' && r.secondaryPixels != null)
       html += `${groupLabel('With the secondary phase')}${kpi('Binder Coverage', fmt(r.binderCoverage, true), { help: 'binder', note: 'Share of the secondary-phase outline with binder nearby.' })}<div class="kpi-pair">${kpi('F with Secondary', fmt(r.fWithSecondary, true), { help: 'overlap' })}${kpi('Secondary with F', fmt(r.secondaryWithF, true), { help: 'overlap' })}</div>${kpi('Pearson r', fmt(r.pearson), { help: 'pearson' })}`;
-  }
-  if (r.depth) {
-    const field = { secondary: 'secondaryFraction', f: 'fFraction', c: 'cFraction' }[key],
-      depthCV = { secondary: r.depth.cv, f: r.depth.fCV, c: r.depth.cCV }[key];
-    html += `${groupLabel('Through the thickness')}${kpi('Depth CV', fmt(depthCV), { help: 'depth', note: 'Spread between the top, middle and bottom thirds.' })}<table class="depth"><tr>${r.depth.zones.map(z => `<th>${t(z.zone)}</th>`).join('')}</tr><tr>${r.depth.zones.map(z => `<td>${fmt(z[field], true)}</td>`).join('')}</tr></table>`;
   }
   return html;
 }
@@ -125,12 +122,15 @@ function drawHistogram(r) {
   ctx.fillText('0', 4, 90);
   ctx.textAlign = 'right';
   ctx.fillText(`${fmt(r.distance.max)} ${r.distance.unit}`, w - 4, 90);
+  // One band per line, value aligned on the right.
+  const e = r.distance.edges,
+    bands = [`< ${e[0]}`, `${e[0]}–${e[1]}`, `${e[1]}–${e[2]}`, `> ${e[2]}`];
   $('#bins').innerHTML = r.distance.bins
     .map(
       (v, i) =>
-        `${['< ' + r.distance.edges[0], r.distance.edges[0] + '–' + r.distance.edges[1], r.distance.edges[1] + '–' + r.distance.edges[2], '> ' + r.distance.edges[2]][i]} ${r.distance.unit}: ${fmt(v / r.secondaryPixels, true)}`,
+        `<div><dt>${bands[i]} ${r.distance.unit}</dt><dd>${fmt(v / r.secondaryPixels, true)}</dd></div>`,
     )
-    .join(' · ');
+    .join('');
 }
 /* A round upper bound for a share axis, with its tick step. */
 function shareAxis(max) {
@@ -163,42 +163,53 @@ function renderTrends() {
         Array.from({ length: n }, (_, b) => (axis === 'columns' ? cell(b, a) : cell(a, b))),
       ),
     picked = regionTile == null ? null : r.tiles[regionTile],
+    e = r.elements[key],
     charts = [
       {
         axis: 'columns',
-        title: state.view === 'cross' ? 'Columns, image left to right' : 'Columns, left to right',
+        title: 'Columns, image left to right',
         series: lines('columns'),
-        mean: r.elements[key].columns,
+        mean: e.columns,
         each: 'Row {n}',
+        whole: 'Whole columns',
         picked: picked?.y,
+        thirds: e.thirds.columns,
+        thirdsCV: e.thirds.columnCV,
+        bands: ['Left third', 'Middle third', 'Right third'],
       },
       {
         axis: 'rows',
-        // On a cross section the depth table follows the chosen top; this chart keeps image order.
-        title: state.view === 'cross' ? 'Rows, image top to bottom' : 'Rows, top to bottom',
+        title: 'Rows, image top to bottom',
         series: lines('rows'),
-        mean: r.elements[key].rows,
+        mean: e.rows,
         each: 'Column {n}',
+        whole: 'Whole rows',
         picked: picked?.x,
+        thirds: e.thirds.rows,
+        thirdsCV: e.thirds.rowCV,
+        bands: ['Top third', 'Middle third', 'Bottom third'],
       },
     ],
-    all = charts.flatMap(c => [...c.series.flat(), ...c.mean]).filter(v => v != null),
+    all = charts.flatMap(c => [...c.series.flat(), ...c.mean, ...c.thirds]).filter(v => v != null),
     scale = shareAxis(Math.max(...all, 0)),
     name = t(METRIC_LABELS[key]);
-  el.innerHTML = `<div class="trends-head"><strong>${t('{element}: share in each column and row').replace('{element}', name)}</strong><span class="trend-legend"><span class="key mean" style="--tint:${CHART_TINT[key]}"></span>${t('Whole column / row')}<span class="key each"></span>${t('Each row / column of cells')}</span></div><div class="trend-grid">${charts.map(c => `<figure class="trend" data-axis="${c.axis}"><figcaption>${t(c.title)}</figcaption><div class="trend-plot"></div><div class="trend-caption"></div></figure>`).join('')}</div>`;
+  el.innerHTML = `<div class="trends-head"><strong>${t('{element}: share in each column and row').replace('{element}', name)}</strong><span class="trend-legend"><span class="key mean" style="--tint:${CHART_TINT[key]}"></span>${t('Whole column / row')}<span class="key each"></span>${t('Each row / column of cells')}<span class="key band"></span>${t('Thirds of the image')}</span></div><div class="trend-grid">${charts.map(c => `<figure class="trend" data-axis="${c.axis}"><figcaption><span>${t(c.title)}</span><span>${t('Thirds CV')} <b>${fmt(c.thirdsCV)}</b></span></figcaption><div class="trend-plot"></div></figure>`).join('')}</div>`;
   charts.forEach(c => drawTrend(el.querySelector(`[data-axis="${c.axis}"]`), c, scale, key, n));
 }
+/* One trend chart. Behind the lines, the image thirds with their shares on top; under the axis,
+   one value per column (or row) set straight below its point. The value row shows the thick
+   line, or the thin line under the pointer, or the row (column) of the picked cell. */
 function drawTrend(figure, c, scale, key, n) {
   const plot = figure.querySelector('.trend-plot'),
-    caption = figure.querySelector('.trend-caption'),
-    w = Math.max(220, plot.clientWidth || 320),
-    h = 132,
-    left = 38,
-    right = 12,
-    top = 8,
-    bottom = 20,
-    x = i => left + ((i + 0.5) / n) * (w - left - right),
-    y = v => top + (1 - v / scale.max) * (h - top - bottom),
+    w = Math.max(240, plot.clientWidth || 320),
+    left = 52,
+    right = 10,
+    top = 20,
+    plotH = 92,
+    h = top + plotH + 36,
+    span = w - left - right,
+    x = i => left + ((i + 0.5) / n) * span,
+    y = v => top + (1 - v / scale.max) * plotH,
     path = values => {
       let d = '',
         pen = false;
@@ -209,12 +220,23 @@ function drawTrend(figure, c, scale, key, n) {
       });
       return d;
     },
-    percent = v => (v == null ? '—' : (v * 100).toFixed(1));
-  let svg = `<svg width="${w}" height="${h}" role="img" aria-label="${esc(figure.querySelector('figcaption').textContent)}">`;
+    value = v => (v == null ? '—' : (v * 100).toFixed(1)),
+    tickY = top + plotH + 13,
+    valueY = top + plotH + 29;
+  let svg = `<svg width="${w}" height="${h}" role="img" aria-label="${esc(t(c.title))}">`;
+  // Thirds of the image: the middle band shaded, each labelled with its share.
+  c.thirds.forEach((v, z) => {
+    const x0 = left + (z / 3) * span;
+    if (z === 1)
+      svg += `<rect class="band" x="${x0}" y="${top}" width="${span / 3}" height="${plotH}"/>`;
+    if (z) svg += `<line class="band-edge" x1="${x0}" x2="${x0}" y1="${top}" y2="${top + plotH}"/>`;
+    svg += `<text class="band-label" x="${x0 + span / 6}" y="${top - 7}" text-anchor="middle">${t(c.bands[z])} ${value(v)}%</text>`;
+  });
   for (let v = 0; v <= scale.max + 1e-9; v += scale.step)
     svg += `<line class="gridline" x1="${left}" x2="${w - right}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${left - 6}" y="${y(v) + 3}" text-anchor="end">${Math.round(v * 100)}%</text>`;
   for (let i = 0; i < n; i++)
-    svg += `<text class="tick" x="${x(i)}" y="${h - 5}" text-anchor="middle">${i + 1}</text>`;
+    svg += `<text class="tick" x="${x(i)}" y="${tickY}" text-anchor="middle">${i + 1}</text><text class="val" data-i="${i}" x="${x(i)}" y="${valueY}" text-anchor="middle"></text>`;
+  svg += `<text class="val-label" x="0" y="${valueY}"></text>`;
   c.series.forEach((values, i) => {
     const d = path(values);
     svg += `<g class="series${i === c.picked ? ' picked' : ''}" data-series="${i}"><path class="line" d="${d}"/><path class="hit" d="${d}"/></g>`;
@@ -225,18 +247,23 @@ function drawTrend(figure, c, scale, key, n) {
       svg += `<circle class="mean-dot" cx="${x(i)}" cy="${y(v)}" r="3.5" style="fill:${CHART_TINT[key]}"/>`;
   });
   plot.innerHTML = svg + '</svg>';
-  const describe = (label, values) => `${label}: ${values.map(percent).join(' · ')} %`;
-  const rest = () =>
-    (caption.textContent =
+  const cells = [...plot.querySelectorAll('.val')],
+    label = plot.querySelector('.val-label'),
+    show = (text, values, emphasis) => {
+      label.textContent = text;
+      cells.forEach((cell, i) => (cell.textContent = value(values[i])));
+      plot.querySelector('svg').classList.toggle('val-hot', emphasis);
+    },
+    rest = () =>
       c.picked != null
-        ? describe(t(c.each).replace('{n}', c.picked + 1), c.series[c.picked])
-        : describe(t(c.axis === 'columns' ? 'Whole columns' : 'Whole rows'), c.mean));
+        ? show(t(c.each).replace('{n}', c.picked + 1), c.series[c.picked], true)
+        : show(t(c.whole), c.mean, false);
   rest();
   plot.querySelectorAll('.series').forEach(g => {
+    const i = +g.dataset.series;
     g.onmouseenter = () => {
       g.classList.add('hot');
-      const i = +g.dataset.series;
-      caption.textContent = describe(t(c.each).replace('{n}', i + 1), c.series[i]);
+      show(t(c.each).replace('{n}', i + 1), c.series[i], true);
     };
     g.onmouseleave = () => {
       g.classList.remove('hot');
@@ -244,7 +271,6 @@ function drawTrend(figure, c, scale, key, n) {
     };
   });
 }
-// A fitted image is fitted again to the new window, and the charts take the new width.
 addEventListener('resize', () => {
   clearTimeout(renderTrends.timer);
   renderTrends.timer = setTimeout(() => {
