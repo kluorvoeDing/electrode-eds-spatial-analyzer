@@ -166,7 +166,7 @@ function renderTrends() {
     charts = [
       {
         axis: 'columns',
-        title: 'Columns, left to right',
+        title: state.view === 'cross' ? 'Columns, image left to right' : 'Columns, left to right',
         series: lines('columns'),
         mean: r.elements[key].columns,
         each: 'Row {n}',
@@ -174,7 +174,8 @@ function renderTrends() {
       },
       {
         axis: 'rows',
-        title: 'Rows, top to bottom',
+        // On a cross section the depth table follows the chosen top; this chart keeps image order.
+        title: state.view === 'cross' ? 'Rows, image top to bottom' : 'Rows, top to bottom',
         series: lines('rows'),
         mean: r.elements[key].rows,
         each: 'Column {n}',

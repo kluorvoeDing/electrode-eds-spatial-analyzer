@@ -31,6 +31,7 @@ function draw() {
             k =>
               masks[k] &&
               (!focusedMask() || k === focusedMask()) &&
+              (step !== 'segment' || focusedMask() || !maskHidden.has(k)) &&
               (step !== 'analyze' || !state.results || k === 'nmc' || k === metric),
           )
         : [],

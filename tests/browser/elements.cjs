@@ -39,6 +39,16 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(asked, 1);
   assert.equal(await p.evaluate(() => Object.keys(state.channels).length), 5);
 
+  // On the mask step, unticking an element hides its mask so overlapping colours can be read.
+  await p.locator('[data-step="segment"]').click();
+  await p.waitForFunction(() => !busy);
+  assert.equal(await p.locator('#maskLabel .swatch').count(), 4);
+  await p.locator('[data-maskshow="c"]').uncheck();
+  await p.locator('[data-maskshow="f"]').uncheck();
+  assert.equal(await p.locator('#maskLabel').textContent(), 'NiSecondary phase');
+  await p.locator('[data-maskshow="c"]').check();
+  await p.locator('[data-maskshow="f"]').check();
+  await p.locator('[data-step="data"]').click();
   // The results column belongs to the analysis step.
   assert.equal(await p.locator('aside.right').isVisible(), false);
   await p.locator('[data-step="analyze"]').click();

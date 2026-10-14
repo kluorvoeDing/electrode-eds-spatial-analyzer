@@ -64,7 +64,7 @@ Grid 使用有效 ROI 的 bounding rectangle 切為 3×3、5×5、8×8；第 g �
 - `areaFraction = |E ∩ ROI| / |ROI|`；`pixels = |E ∩ ROI|`。
 - `uniformityCV`：各格 `|E ∩ tile| / |ROI ∩ tile|` 的母體 CV，與既有 Uniformity CV 相同定義；次要相的值等於 `uniformityCV`。
 - `columns[g]`、`rows[g]`：第 g 欄（列）所有格子合併的 `Σ|E| / Σ|ROI|`，即以像素加權，不是各格比例的平均；該欄（列）沒有 ROI 像素時為 `null`，不當作 0。
-- `columnCV`、`rowCV`：上述非空值的母體 CV，對應左右與上下方向的差異。截面影像以 Y 為厚度方向時，`rows` 即沿厚度的比例（影像上方為第 1 列，與 `depthReverse` 無關；Top／Middle／Bottom 表則依設定方向）。
+- `columnCV`、`rowCV`：上述非空值的母體 CV，對應左右與上下方向的差異。截面影像以 Y 為厚度方向時，`rows` 即沿厚度的比例（影像上方為第 1 列，與 `depthReverse` 無關，截面時圖名標示「影像上方 → 下方」；Top／Middle／Bottom 表則依設定方向）。
 - `betweenParticles = |E ∩ G| / |E|`，次要相的值等於 Targeting Efficiency。
 - 每格新增 `fPixels`、`fFraction`、`cPixels`、`cFraction`；截面三層新增 `cFraction` 與 `depth.cCV`。
 

@@ -567,6 +567,12 @@ details[open] > summary {
   padding: 9px 0;
   border-bottom: 1px solid var(--line);
 }
+.legend-row {
+  cursor: pointer;
+}
+.legend-row input {
+  accent-color: var(--ink-2);
+}
 .legend-row .coverage {
   margin-left: auto;
   font: 12px var(--mono);
@@ -892,9 +898,6 @@ details[open] > summary {
   min-height: 16px;
   font: 11px var(--mono);
   color: var(--ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Results column. */
@@ -2559,8 +2562,8 @@ Object.assign(UI_ZH, {
     '請載入主相影像，以及次要相、F、C 至少一張。',
   'Paste or choose an image for each element. The map area and the scale bar are found when you crop.':
     '為每個元素貼上或選擇影像；裁切時會自動找出有效區域與比例尺。',
-  'Colour marks where each element is counted. Go on if it matches the element maps.':
-    '顏色是判定為有該元素的位置。和元素圖相符就繼續。',
+  'Colour marks where each element is counted. Go on if it matches the maps; untick colours to check one at a time.':
+    '顏色是判定為有該元素的位置。和元素圖相符就繼續；顏色重疊時可取消勾選，逐一檢查。',
   'Click a cell to see its values; click it again for the whole region.':
     '點格子看該格數值，再點一次回到全區。',
   Analysis: '分析設定',
@@ -2603,6 +2606,8 @@ Object.assign(UI_ZH, {
     '差異類指標只有全區才有。格子越小，數值越不穩定。',
   'Columns, left to right': '各欄 · 左 → 右',
   'Rows, top to bottom': '各列 · 上 → 下',
+  'Rows, image top to bottom': '各列 · 影像上方 → 下方',
+  'Columns, image left to right': '各欄 · 影像左 → 右',
   'Row {n}': '第 {n} 列',
   'Column {n}': '第 {n} 欄',
   'Whole columns': '整欄',
@@ -2610,6 +2615,7 @@ Object.assign(UI_ZH, {
   '{element}: share in each column and row': '{element} · 各欄與各列的面積比例',
   'Whole column / row': '整欄／整列',
   'Grid labels': '格內數字',
+  Show: '顯示',
   'Each row / column of cells': '單一列／欄',
   'already set': '已設定',
   'First channel: select only the map region.': '第一個通道：只框選元素圖本身',
@@ -3718,6 +3724,8 @@ let segAdjustOpen = false,
 let regionTile = null;
 // Masks are drawn in the colour of their channel, the phase under study on top.
 const MASK_ORDER = ['nmc', 'f', 'c', 'secondary'];
+// Masks the user has unticked on the mask step, to read overlapping elements one at a time.
+const maskHidden = new Set();
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',
@@ -4148,7 +4156,8 @@ document.addEventListener('keydown', e => {
 /* Left-hand step panels: Data, Check masks and Analyze. */
 const STEP_HINTS = {
   data: 'Paste or choose an image for each element. The map area and the scale bar are found when you crop.',
-  segment: 'Colour marks where each element is counted. Go on if it matches the element maps.',
+  segment:
+    'Colour marks where each element is counted. Go on if it matches the maps; untick colours to check one at a time.',
   analyze: 'Click a cell to see its values; click it again for the whole region.',
 };
 const STEP_RENDERERS = {
@@ -4349,8 +4358,16 @@ function renderSegmentStep(c) {
     // The Mn / Ni ratio only applies to Mn-based additives.
     showRatio = selected === 'secondary' && (state.material === 'MnO2' || state.settings.ratio),
     loaded = ANALYSIS_KEYS.filter(k => state.channels[k]);
-  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<div class="legend-row"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="coverage" data-coverage="${k}"></span></div>`).join('') || `<div class="warning">${t('Load the main-phase map and at least one of the secondary phase, F or C.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="seg"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label class="check"><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label class="check"><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label class="check"><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label class="check"><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
+  c.innerHTML = `<h2>${t('Check masks')} ${info('threshold')}</h2><div class="legend">${loaded.map(k => `<label class="legend-row"><input type="checkbox" data-maskshow="${k}" ${maskHidden.has(k) ? '' : 'checked'} aria-label="${t('Show')} ${t(channelNames[k])}"><span class="swatch" style="background:rgb(${ELEMENT_TINT[k]})"></span><span>${t(channelNames[k])}</span><span class="coverage" data-coverage="${k}"></span></label>`).join('') || `<div class="warning">${t('Load the main-phase map and at least one of the secondary phase, F or C.')}</div>`}</div>${state.material === 'MnO2' && !state.settings.ratio ? `<div class="warning">${t('Mn tracer requires main-phase separation')} ${info('mn')}</div>` : ''}<details id="segAdjust" ${segAdjustOpen ? 'open' : ''}><summary>${adjustLabel()}</summary><label class="field">${t('Channel')}<select id="segChannel">${ANALYSIS_KEYS.map(k => `<option value="${k}">${t(channelNames[k])}</option>`).join('')}</select></label><div class="seg"><button id="auto" class="${p.auto ? 'active' : ''}">${t('Auto')}</button><button id="manual" class="${!p.auto ? 'active' : ''}">${t('Manual')}</button></div><label class="field">${t('Threshold')}<input id="thresholdNumber" type="number" step="any" value="${Number(p.threshold.toPrecision(7))}"></label><input id="thresholdSlider" aria-label="${t('Threshold slider')}" type="range" min="${r.min}" max="${r.max === r.min ? r.max + 1 : r.max}" step="any" value="${Number(p.threshold.toPrecision(7))}"><label class="field">${t('Averaging radius (px)')} ${info('denoise')}<select id="denoise">${Array.from({ length: Core.DENOISE_MAX + 1 }, (_, n) => `<option value="${n}">${n ? n : t('Off')}</option>`).join('')}</select></label><details id="segAdvanced" ${segAdvancedOpen || advancedUsed ? 'open' : ''}><summary>${advancedLabel(p)}</summary><div class="checks"><label class="check"><input id="invert" type="checkbox" ${p.invert ? 'checked' : ''}> ${t('Invert')}</label><label class="check"><input id="fill" type="checkbox" ${p.fill ? 'checked' : ''}> ${t('Fill holes')}</label><label class="check"><input id="smooth" type="checkbox" ${p.smooth ? 'checked' : ''}> ${t('Smooth')} ${info('smooth')}</label></div><label class="field">${t('Min object size (px)')}<input id="minObject" type="number" min="0" step="1" value="${p.min}"></label></details>${showRatio ? `<h3>${t('Ratio map')} ${info('mn')}</h3><label class="check"><input id="ratio" type="checkbox" ${state.settings.ratio ? 'checked' : ''}> Mn / (Ni + ε)</label><label class="field">ε<input id="epsilon" type="number" min="0.000001" step="any" value="${state.settings.epsilon}"></label>` : ''}</details>`;
   updateMaskLegend();
+  // Overlapping masks blend; unticking some lets each be checked against its own map.
+  document.querySelectorAll('[data-maskshow]').forEach(
+    box =>
+      (box.onchange = () => {
+        maskHidden[box.checked ? 'delete' : 'add'](box.dataset.maskshow);
+        draw();
+      }),
+  );
   $('#segChannel').value = selected;
   $('#denoise').value = p.denoise;
   // Recorded on the click itself (the toggle event arrives later and also fires for a section
@@ -4721,6 +4738,7 @@ function draw() {
             k =>
               masks[k] &&
               (!focusedMask() || k === focusedMask()) &&
+              (step !== 'segment' || focusedMask() || !maskHidden.has(k)) &&
               (step !== 'analyze' || !state.results || k === 'nmc' || k === metric),
           )
         : [],
@@ -5193,7 +5211,7 @@ function renderTrends() {
     charts = [
       {
         axis: 'columns',
-        title: 'Columns, left to right',
+        title: state.view === 'cross' ? 'Columns, image left to right' : 'Columns, left to right',
         series: lines('columns'),
         mean: r.elements[key].columns,
         each: 'Row {n}',
@@ -5201,7 +5219,8 @@ function renderTrends() {
       },
       {
         axis: 'rows',
-        title: 'Rows, top to bottom',
+        // On a cross section the depth table follows the chosen top; this chart keeps image order.
+        title: state.view === 'cross' ? 'Rows, image top to bottom' : 'Rows, top to bottom',
         series: lines('rows'),
         mean: r.elements[key].rows,
         each: 'Column {n}',

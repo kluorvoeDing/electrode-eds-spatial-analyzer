@@ -65,6 +65,8 @@ let segAdjustOpen = false,
 let regionTile = null;
 // Masks are drawn in the colour of their channel, the phase under study on top.
 const MASK_ORDER = ['nmc', 'f', 'c', 'secondary'];
+// Masks the user has unticked on the mask step, to read overlapping elements one at a time.
+const maskHidden = new Set();
 const MATERIALS = ['TiO2', 'ZrO2', 'MnO2', 'Al2O3', 'LFP', 'Other'];
 const initialState = () => ({
   sample: 'Untitled',

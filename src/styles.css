@@ -567,6 +567,12 @@ details[open] > summary {
   padding: 9px 0;
   border-bottom: 1px solid var(--line);
 }
+.legend-row {
+  cursor: pointer;
+}
+.legend-row input {
+  accent-color: var(--ink-2);
+}
 .legend-row .coverage {
   margin-left: auto;
   font: 12px var(--mono);
@@ -892,9 +898,6 @@ details[open] > summary {
   min-height: 16px;
   font: 11px var(--mono);
   color: var(--ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Results column. */

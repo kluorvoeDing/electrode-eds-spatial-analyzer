@@ -493,8 +493,8 @@ Object.assign(UI_ZH, {
     '請載入主相影像，以及次要相、F、C 至少一張。',
   'Paste or choose an image for each element. The map area and the scale bar are found when you crop.':
     '為每個元素貼上或選擇影像；裁切時會自動找出有效區域與比例尺。',
-  'Colour marks where each element is counted. Go on if it matches the element maps.':
-    '顏色是判定為有該元素的位置。和元素圖相符就繼續。',
+  'Colour marks where each element is counted. Go on if it matches the maps; untick colours to check one at a time.':
+    '顏色是判定為有該元素的位置。和元素圖相符就繼續；顏色重疊時可取消勾選，逐一檢查。',
   'Click a cell to see its values; click it again for the whole region.':
     '點格子看該格數值，再點一次回到全區。',
   Analysis: '分析設定',
@@ -537,6 +537,8 @@ Object.assign(UI_ZH, {
     '差異類指標只有全區才有。格子越小，數值越不穩定。',
   'Columns, left to right': '各欄 · 左 → 右',
   'Rows, top to bottom': '各列 · 上 → 下',
+  'Rows, image top to bottom': '各列 · 影像上方 → 下方',
+  'Columns, image left to right': '各欄 · 影像左 → 右',
   'Row {n}': '第 {n} 列',
   'Column {n}': '第 {n} 欄',
   'Whole columns': '整欄',
@@ -544,6 +546,7 @@ Object.assign(UI_ZH, {
   '{element}: share in each column and row': '{element} · 各欄與各列的面積比例',
   'Whole column / row': '整欄／整列',
   'Grid labels': '格內數字',
+  Show: '顯示',
   'Each row / column of cells': '單一列／欄',
   'already set': '已設定',
   'First channel: select only the map region.': '第一個通道：只框選元素圖本身',
