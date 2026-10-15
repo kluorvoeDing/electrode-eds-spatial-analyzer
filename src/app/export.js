@@ -49,7 +49,12 @@ function addComparison() {
     status('Name the sample at the top first, then add it.', true);
     return;
   }
-  if (state.comparison.some(c => c.metrics.analyzedAt === state.results.analyzedAt)) {
+  // The same result under the same name is a duplicate; under a new name it is a new row.
+  if (
+    state.comparison.some(
+      c => c.metrics.analyzedAt === state.results.analyzedAt && c.sample === state.sample,
+    )
+  ) {
     status('This result is already in the comparison.', true);
     return;
   }
@@ -93,8 +98,9 @@ function showComparison() {
   );
   $('#comparisonCSV').onclick = () => exportCSV(true);
 }
+// A missing value is an empty cell (before v0.5.2 it was the text "null").
 function csvCell(x) {
-  let s = typeof x === 'object' ? JSON.stringify(x) : String(x ?? '');
+  let s = x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x);
   if (/^[=+@\-]/.test(s)) s = "'" + s;
   return '"' + s.replace(/"/g, '""') + '"';
 }

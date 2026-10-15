@@ -190,6 +190,12 @@ fs.mkdirSync('qa', { recursive: true });
   // The same result is not added twice.
   await p.locator('#addComparison').click();
   assert.match(await p.locator('#status').textContent(), /already in the comparison/);
+  // Under a new name the same result is a new row (and is removed again for the checks below).
+  await p.locator('#sample').fill('Reference copy');
+  await p.locator('#addComparison').click();
+  assert.equal(await p.evaluate(() => state.comparison.at(-1).sample), 'Reference copy');
+  await p.evaluate(() => state.comparison.pop());
+  await p.locator('#sample').fill('Reference');
   await p.locator('#showComparison').click();
   assert.equal(await p.locator('#dialog table tr').count(), 3);
   // The comparison chart: one point per sample with the figure, by sample or against a typed
@@ -247,6 +253,12 @@ fs.mkdirSync('qa', { recursive: true });
     return { keys: Object.keys(row), median: row.MedianDistance, f: row.FUniformityCV };
   });
   assert.equal(csv.median, undefined);
+  // Missing values are empty cells in CSV, not the text "null".
+  assert.deepEqual(await p.evaluate(() => [csvCell(null), csvCell(undefined), csvCell(0)]), [
+    '""',
+    '""',
+    '"0"',
+  ]);
   assert.ok(Number.isFinite(csv.f));
   // New columns come after every earlier one.
   assert.ok(csv.keys.indexOf('FAreaFraction') > csv.keys.indexOf('Warnings'));

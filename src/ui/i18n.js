@@ -456,6 +456,8 @@ HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
 Object.assign(UI_EN, {
   'already set': 'using the current scale',
+  'This result is already in the comparison.':
+    'This result is already in the comparison under this name.',
   'Interparticle Occupancy (%)': 'Gap occupancy (%)',
   'Secondary (short)': '2nd phase',
   'Add to Comparison': 'Add result',
@@ -623,7 +625,7 @@ Object.assign(UI_ZH, {
   'All rows': '整欄',
   'All columns': '整列',
   'Name the sample at the top first, then add it.': '請先在頂端填入樣品名稱，再加入比較。',
-  'This result is already in the comparison.': '這個結果已經在比較表中。',
+  'This result is already in the comparison.': '這個結果已經以相同名稱在比較表中。',
   'Spread by direction': '方向差異',
   'Left / right': '左右',
   'Top / bottom': '上下',

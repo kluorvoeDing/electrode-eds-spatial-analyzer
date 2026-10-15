@@ -2729,6 +2729,8 @@ HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
 Object.assign(UI_EN, {
   'already set': 'using the current scale',
+  'This result is already in the comparison.':
+    'This result is already in the comparison under this name.',
   'Interparticle Occupancy (%)': 'Gap occupancy (%)',
   'Secondary (short)': '2nd phase',
   'Add to Comparison': 'Add result',
@@ -2896,7 +2898,7 @@ Object.assign(UI_ZH, {
   'All rows': '整欄',
   'All columns': '整列',
   'Name the sample at the top first, then add it.': '請先在頂端填入樣品名稱，再加入比較。',
-  'This result is already in the comparison.': '這個結果已經在比較表中。',
+  'This result is already in the comparison.': '這個結果已經以相同名稱在比較表中。',
   'Spread by direction': '方向差異',
   'Left / right': '左右',
   'Top / bottom': '上下',
@@ -3961,7 +3963,7 @@ if (typeof module !== 'undefined')
   };
 
 /* Shared application state, defaults and constants. */
-const VERSION = '0.5.1';
+const VERSION = '0.5.2';
 const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
@@ -6049,7 +6051,12 @@ function addComparison() {
     status('Name the sample at the top first, then add it.', true);
     return;
   }
-  if (state.comparison.some(c => c.metrics.analyzedAt === state.results.analyzedAt)) {
+  // The same result under the same name is a duplicate; under a new name it is a new row.
+  if (
+    state.comparison.some(
+      c => c.metrics.analyzedAt === state.results.analyzedAt && c.sample === state.sample,
+    )
+  ) {
     status('This result is already in the comparison.', true);
     return;
   }
@@ -6093,8 +6100,9 @@ function showComparison() {
   );
   $('#comparisonCSV').onclick = () => exportCSV(true);
 }
+// A missing value is an empty cell (before v0.5.2 it was the text "null").
 function csvCell(x) {
-  let s = typeof x === 'object' ? JSON.stringify(x) : String(x ?? '');
+  let s = x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x);
   if (/^[=+@\-]/.test(s)) s = "'" + s;
   return '"' + s.replace(/"/g, '""') + '"';
 }
