@@ -38,6 +38,8 @@ fs.mkdirSync('qa', { recursive: true });
       await p.locator('#demoMenu').click();
     }
     await p.waitForFunction(() => document.querySelector('#status').textContent === 'Mask updated');
+    // Used here as ordinary data: real images then replace single channels, not the whole set.
+    await p.evaluate(() => (demoLoaded = false));
   }
   const csvFile = (w, h, value) =>
     p.evaluateHandle(
@@ -255,6 +257,7 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#more').click();
   await p.locator('#settings').click();
   assert.equal(await p.locator('#clearData').textContent(), 'Reset workspace');
+  p.once('dialog', d => d.accept());
   await p.locator('#clearData').click();
   assert.equal(await statusText(), 'Workspace reset');
   assert.deepEqual(

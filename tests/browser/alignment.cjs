@@ -241,6 +241,7 @@ fs.mkdirSync('qa', { recursive: true });
   fs.writeFileSync('qa/alignment-session.json', saved);
   await p.locator('#more').click();
   await p.locator('#settings').click();
+  p.once('dialog', d => d.accept());
   await p.locator('#clearData').click();
   await p.locator('#sessionFile').setInputFiles(path.resolve('qa/alignment-session.json'));
   await p.waitForFunction(() =>

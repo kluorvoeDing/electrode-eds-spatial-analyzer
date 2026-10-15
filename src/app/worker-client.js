@@ -101,10 +101,11 @@ async function compute(analyze = false) {
     // The figures follow an element that was analysed; the first one when the last is gone.
     if (!state.results.elements?.[metric])
       metric = METRIC_KEYS.find(k => state.results.elements?.[k]) || 'secondary';
-    renderResults();
-    renderControls();
+    // Read before the panels are redrawn: a redraw can end an edit and clear the results.
     const elapsed = Math.round(state.results.elapsedMs),
       warnings = [...state.results.warnings];
+    renderResults();
+    renderControls();
     status(
       () =>
         `${t('Analysis complete')} · ${elapsed} ms${warnings.length ? ' · ' + warnings.map(messageText).join(' ') : ''}`,

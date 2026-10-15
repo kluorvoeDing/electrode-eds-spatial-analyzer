@@ -2,6 +2,9 @@
 const Core = (() => {
   const sum = a => a.reduce((s, x) => s + x, 0);
   const fraction = (a, b) => (b ? a / b : null);
+  // Distances are pixel counts times μm per pixel; a value that is exactly on a limit in pixels
+  // can land a hair above it after the multiplication (3 × 0.1 = 0.30000000000000004).
+  const within = (value, limit) => value <= limit + 1e-9 * Math.max(1, Math.abs(limit));
   function cv(a) {
     const m = sum(a) / a.length;
     return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;
@@ -431,7 +434,7 @@ const Core = (() => {
           }
           if (secondaryEdge?.[i]) {
             edgePixels++;
-            if (binderDistance[i] * scale <= binderRadius) covered++;
+            if (within(binderDistance[i] * scale, binderRadius)) covered++;
           }
         }
       tile.secondaryPixels = count;
@@ -450,7 +453,10 @@ const Core = (() => {
     };
     const bins = [0, 0, 0, 0],
       edges = calibration ? [0.5, 1, 2] : [1, 2, 3];
-    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;
+    // A distance on a band edge counts in the band that starts there, as documented.
+    const below = (x, edge) => !within(edge, x);
+    for (const x of values)
+      bins[below(x, edges[0]) ? 0 : below(x, edges[1]) ? 1 : within(x, edges[2]) ? 2 : 3]++;
     const max = values[values.length - 1],
       hist = new Array(20).fill(0);
     for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;
@@ -464,7 +470,7 @@ const Core = (() => {
       for (let i = 0; i < sp.length; i++)
         if (sp[i]) {
           p++;
-          if (fd[i] * scale <= binderRadius) hit++;
+          if (within(fd[i] * scale, binderRadius)) hit++;
         }
       coverage = fraction(hit, p);
     } else if (f) coverage = 0;

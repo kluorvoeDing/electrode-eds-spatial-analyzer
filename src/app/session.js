@@ -23,7 +23,7 @@ function snapshot() {
         },
       ]),
     ),
-    workspace: { selected, display, zoom, opacity },
+    workspace: { selected, display, zoom, opacity, step, metric },
   };
 }
 $('#save').onclick = () => download(safeName() + '.session.json', JSON.stringify(snapshot()));
@@ -49,11 +49,15 @@ $('#sessionFile').onchange = async e => {
     masks = {};
     segRanges = {};
     effectiveROI = null;
+    demoLoaded = false;
     setUILanguage(s.uiLanguage || language);
     updateChrome();
     channelVersion++;
     revision++;
     selected = ANALYSIS_KEYS.includes(s.workspace?.selected) ? s.workspace.selected : 'secondary';
+    // The project opens on the step and element it was saved on (the first step for older ones).
+    step = STEP_ORDER.includes(s.workspace?.step) ? s.workspace.step : 'data';
+    metric = METRIC_KEYS.includes(s.workspace?.metric) ? s.workspace.metric : 'secondary';
     display = DISPLAY_MODES.includes(s.workspace?.display) ? s.workspace.display : 'overlay';
     zoom = Number.isFinite(s.workspace?.zoom) && s.workspace.zoom > 0 ? s.workspace.zoom : 1;
     opacity = Number.isFinite(s.workspace?.opacity)

@@ -13,9 +13,34 @@ let compareY = 'f:cv',
 function parseMeasured(text) {
   const s = String(text ?? '').trim();
   if (!s) return { value: null };
-  return /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(s)
-    ? { value: Number(s) }
+  const value = Number(s),
+    // Too large to hold (1e400), or a non-zero value too small to hold (1e-400).
+    lost = !Number.isFinite(value) || (value === 0 && /[1-9]/.test(s.split(/[eE]/)[0]));
+  return /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(s) && !lost
+    ? { value }
     : { value: null, invalid: true };
+}
+/* Smallest |r| that is significant at p < 0.05 (two-sided) for n samples: from Student's t. */
+function criticalR(n) {
+  const df = n - 2,
+    table = [
+      [1, 12.706],
+      [2, 4.303],
+      [3, 3.182],
+      [4, 2.776],
+      [5, 2.571],
+      [6, 2.447],
+      [7, 2.365],
+      [8, 2.306],
+      [9, 2.262],
+      [10, 2.228],
+      [12, 2.179],
+      [15, 2.131],
+      [20, 2.086],
+      [30, 2.042],
+    ],
+    tCrit = (table.find(([d]) => d >= df) || [0, 1.96])[1];
+  return tCrit / Math.sqrt(tCrit * tCrit + df);
 }
 function compareFigure(entry, choice) {
   const [key, name] = choice.split(':'),
@@ -85,7 +110,9 @@ function drawComparisonChart() {
       Float64Array.from(points, p => p.y),
       new Uint8Array(n).fill(1),
     );
-    notes.push(`${t('Pearson r')} = ${fmt(r)}`);
+    notes.push(
+      `${t('Correlation r')} = ${fmt(r)} (${t('|r| must reach {c} for p < 0.05').replace('{c}', criticalR(n).toFixed(3))})`,
+    );
   } else if (compareX !== 'sample' && n) notes.push(t('A correlation needs at least 4 samples.'));
   note.innerHTML = notes.join(' · ');
   if (!n) {
@@ -131,6 +158,6 @@ function drawComparisonChart() {
   }
   svg += `<line class="axis" x1="${left}" x2="${w - right}" y1="${h - bottom}" y2="${h - bottom}"/>`;
   for (const p of points)
-    svg += `<g class="compare-point"><circle cx="${sx(p)}" cy="${sy(p.y)}" r="5" style="fill:${CHART_TINT[key]}"/><title>${esc(p.name)}: ${fmt(p.y)}</title>${compareX === 'sample' ? '' : `<text class="point-label" x="${sx(p) + 8}" y="${sy(p.y) + 3}">${esc(p.name.length > 12 ? p.name.slice(0, 11) + '…' : p.name)}</text>`}</g>`;
+    svg += `<g class="compare-point"><circle cx="${sx(p)}" cy="${sy(p.y)}" r="5" style="fill:${CHART_TINT[key]}"/><title>${esc(p.name)}: ${fmt(p.y)}</title>${compareX === 'sample' ? '' : `<text class="point-label" x="${sx(p) + 8}" y="${sy(p.y) + 3}">${esc(p.name.length > 20 ? p.name.slice(0, 19) + '…' : p.name)}</text>`}</g>`;
   host.innerHTML = svg + '</svg>';
 }

@@ -94,6 +94,9 @@ fs.mkdirSync('qa', { recursive: true });
     await p.evaluate(() => Array.from(state.channels.secondary.rgba.slice(244, 248))),
     [180, 0, 0, 255],
   );
+  // The project reopens on the step it was saved on.
+  assert.equal(await p.evaluate(() => step), 'analyze');
+  await p.locator('[data-step="data"]').click();
   await p.locator('[data-file="secondary"]').setInputFiles(path.resolve('qa/secondary.jpg'));
   await waitMask();
   assert.equal(await p.evaluate(() => state.channels.secondary.format), 'image');

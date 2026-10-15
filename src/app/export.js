@@ -68,16 +68,20 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>${comparisonChartHTML()}`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div>${new Set(state.comparison.map(c => c.metrics.distance?.unit).filter(Boolean)).size > 1 ? `<p class="warning">${t('Distances are in µm for some samples and in pixels for others; they cannot be compared directly.')}</p>` : ''}<div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>${comparisonChartHTML()}`,
   );
   bindComparisonChart();
-  document.querySelectorAll('[data-comp]').forEach(
-    e =>
-      (e.oninput = () => {
-        state.comparison[+e.dataset.comp][e.dataset.key] = e.value;
-        if (e.dataset.key === compareX) drawComparisonChart();
-      }),
-  );
+  document.querySelectorAll('[data-comp]').forEach(e => {
+    // A strength that is not a plain number is marked where it is typed.
+    const mark = () =>
+      e.classList.toggle('invalid', e.dataset.key !== 'note' && !!parseMeasured(e.value).invalid);
+    mark();
+    e.oninput = () => {
+      state.comparison[+e.dataset.comp][e.dataset.key] = e.value;
+      mark();
+      if (e.dataset.key === compareX) drawComparisonChart();
+    };
+  });
   document.querySelectorAll('[data-removecomp]').forEach(
     b =>
       (b.onclick = () => {

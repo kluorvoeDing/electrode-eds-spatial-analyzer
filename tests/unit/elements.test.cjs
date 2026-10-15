@@ -151,3 +151,27 @@ test('image thirds use the depth bands, along both axes', () => {
   near(vertical.elements.c.thirds.rowCV, vertical.depth.cCV);
   near(horizontal.elements.f.thirds.columnCV, horizontal.depth.fCV);
 });
+
+test('a distance exactly on the binder radius or a band edge counts, despite floating point', () => {
+  // 3 px × 0.1 µm/px is 0.30000000000000004 in floating point; it must still be within 0.3 µm.
+  const W = 9,
+    H = 1,
+    area = C.roiMask(W, H),
+    row = list => Uint8Array.from({ length: W }, (_, i) => (list.includes(i) ? 1 : 0)),
+    r = C.analyze({
+      w: W,
+      h: H,
+      roi: area,
+      nmc: row([8]),
+      secondary: row([2]),
+      f: row([5]),
+      secondaryIntensity: new Float64Array(W),
+      fIntensity: new Float64Array(W),
+      grid: 3,
+      calibration: 0.1,
+      binderRadius: 0.3,
+    });
+  near(r.binderCoverage, 1);
+  // The secondary pixel lies 6 px from the main phase: 0.6000000000000001 µm, in [0.5, 1).
+  assert.deepEqual(r.distance.bins, [0, 1, 0, 0]);
+});

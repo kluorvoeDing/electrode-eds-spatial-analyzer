@@ -327,10 +327,14 @@ function renderAnalyzeStep(c) {
     analyzeIfReady();
   };
   $('#radius').onchange = e => {
-    if (!Number.isFinite(+e.target.value) || +e.target.value < 0) {
+    const text = e.target.value.trim();
+    // An empty or negative distance is refused and the field shows the value still in use.
+    if (!text || !Number.isFinite(+text) || +text < 0) {
       status('距離必須 ≥ 0。', true);
+      e.target.value = state.settings.binderRadius;
       return;
     }
+    if (+text === state.settings.binderRadius) return;
     const unit = state.settings.calibration ? 'um' : 'px';
     state.settings.binderRadius = +e.target.value;
     state.settings.binderRadiusCustom = +e.target.value !== Core.BINDER_DEFAULT[unit];

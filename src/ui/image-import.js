@@ -617,6 +617,8 @@ function renderImageImport() {
     $('#cropScaleUm').oninput = e => {
       const value = Number(e.target.value);
       p.scaleUm = value > 0 && Number.isFinite(value) ? value : null;
+      // A typed length that is not a positive number is pointed out, and holds back the import.
+      p.scaleInvalid = e.target.value.trim() !== '' && p.scaleUm === null;
       drawImageImport();
     };
     $('#cropScalePick').onclick = () => {
@@ -719,13 +721,15 @@ function drawImageImport(fast = false) {
   ctx.clearRect(0, 0, p.w, p.h);
   ctx.drawImage(p.canvas, 0, 0);
   const valid = cropRectValid(r, p.w, p.h);
-  $('#cropApply').disabled = !valid || !p.reviewed;
+  $('#cropApply').disabled = !valid || !p.reviewed || !!p.scaleInvalid;
   // Say why the button is waiting, next to it.
   $('#cropApplyHint').textContent = !valid
     ? t('The crop is outside the image.')
-    : p.reviewed
-      ? ''
-      : t('Tick the check above first.');
+    : p.scaleInvalid
+      ? t('The scale bar length must be a number above 0.')
+      : p.reviewed
+        ? ''
+        : t('Tick the check above first.');
   if ($('#cropScaleStatus')) {
     const status = scaleBarStatus(p);
     $('#cropScaleStatus').textContent = status.text;

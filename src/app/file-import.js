@@ -34,6 +34,11 @@ function gridChannel() {
    changes. Adding a channel, or changing a display-only one while analysis channels are loaded,
    keeps them. Returns whether anything was cleared. */
 function replaceChannel(key, ch) {
+  // The first real image replaces the whole example, so none of its maps are left behind.
+  if (demoLoaded) {
+    state.channels = {};
+    demoLoaded = false;
+  }
   const grid = gridChannel(),
     isAnalysis = ANALYSIS_KEYS.includes(key),
     definesGrid = isAnalysis || !ANALYSIS_KEYS.some(k => state.channels[k]),
@@ -160,8 +165,10 @@ function loadDemo() {
   // Noise-free reference maps: thresholded as they are, so the expected values stay exact.
   const exact = () => ({ ...defaults(), denoise: 0 });
   state.seg = { nmc: exact(), secondary: exact(), f: exact(), c: exact() };
+  demoLoaded = true;
   dirty();
   renderControls();
   renderChannels();
-  preview().then(fit);
+  // On the analysis step the example is analysed at once, like any other arrival there.
+  recompute().then(fit);
 }

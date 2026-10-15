@@ -492,7 +492,6 @@ Object.assign(UI_ZH, {
   'Try the synthetic example': '用合成範例試用',
   'The example is generated data for trying the steps; it is not a measurement.':
     '範例是程式產生的影像，用來熟悉操作，不是量測資料。',
-  'Replace the loaded images with the synthetic example?': '要以合成範例取代目前載入的影像嗎？',
   Elements: '元素疊圖',
   Overlay: '遮罩疊圖',
   Original: '原圖',
@@ -570,6 +569,15 @@ Object.assign(UI_ZH, {
   'Cells hold about {n} pixels each (fewer than {min}): cell-to-cell figures are unsteady. Use a coarser grid or the thirds CV.':
     '每格約 {n} 像素（少於 {min}）：格與格之間的數值不穩定。建議改用較粗的網格，或參考三等分 CV。',
   'cells are small': '格子偏小',
+  'Clear every image, setting, result and the comparison table? This cannot be undone.':
+    '要清除所有影像、設定、結果與比較表嗎？此動作無法復原。',
+  'Replace the loaded images with the synthetic example? The scale and the analysed-area limits are cleared too; the comparison table stays.':
+    '要以合成範例取代目前的影像嗎？尺度與分析範圍也會清除；比較表保留。',
+  'The scale bar length must be a number above 0.': '比例尺長度必須是大於 0 的數字',
+  'Correlation r': '相關係數 r',
+  '|r| must reach {c} for p < 0.05': '|r| 需達 {c} 才有 p < 0.05',
+  'Distances are in µm for some samples and in pixels for others; they cannot be compared directly.':
+    '部分樣品的距離以 µm、部分以像素表示（未校正），這一欄不能直接比較。',
   'Thirds CV, left / right': '三等分 CV（左右）',
   'Thirds CV, top / bottom': '三等分 CV（上下）',
   'Vertical axis': '縱軸',
@@ -593,15 +601,15 @@ Object.assign(UI_ZH, {
   'px, uncalibrated': '像素，未校正',
   automatic: '自動閾值',
   manual: '手動閾值',
-  averaging: '平均半徑',
+  averaging: '遮罩平均半徑',
   'user-defined region': '使用者限定範圍',
   'whole image': '整張影像',
   'Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell\u2019s area fraction of the element.':
     '元素遮罩（彩色）疊於顯微影像上，主相以洋紅色表示；格內數字為該元素在各格的面積比例。',
   'Figures of the whole analysed region. CV is the population standard deviation divided by the mean.':
     '全區數值。CV 為母體標準差除以平均。',
-  'Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the {n} cells (spatial spread, not measurement uncertainty).':
-    '{n} × {n} 網格中每一欄（列）各格面積比例的平均；誤差線為該欄（列）{n} 格的 ±1 標準差，代表空間上的分散，不是量測誤差。',
+  'Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the cells of that column (row) holding analysed pixels, {cells} (spatial spread, not measurement uncertainty). The trend charts in the app show pixel-weighted shares, which can differ slightly.':
+    '{n} × {n} 網格中每一欄（列）各格面積比例的平均；誤差線為該欄（列）內含分析像素之各格的 ±1 標準差，{cells}，代表空間上的分散，不是量測誤差。程式內趨勢圖的粗線以像素加權，數值可能略有不同。',
   Methods: '方法',
   thresholds: '閾值',
   scale: '尺度',

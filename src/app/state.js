@@ -66,6 +66,8 @@ let segAdjustOpen = false,
   roiToolsOpen = false;
 // Cell of the analysis grid whose values the results panel shows; null for the whole region.
 let regionTile = null;
+// Whether the loaded maps are the synthetic example (replaced as a whole by the first real image).
+let demoLoaded = false;
 // Masks are drawn in the colour of their channel, the phase under study on top.
 const MASK_ORDER = ['nmc', 'f', 'c', 'secondary'];
 // Masks the user has unticked on the mask step, to read overlapping elements one at a time.

@@ -306,6 +306,7 @@ fs.mkdirSync('qa', { recursive: true });
   await p.locator('#cropCancel').click();
   await p.locator('#more').click();
   await p.locator('#settings').click();
+  p.once('dialog', d => d.accept());
   await p.locator('#clearData').click();
   await choose('sem', 'report-sem.png');
   assert.equal(await p.locator('#cropFit').count(), 0);

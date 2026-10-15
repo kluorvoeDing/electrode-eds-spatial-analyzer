@@ -58,6 +58,7 @@ fs.mkdirSync('qa', { recursive: true });
   );
   const restored = await page.evaluate(() => state.results);
   assert.equal(restored.interparticleOccupancy, metrics.r.interparticleOccupancy);
+  await page.locator('[data-step="data"]').click();
   await page.locator('#view').selectOption('cross');
   await page.locator('[data-step="analyze"]').click();
   await page.locator('#analyze').click();

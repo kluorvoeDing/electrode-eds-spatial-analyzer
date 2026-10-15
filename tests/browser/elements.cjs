@@ -257,12 +257,52 @@ fs.mkdirSync('qa', { recursive: true });
   assert.match(await p.locator('#analysisWarnings').textContent(), /Load the main-phase map/);
   assert.match(await p.locator('#results').textContent(), /Load the main-phase map/);
 
-  // Small cells: 8 × 8 on a 254 × 94 map (about 373 px each) is flagged, 5 × 5 (about 955) is not.
+  // Loaded from the menu on the analysis step, the example is analysed at once.
+  await p.locator('[data-step="analyze"]').click();
+  p.once('dialog', d => d.accept());
+  await p.locator('#more').click();
+  await p.locator('#demoMenu').click();
+  await p.waitForFunction(() => state.results && !busy);
+  // An empty or negative binder distance is refused and the field shows the value in use.
+  const radiusBefore = await p.evaluate(() => state.settings.binderRadius);
+  await p.locator('#radius').fill('');
+  await p.locator('#radius').dispatchEvent('change');
+  assert.equal(await p.locator('#radius').inputValue(), String(radiusBefore));
+  assert.equal(await p.evaluate(() => state.settings.binderRadius), radiusBefore);
+  // Escape closes the menu; resetting the workspace asks first, and declining keeps everything.
+  await p.locator('#more').click();
+  await p.keyboard.press('Escape');
+  assert.equal(await p.locator('#moreMenu').isVisible(), false);
+  await p.locator('#more').click();
+  await p.locator('#settings').click();
+  p.once('dialog', d => d.dismiss());
+  await p.locator('#clearData').click();
+  assert.ok(
+    await p.evaluate(() => Object.keys(state.channels).length === 5 && state.comparison.length > 0),
+  );
+  await p.locator('#closeDialog').click();
+  // The first real image after the example replaces all of it: no example map is left behind.
+  await p.locator('[data-step="data"]').click();
+  p.once('dialog', d => d.accept());
+  await p.locator('#more').click();
+  await p.locator('#demoMenu').click();
+  await p.waitForFunction(() => !busy && Object.keys(state.channels).length === 5);
+  await p.evaluate(async () => {
+    const csv = Array.from({ length: 20 }, () => Array(30).fill(1).join(',')).join('\n');
+    await loadFile(new File([csv], 'real-ni.csv'), 'nmc');
+  });
+  assert.deepEqual(await p.evaluate(() => Object.keys(state.channels)), ['nmc']);
+  // Small cells: 8 × 8 on a 254 × 94 map (median 384 px) is flagged, 5 × 5 (median 969) is not.
   assert.deepEqual(
     await p.evaluate(() =>
-      [373, 955].map(area => cellSize({ tiles: Array(25).fill({ area }) }).small),
+      [384, 969].map(area => cellSize({ tiles: Array(25).fill({ area }) }).small),
     ),
     [true, false],
+  );
+  // Typed values that cannot be held as numbers are reported, not plotted as 0 or infinity.
+  assert.deepEqual(
+    await p.evaluate(() => ['1e400', '1e-400', '0.0', '12.5'].map(v => parseMeasured(v))),
+    [{ value: null, invalid: true }, { value: null, invalid: true }, { value: 0 }, { value: 12.5 }],
   );
   assert.deepEqual(errors, []);
   await browser.close();

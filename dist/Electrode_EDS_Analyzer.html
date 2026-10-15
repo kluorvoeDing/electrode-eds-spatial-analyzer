@@ -508,9 +508,7 @@ details[open] > summary {
 .channel-head strong {
   font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 .channel-state {
   margin-left: auto;
@@ -1162,7 +1160,11 @@ table.depth :is(th, td) {
   text-align: right;
 }
 td input {
-  width: 100px;
+  width: 84px;
+}
+td input.invalid {
+  border-color: var(--error);
+  background: #fef2f2;
 }
 
 .compare-chart {
@@ -1446,7 +1448,10 @@ dialog.image-editor {
     display: none;
   }
   .toolbar select#channel {
-    max-width: 118px;
+    max-width: 104px;
+  }
+  #baseLabel {
+    display: none;
   }
 }
 @media (max-width: 1280px) {
@@ -1529,6 +1534,9 @@ dialog.image-editor {
 const Core = (() => {
   const sum = a => a.reduce((s, x) => s + x, 0);
   const fraction = (a, b) => (b ? a / b : null);
+  // Distances are pixel counts times μm per pixel; a value that is exactly on a limit in pixels
+  // can land a hair above it after the multiplication (3 × 0.1 = 0.30000000000000004).
+  const within = (value, limit) => value <= limit + 1e-9 * Math.max(1, Math.abs(limit));
   function cv(a) {
     const m = sum(a) / a.length;
     return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;
@@ -1958,7 +1966,7 @@ const Core = (() => {
           }
           if (secondaryEdge?.[i]) {
             edgePixels++;
-            if (binderDistance[i] * scale <= binderRadius) covered++;
+            if (within(binderDistance[i] * scale, binderRadius)) covered++;
           }
         }
       tile.secondaryPixels = count;
@@ -1977,7 +1985,10 @@ const Core = (() => {
     };
     const bins = [0, 0, 0, 0],
       edges = calibration ? [0.5, 1, 2] : [1, 2, 3];
-    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;
+    // A distance on a band edge counts in the band that starts there, as documented.
+    const below = (x, edge) => !within(edge, x);
+    for (const x of values)
+      bins[below(x, edges[0]) ? 0 : below(x, edges[1]) ? 1 : within(x, edges[2]) ? 2 : 3]++;
     const max = values[values.length - 1],
       hist = new Array(20).fill(0);
     for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;
@@ -1991,7 +2002,7 @@ const Core = (() => {
       for (let i = 0; i < sp.length; i++)
         if (sp[i]) {
           p++;
-          if (fd[i] * scale <= binderRadius) hit++;
+          if (within(fd[i] * scale, binderRadius)) hit++;
         }
       coverage = fraction(hit, p);
     } else if (f) coverage = 0;
@@ -2754,7 +2765,6 @@ Object.assign(UI_ZH, {
   'Try the synthetic example': '用合成範例試用',
   'The example is generated data for trying the steps; it is not a measurement.':
     '範例是程式產生的影像，用來熟悉操作，不是量測資料。',
-  'Replace the loaded images with the synthetic example?': '要以合成範例取代目前載入的影像嗎？',
   Elements: '元素疊圖',
   Overlay: '遮罩疊圖',
   Original: '原圖',
@@ -2832,6 +2842,15 @@ Object.assign(UI_ZH, {
   'Cells hold about {n} pixels each (fewer than {min}): cell-to-cell figures are unsteady. Use a coarser grid or the thirds CV.':
     '每格約 {n} 像素（少於 {min}）：格與格之間的數值不穩定。建議改用較粗的網格，或參考三等分 CV。',
   'cells are small': '格子偏小',
+  'Clear every image, setting, result and the comparison table? This cannot be undone.':
+    '要清除所有影像、設定、結果與比較表嗎？此動作無法復原。',
+  'Replace the loaded images with the synthetic example? The scale and the analysed-area limits are cleared too; the comparison table stays.':
+    '要以合成範例取代目前的影像嗎？尺度與分析範圍也會清除；比較表保留。',
+  'The scale bar length must be a number above 0.': '比例尺長度必須是大於 0 的數字',
+  'Correlation r': '相關係數 r',
+  '|r| must reach {c} for p < 0.05': '|r| 需達 {c} 才有 p < 0.05',
+  'Distances are in µm for some samples and in pixels for others; they cannot be compared directly.':
+    '部分樣品的距離以 µm、部分以像素表示（未校正），這一欄不能直接比較。',
   'Thirds CV, left / right': '三等分 CV（左右）',
   'Thirds CV, top / bottom': '三等分 CV（上下）',
   'Vertical axis': '縱軸',
@@ -2855,15 +2874,15 @@ Object.assign(UI_ZH, {
   'px, uncalibrated': '像素，未校正',
   automatic: '自動閾值',
   manual: '手動閾值',
-  averaging: '平均半徑',
+  averaging: '遮罩平均半徑',
   'user-defined region': '使用者限定範圍',
   'whole image': '整張影像',
   'Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell\u2019s area fraction of the element.':
     '元素遮罩（彩色）疊於顯微影像上，主相以洋紅色表示；格內數字為該元素在各格的面積比例。',
   'Figures of the whole analysed region. CV is the population standard deviation divided by the mean.':
     '全區數值。CV 為母體標準差除以平均。',
-  'Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the {n} cells (spatial spread, not measurement uncertainty).':
-    '{n} × {n} 網格中每一欄（列）各格面積比例的平均；誤差線為該欄（列）{n} 格的 ±1 標準差，代表空間上的分散，不是量測誤差。',
+  'Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the cells of that column (row) holding analysed pixels, {cells} (spatial spread, not measurement uncertainty). The trend charts in the app show pixel-weighted shares, which can differ slightly.':
+    '{n} × {n} 網格中每一欄（列）各格面積比例的平均；誤差線為該欄（列）內含分析像素之各格的 ±1 標準差，{cells}，代表空間上的分散，不是量測誤差。程式內趨勢圖的粗線以像素加權，數值可能略有不同。',
   Methods: '方法',
   thresholds: '閾值',
   scale: '尺度',
@@ -3545,6 +3564,8 @@ function renderImageImport() {
     $('#cropScaleUm').oninput = e => {
       const value = Number(e.target.value);
       p.scaleUm = value > 0 && Number.isFinite(value) ? value : null;
+      // A typed length that is not a positive number is pointed out, and holds back the import.
+      p.scaleInvalid = e.target.value.trim() !== '' && p.scaleUm === null;
       drawImageImport();
     };
     $('#cropScalePick').onclick = () => {
@@ -3647,13 +3668,15 @@ function drawImageImport(fast = false) {
   ctx.clearRect(0, 0, p.w, p.h);
   ctx.drawImage(p.canvas, 0, 0);
   const valid = cropRectValid(r, p.w, p.h);
-  $('#cropApply').disabled = !valid || !p.reviewed;
+  $('#cropApply').disabled = !valid || !p.reviewed || !!p.scaleInvalid;
   // Say why the button is waiting, next to it.
   $('#cropApplyHint').textContent = !valid
     ? t('The crop is outside the image.')
-    : p.reviewed
-      ? ''
-      : t('Tick the check above first.');
+    : p.scaleInvalid
+      ? t('The scale bar length must be a number above 0.')
+      : p.reviewed
+        ? ''
+        : t('Tick the check above first.');
   if ($('#cropScaleStatus')) {
     const status = scaleBarStatus(p);
     $('#cropScaleStatus').textContent = status.text;
@@ -4005,6 +4028,8 @@ let segAdjustOpen = false,
   roiToolsOpen = false;
 // Cell of the analysis grid whose values the results panel shows; null for the whole region.
 let regionTile = null;
+// Whether the loaded maps are the synthetic example (replaced as a whole by the first real image).
+let demoLoaded = false;
 // Masks are drawn in the colour of their channel, the phase under study on top.
 const MASK_ORDER = ['nmc', 'f', 'c', 'secondary'];
 // Masks the user has unticked on the mask step, to read overlapping elements one at a time.
@@ -4075,7 +4100,7 @@ let lastStatus = 'Ready',
 
 /* Worker bootstrap and the segment / analyze request cycle. */
 const worker = new Worker(
-  URL.createObjectURL(new Blob(["'use strict';\n/* Deterministic numerical core, shared by the browser Worker and Node tests. */\nconst Core = (() => {\n  const sum = a => a.reduce((s, x) => s + x, 0);\n  const fraction = (a, b) => (b ? a / b : null);\n  function cv(a) {\n    const m = sum(a) / a.length;\n    return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;\n  }\n  function parseCSV(text) {\n    const rows = text\n      .replace(/^\\uFEFF/, '')\n      .trim()\n      .split(/\\r?\\n/)\n      .map(x =>\n        x\n          .trim()\n          .split(',')\n          .map(v => {\n            if (!v.trim() || !Number.isFinite(Number(v))) throw Error('CSV 含空值或非數值。');\n            return Number(v);\n          }),\n      );\n    if (!rows.length || !rows[0].length || rows.some(r => r.length !== rows[0].length))\n      throw Error('CSV 各列欄數不一致。');\n    return { w: rows[0].length, h: rows.length, data: new Float64Array(rows.flat()) };\n  }\n  function range(a) {\n    let min = Infinity,\n      max = -Infinity;\n    for (const x of a) {\n      if (!Number.isFinite(x)) throw Error('Map 含非有限數值。');\n      min = Math.min(min, x);\n      max = Math.max(max, x);\n    }\n    return { min, max };\n  }\n  function otsu(a, roi) {\n    const { min, max } = range(a);\n    if (max === min) return min;\n    const hist = new Float64Array(256);\n    let n = 0;\n    for (let i = 0; i < a.length; i++)\n      if (!roi || roi[i]) {\n        hist[Math.min(255, Math.floor(((a[i] - min) / (max - min)) * 255))]++;\n        n++;\n      }\n    let total = 0;\n    for (let i = 0; i < 256; i++) total += i * hist[i];\n    let wb = 0,\n      sb = 0,\n      best = -1,\n      t = 0;\n    for (let i = 0; i < 255; i++) {\n      wb += hist[i];\n      sb += i * hist[i];\n      const wf = n - wb;\n      if (!wb || !wf) continue;\n      const score = wb * wf * (sb / wb - (total - sb) / wf) ** 2;\n      if (score > best) {\n        best = score;\n        t = i;\n      }\n    }\n    return min + ((t + 0.5) / 255) * (max - min);\n  }\n  function polygonContains(x, y, pts) {\n    let inside = false;\n    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {\n      const [xi, yi] = pts[i],\n        [xj, yj] = pts[j];\n      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;\n    }\n    return inside;\n  }\n  function roiMask(w, h, rois = [], invert = false) {\n    const inc = rois.filter(r => !r.exclude),\n      exc = rois.filter(r => r.exclude),\n      out = new Uint8Array(w * h);\n    const contains = (r, x, y) =>\n      r.type === 'rect'\n        ? x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h\n        : polygonContains(x, y, r.points);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let inside = !inc.length || inc.some(r => contains(r, x + 0.5, y + 0.5));\n        if (invert) inside = !inside;\n        out[y * w + x] = inside && !exc.some(r => contains(r, x + 0.5, y + 0.5)) ? 1 : 0;\n      }\n    return out;\n  }\n  function neighbors(i, w, h, fn) {\n    const x = i % w,\n      y = Math.floor(i / w);\n    if (x) fn(i - 1);\n    if (x < w - 1) fn(i + 1);\n    if (y) fn(i - w);\n    if (y < h - 1) fn(i + w);\n  }\n  function removeSmall(mask, w, h, min) {\n    if (min <= 1) return mask;\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    for (let i = 0; i < mask.length; i++)\n      if (mask[i] && !seen[i]) {\n        let head = 0,\n          tail = 1;\n        q[0] = i;\n        seen[i] = 1;\n        while (head < tail) {\n          neighbors(q[head++], w, h, j => {\n            if (mask[j] && !seen[j]) {\n              seen[j] = 1;\n              q[tail++] = j;\n            }\n          });\n        }\n        if (tail < min) for (let j = 0; j < tail; j++) mask[q[j]] = 0;\n      }\n    return mask;\n  }\n  function fillHoles(mask, w, h, roi) {\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    let head = 0,\n      tail = 0;\n    const add = i => {\n      if (!mask[i] && !seen[i]) {\n        seen[i] = 1;\n        q[tail++] = i;\n      }\n    };\n    for (let i = 0; i < mask.length; i++)\n      if (!roi[i] || i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) add(i);\n    while (head < tail) neighbors(q[head++], w, h, add);\n    for (let i = 0; i < mask.length; i++) if (roi[i] && !seen[i]) mask[i] = 1;\n    return mask;\n  }\n  function smooth(mask, w, h, roi) {\n    const out = new Uint8Array(mask.length);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let count = 0,\n          n = 0;\n        for (let dy = -1; dy <= 1; dy++)\n          for (let dx = -1; dx <= 1; dx++) {\n            const xx = x + dx,\n              yy = y + dy;\n            if (xx >= 0 && xx < w && yy >= 0 && yy < h && roi[yy * w + xx]) {\n              n++;\n              count += mask[yy * w + xx];\n            }\n          }\n        out[y * w + x] = roi[y * w + x] && count > n / 2 ? 1 : 0;\n      }\n    return out;\n  }\n  /* Local average of a count map: two passes of a (2r + 1)-wide box filter along each axis, which\n     together weight neighbours like a triangle. Sparse X-ray counts become a density that a\n     single threshold can separate; without it a threshold only picks out the lit pixels.\n     Windows are clipped at the image border, so the edge is the mean of what exists. */\n  function denoise(a, w, h, radius) {\n    const r = Math.floor(radius);\n    if (!(r > 0)) return a;\n    const box = (src, length, stride, lines, lineStride) => {\n      const out = new Float64Array(src.length);\n      for (let line = 0; line < lines; line++) {\n        const base = line * lineStride;\n        let total = 0,\n          count = 0;\n        for (let i = 0; i < Math.min(r, length); i++) {\n          total += src[base + i * stride];\n          count++;\n        }\n        for (let i = 0; i < length; i++) {\n          if (i + r < length) {\n            total += src[base + (i + r) * stride];\n            count++;\n          }\n          if (i - r - 1 >= 0) {\n            total -= src[base + (i - r - 1) * stride];\n            count--;\n          }\n          out[base + i * stride] = total / count;\n        }\n      }\n      return out;\n    };\n    let out = a;\n    for (let pass = 0; pass < 2; pass++) {\n      out = box(out, w, 1, h, w);\n      out = box(out, h, w, w, 1);\n    }\n    return out;\n  }\n  function segment(a, w, h, roi, p) {\n    const threshold = p.auto ? otsu(a, roi) : p.threshold;\n    let m = new Uint8Array(a.length);\n    for (let i = 0; i < a.length; i++) m[i] = roi[i] && a[i] > threshold !== !!p.invert ? 1 : 0;\n    if (p.smooth) m = smooth(m, w, h, roi);\n    if (p.fill) m = fillHoles(m, w, h, roi);\n    m = removeSmall(m, w, h, p.min || 0);\n    return { mask: m, threshold };\n  }\n  function perimeter(m, w, h) {\n    const p = new Uint8Array(m.length);\n    for (let i = 0; i < m.length; i++)\n      if (m[i]) {\n        if (i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) p[i] = 1;\n        else\n          neighbors(i, w, h, j => {\n            if (!m[j]) p[i] = 1;\n          });\n      }\n    return p;\n  }\n  /* Felzenszwalb/Huttenlocher separable lower envelope; pixel-centre Euclidean distances. */\n  function edt(seed, w, h) {\n    const n = Math.max(w, h),\n      f = new Float64Array(n),\n      d = new Float64Array(n),\n      v = new Int32Array(n),\n      z = new Float64Array(n + 1),\n      tmp = new Float64Array(w * h),\n      out = new Float64Array(w * h),\n      INF = 1e20;\n    if (!seed.some(x => x)) {\n      out.fill(Infinity);\n      return out;\n    }\n    function line(len) {\n      let k = 0;\n      v[0] = 0;\n      z[0] = -Infinity;\n      z[1] = Infinity;\n      for (let q = 1; q < len; q++) {\n        let s;\n        do {\n          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\n          if (s <= z[k]) k--;\n          else break;\n        } while (k >= 0);\n        if (k < 0) {\n          k = 0;\n          v[0] = q;\n          z[0] = -Infinity;\n          z[1] = Infinity;\n        } else {\n          k++;\n          v[k] = q;\n          z[k] = s;\n          z[k + 1] = Infinity;\n        }\n      }\n      k = 0;\n      for (let q = 0; q < len; q++) {\n        while (z[k + 1] < q) k++;\n        d[q] = (q - v[k]) ** 2 + f[v[k]];\n      }\n    }\n    for (let x = 0; x < w; x++) {\n      for (let y = 0; y < h; y++) f[y] = seed[y * w + x] ? 0 : INF;\n      line(h);\n      for (let y = 0; y < h; y++) tmp[y * w + x] = d[y];\n    }\n    for (let y = 0; y < h; y++) {\n      for (let x = 0; x < w; x++) f[x] = tmp[y * w + x];\n      line(w);\n      for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(d[x]);\n    }\n    return out;\n  }\n  function pearson(a, b, roi) {\n    let n = 0,\n      ma = 0,\n      mb = 0,\n      va = 0,\n      vb = 0,\n      c = 0;\n    for (let i = 0; i < a.length; i++)\n      if (roi[i]) {\n        n++;\n        const da = a[i] - ma,\n          db = b[i] - mb;\n        ma += da / n;\n        mb += db / n;\n        va += da * (a[i] - ma);\n        vb += db * (b[i] - mb);\n        c += da * (b[i] - mb);\n      }\n    return va > 0 && vb > 0 ? Math.max(-1, Math.min(1, c / Math.sqrt(va * vb))) : null;\n  }\n  function analyze({\n    w,\n    h,\n    roi,\n    nmc,\n    secondary,\n    f,\n    c,\n    secondaryIntensity,\n    fIntensity,\n    grid = 5,\n    calibration = null,\n    binderRadius = 3,\n    view = 'top',\n    depthAxis = 'y',\n    depthReverse = false,\n  }) {\n    // The secondary phase is optional: a reference electrode without additive still has binder\n    // and carbon to measure. Its measures are then null.\n    const nr = sum(roi),\n      nn = sum(nmc),\n      ns = secondary ? sum(secondary) : 0;\n    if (!nr) throw Error('ROI 為空。');\n    if (!nn) throw Error('NMC mask 為空，請調整 threshold。');\n    if (secondary && !ns) throw Error('Secondary mask 為空，請調整 threshold。');\n    if (!secondary && !f && !c) throw Error('請至少載入次要相、F 或 C 其中一張。');\n    let ng = 0,\n      sg = 0,\n      overlap = 0,\n      nf = f ? sum(f) : 0;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        if (!nmc[i]) {\n          ng++;\n          if (secondary) sg += secondary[i];\n        }\n        if (f && secondary && f[i] && secondary[i]) overlap++;\n      }\n    let xmin = w,\n      xmax = -1,\n      ymin = h,\n      ymax = -1;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        xmin = Math.min(xmin, i % w);\n        xmax = Math.max(xmax, i % w);\n        ymin = Math.min(ymin, Math.floor(i / w));\n        ymax = Math.max(ymax, Math.floor(i / w));\n      }\n    const rw = xmax - xmin + 1,\n      rh = ymax - ymin + 1;\n    // Tile edges, shared by the counts below and by the grid drawn over the image.\n    const edge = (origin, size, g) => origin + Math.floor((g * size) / grid),\n      tiles = [];\n    for (let gy = 0; gy < grid; gy++)\n      for (let gx = 0; gx < grid; gx++) {\n        const x0 = edge(xmin, rw, gx),\n          x1 = edge(xmin, rw, gx + 1),\n          y0 = edge(ymin, rh, gy),\n          y1 = edge(ymin, rh, gy + 1);\n        let a = 0,\n          b = 0,\n          bf = 0,\n          bc = 0;\n        for (let y = y0; y < y1; y++)\n          for (let x = x0; x < x1; x++) {\n            const i = y * w + x;\n            a += roi[i];\n            if (secondary) b += secondary[i];\n            if (f && roi[i]) bf += f[i];\n            if (c && roi[i]) bc += c[i];\n          }\n        tiles.push({\n          x: gx,\n          y: gy,\n          area: a,\n          fraction: secondary && a ? b / a : null,\n          x0,\n          y0,\n          x1,\n          y1,\n          fPixels: f ? bf : null,\n          fFraction: f && a ? bf / a : null,\n          cPixels: c ? bc : null,\n          cFraction: c && a ? bc / a : null,\n        });\n      }\n    const dist = secondary ? edt(perimeter(nmc, w, h), w, h) : null,\n      values = new Float64Array(ns),\n      scale = calibration || 1;\n    let k = 0,\n      total = 0;\n    if (secondary)\n      for (let i = 0; i < dist.length; i++)\n        if (secondary[i]) {\n          values[k++] = dist[i] * scale;\n          total += dist[i] * scale;\n        }\n    // The same measures inside each tile. Distances come from the whole-image fields above, so a\n    // tile is not treated as if nothing existed beyond its edge.\n    const medianOf = list => {\n      if (!list.length) return null;\n      const sorted = Float64Array.from(list).sort(),\n        p = 0.5 * (sorted.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return sorted[lo] + (sorted[hi] - sorted[lo]) * (p - lo);\n    };\n    const secondaryEdge = secondary && f && nf ? perimeter(secondary, w, h) : null,\n      binderDistance = secondary && f && nf ? edt(f, w, h) : null;\n    for (const tile of tiles) {\n      if (!secondary) {\n        tile.secondaryPixels = null;\n        tile.interparticleOccupancy = null;\n        tile.targetingEfficiency = null;\n        tile.distanceMedian = null;\n        tile.distanceMean = null;\n        tile.binderCoverage = null;\n        continue;\n      }\n      const distances = [];\n      let gap = 0,\n        inGap = 0,\n        count = 0,\n        sumDistance = 0,\n        edgePixels = 0,\n        covered = 0;\n      for (let y = tile.y0; y < tile.y1; y++)\n        for (let x = tile.x0; x < tile.x1; x++) {\n          const i = y * w + x;\n          if (!roi[i]) continue;\n          if (!nmc[i]) {\n            gap++;\n            inGap += secondary[i];\n          }\n          if (secondary[i]) {\n            count++;\n            distances.push(dist[i] * scale);\n            sumDistance += dist[i] * scale;\n          }\n          if (secondaryEdge?.[i]) {\n            edgePixels++;\n            if (binderDistance[i] * scale <= binderRadius) covered++;\n          }\n        }\n      tile.secondaryPixels = count;\n      tile.interparticleOccupancy = fraction(inGap, gap);\n      tile.targetingEfficiency = fraction(inGap, count);\n      tile.distanceMedian = medianOf(distances);\n      tile.distanceMean = count ? sumDistance / count : null;\n      tile.binderCoverage = !f ? null : nf ? fraction(covered, edgePixels) : count ? 0 : null;\n    }\n    values.sort();\n    const quantile = q => {\n      const p = q * (values.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return values[lo] + (values[hi] - values[lo]) * (p - lo);\n    };\n    const bins = [0, 0, 0, 0],\n      edges = calibration ? [0.5, 1, 2] : [1, 2, 3];\n    for (const x of values) bins[x < edges[0] ? 0 : x < edges[1] ? 1 : x <= edges[2] ? 2 : 3]++;\n    const max = values[values.length - 1],\n      hist = new Array(20).fill(0);\n    for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;\n    let coverage = null;\n    if (!secondary) coverage = null;\n    else if (f && nf) {\n      const sp = secondaryEdge,\n        fd = binderDistance;\n      let p = 0,\n        hit = 0;\n      for (let i = 0; i < sp.length; i++)\n        if (sp[i]) {\n          p++;\n          if (fd[i] * scale <= binderRadius) hit++;\n        }\n      coverage = fraction(hit, p);\n    } else if (f) coverage = 0;\n    let depth = null;\n    if (view === 'cross') {\n      let min = Infinity,\n        max = -Infinity;\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coordinate = depthAxis === 'x' ? i % w : Math.floor(i / w);\n          min = Math.min(min, coordinate);\n          max = Math.max(max, coordinate);\n        }\n      const zones = Array.from({ length: 3 }, (_, j) => ({\n        zone: ['Top', 'Middle', 'Bottom'][j],\n        area: 0,\n        secondary: 0,\n        f: 0,\n        c: 0,\n        overlap: 0,\n      }));\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coord = depthAxis === 'x' ? i % w : Math.floor(i / w),\n            norm = (coord - min + 0.5) / (max - min + 1);\n          let z = Math.min(2, Math.floor(norm * 3));\n          if (depthReverse) z = 2 - z;\n          const a = zones[z];\n          a.area++;\n          a.secondary += secondary ? secondary[i] : 0;\n          a.f += f ? f[i] : 0;\n          a.c += c ? c[i] : 0;\n          a.overlap += f && secondary && f[i] && secondary[i] ? 1 : 0;\n        }\n      for (const a of zones) {\n        a.secondaryFraction = secondary ? fraction(a.secondary, a.area) : null;\n        a.fFraction = f ? fraction(a.f, a.area) : null;\n        a.cFraction = c ? fraction(a.c, a.area) : null;\n        a.overlapFraction = f && secondary ? fraction(a.overlap, a.area) : null;\n      }\n      const used = zones.filter(z => z.area);\n      depth = {\n        zones,\n        cv: secondary ? cv(used.map(z => z.secondaryFraction)) : null,\n        fCV: f ? cv(used.map(z => z.fFraction)) : null,\n        cCV: c ? cv(used.map(z => z.cFraction)) : null,\n      };\n    }\n    // Per element: its share of the area, how evenly it spreads over the grid, and the share in\n    // each grid column and row (pixels over area, so a column is weighted by what it holds).\n    // Image thirds along each axis, banded exactly like the depth zones: pixel centres over the\n    // extent of the analysed area. Left / middle / right and top / middle / bottom of the image.\n    const third = (coordinate, origin, size) =>\n        Math.min(2, Math.floor(((coordinate - origin + 0.5) / size) * 3)),\n      thirdsArea = { columns: [0, 0, 0], rows: [0, 0, 0] };\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        thirdsArea.columns[third(i % w, xmin, rw)]++;\n        thirdsArea.rows[third(Math.floor(i / w), ymin, rh)]++;\n      }\n    const elementStats = (mask, key) => {\n      if (!mask) return null;\n      let pixels = 0,\n        between = 0;\n      const inThird = { columns: [0, 0, 0], rows: [0, 0, 0] };\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i] && mask[i]) {\n          pixels++;\n          if (!nmc[i]) between++;\n          inThird.columns[third(i % w, xmin, rw)]++;\n          inThird.rows[third(Math.floor(i / w), ymin, rh)]++;\n        }\n      const thirds = axis => inThird[axis].map((n, z) => fraction(n, thirdsArea[axis][z]));\n      const count = tile =>\n          key === 'secondary' ? tile.secondaryPixels : key === 'f' ? tile.fPixels : tile.cPixels,\n        local = tile => (tile.area ? count(tile) / tile.area : null),\n        profile = axis =>\n          Array.from({ length: grid }, (_, g) => {\n            let n = 0,\n              area = 0;\n            for (const tile of tiles)\n              if (tile[axis] === g) {\n                n += count(tile);\n                area += tile.area;\n              }\n            return area ? n / area : null;\n          }),\n        columns = profile('x'),\n        rows = profile('y'),\n        present = list => list.filter(v => v != null);\n      return {\n        pixels,\n        areaFraction: pixels / nr,\n        uniformityCV: cv(present(tiles.map(local))),\n        columns,\n        rows,\n        columnCV: cv(present(columns)),\n        rowCV: cv(present(rows)),\n        betweenParticles: fraction(between, pixels),\n        thirds: {\n          columns: thirds('columns'),\n          rows: thirds('rows'),\n          columnCV: cv(present(thirds('columns'))),\n          rowCV: cv(present(thirds('rows'))),\n        },\n      };\n    };\n    return {\n      roiPixels: nr,\n      nmcPixels: nn,\n      secondaryPixels: secondary ? ns : null,\n      fPixels: f ? nf : null,\n      cPixels: c ? sum(c) : null,\n      secondaryAreaFraction: secondary ? ns / nr : null,\n      uniformityCV: secondary ? cv(tiles.filter(t => t.area).map(t => t.fraction)) : null,\n      interparticleOccupancy: secondary ? fraction(sg, ng) : null,\n      targetingEfficiency: secondary ? sg / ns : null,\n      elements: {\n        secondary: elementStats(secondary, 'secondary'),\n        f: elementStats(f, 'f'),\n        c: elementStats(c, 'c'),\n      },\n      distance: !secondary\n        ? null\n        : {\n            unit: calibration ? 'μm' : 'px',\n            mean: total / ns,\n            median: quantile(0.5),\n            p90: quantile(0.9),\n            max,\n            bins,\n            edges,\n            histogram: hist,\n          },\n      pearson: f && secondary ? pearson(secondaryIntensity, fIntensity, roi) : null,\n      fWithSecondary: f && secondary ? fraction(overlap, nf) : null,\n      secondaryWithF: f && secondary ? overlap / ns : null,\n      binderCoverage: coverage,\n      depth,\n      tiles,\n      warnings: [\n        nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,\n        ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,\n        f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,\n        c && sum(c) / nr > 0.95 ? 'C mask 超過 ROI 95%。' : null,\n        secondary && ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,\n      ].filter(Boolean),\n    };\n  }\n  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f', 'c'],\n    MAX_PIXELS = 16e6,\n    GRID_OPTIONS = [3, 5, 8],\n    BINDER_DEFAULT = { px: 3, um: 0.5 },\n    // Averaging radius (pixels) applied to a map before its threshold; 0 turns it off.\n    DENOISE_DEFAULT = 2,\n    DENOISE_MAX = 5;\n  /* Binder neighbourhood after the calibration changes from `from` to `to` (μm per pixel, or\n     null for pixels). The default follows the unit; a radius the user chose keeps its physical\n     size, so it is converted when the unit changes and left alone otherwise. */\n  function rescaleBinderRadius(radius, custom, from, to) {\n    if (!custom) return to ? BINDER_DEFAULT.um : BINDER_DEFAULT.px;\n    if (!from && to) return Number((radius * to).toPrecision(6));\n    if (from && !to) return Number((radius / from).toPrecision(6));\n    return radius;\n  }\n  /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI\n     mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */\n  function createPipeline() {\n    let channelCache = {},\n      roiKey = '',\n      roiCache = null,\n      segCache = {};\n    return function run(p) {\n      const { w, h, settings } = p;\n      if (p.channels) {\n        channelCache = p.channels;\n        segCache = {};\n      }\n      const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);\n      if (nextROIKey !== roiKey) {\n        roiCache = roiMask(w, h, p.rois, p.roiInvert);\n        roiKey = nextROIKey;\n        segCache = {};\n      }\n      const masks = {},\n        intensities = {},\n        thresholds = {},\n        ranges = {};\n      for (const key of ANALYSIS_KEYS)\n        if (channelCache[key]) {\n          const param = p.seg[key],\n            radius = param.denoise || 0,\n            signature = JSON.stringify([\n              radius,\n              param.auto,\n              param.auto ? null : param.threshold,\n              param.invert,\n              param.min,\n              param.fill,\n              param.smooth,\n              key === 'secondary' ? settings.ratio : false,\n              key === 'secondary' ? settings.epsilon : null,\n            ]);\n          if (segCache[key]?.signature !== signature) {\n            // Both maps of a ratio are averaged first; a ratio of raw counts is mostly noise.\n            let data = denoise(channelCache[key].data, w, h, radius);\n            if (key === 'secondary' && settings.ratio) {\n              const main = denoise(channelCache.nmc.data, w, h, radius);\n              data = Float64Array.from(data, (x, i) => x / (main[i] + settings.epsilon));\n            }\n            segCache[key] = {\n              signature,\n              range: range(data),\n              ...segment(data, w, h, roiCache, param),\n            };\n          }\n          masks[key] = segCache[key].mask;\n          intensities[key] = channelCache[key].data;\n          thresholds[key] = segCache[key].threshold;\n          ranges[key] = segCache[key].range;\n        }\n      const results = p.analyze\n        ? analyze({\n            w,\n            h,\n            roi: roiCache,\n            nmc: masks.nmc,\n            secondary: masks.secondary,\n            f: masks.f,\n            c: masks.c,\n            secondaryIntensity: intensities.secondary,\n            fIntensity: intensities.f,\n            ...settings,\n          })\n        : null;\n      return { roi: roiCache, masks, thresholds, ranges, results };\n    };\n  }\n  function process(p) {\n    return createPipeline()(p);\n  }\n  return {\n    sum,\n    fraction,\n    cv,\n    parseCSV,\n    range,\n    otsu,\n    roiMask,\n    denoise,\n    segment,\n    perimeter,\n    edt,\n    pearson,\n    analyze,\n    process,\n    createPipeline,\n    ANALYSIS_KEYS,\n    MAX_PIXELS,\n    GRID_OPTIONS,\n    BINDER_DEFAULT,\n    DENOISE_DEFAULT,\n    DENOISE_MAX,\n    rescaleBinderRadius,\n  };\n})();\nif (typeof module !== 'undefined') module.exports = Core;\n\n/* Message plumbing only; the cached pipeline lives in Core so it can be unit tested. */\nconst run = Core.createPipeline();\nonmessage = event => {\n  try {\n    const { roi, masks, thresholds, ranges, results } = run(event.data.payload);\n    // Copies are transferred so the cached arrays stay usable for the next request.\n    const result = {\n      roi: new Uint8Array(roi),\n      masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),\n      thresholds,\n      ranges,\n      results,\n    };\n    postMessage({ id: event.data.id, result }, [\n      result.roi.buffer,\n      ...Object.values(result.masks).map(x => x.buffer),\n    ]);\n  } catch (e) {\n    postMessage({ id: event.data.id, error: e.message });\n  }\n};\n"], { type: 'text/javascript' })),
+  URL.createObjectURL(new Blob(["'use strict';\n/* Deterministic numerical core, shared by the browser Worker and Node tests. */\nconst Core = (() => {\n  const sum = a => a.reduce((s, x) => s + x, 0);\n  const fraction = (a, b) => (b ? a / b : null);\n  // Distances are pixel counts times μm per pixel; a value that is exactly on a limit in pixels\n  // can land a hair above it after the multiplication (3 × 0.1 = 0.30000000000000004).\n  const within = (value, limit) => value <= limit + 1e-9 * Math.max(1, Math.abs(limit));\n  function cv(a) {\n    const m = sum(a) / a.length;\n    return m > 0 ? Math.sqrt(sum(a.map(x => (x - m) ** 2)) / a.length) / m : null;\n  }\n  function parseCSV(text) {\n    const rows = text\n      .replace(/^\\uFEFF/, '')\n      .trim()\n      .split(/\\r?\\n/)\n      .map(x =>\n        x\n          .trim()\n          .split(',')\n          .map(v => {\n            if (!v.trim() || !Number.isFinite(Number(v))) throw Error('CSV 含空值或非數值。');\n            return Number(v);\n          }),\n      );\n    if (!rows.length || !rows[0].length || rows.some(r => r.length !== rows[0].length))\n      throw Error('CSV 各列欄數不一致。');\n    return { w: rows[0].length, h: rows.length, data: new Float64Array(rows.flat()) };\n  }\n  function range(a) {\n    let min = Infinity,\n      max = -Infinity;\n    for (const x of a) {\n      if (!Number.isFinite(x)) throw Error('Map 含非有限數值。');\n      min = Math.min(min, x);\n      max = Math.max(max, x);\n    }\n    return { min, max };\n  }\n  function otsu(a, roi) {\n    const { min, max } = range(a);\n    if (max === min) return min;\n    const hist = new Float64Array(256);\n    let n = 0;\n    for (let i = 0; i < a.length; i++)\n      if (!roi || roi[i]) {\n        hist[Math.min(255, Math.floor(((a[i] - min) / (max - min)) * 255))]++;\n        n++;\n      }\n    let total = 0;\n    for (let i = 0; i < 256; i++) total += i * hist[i];\n    let wb = 0,\n      sb = 0,\n      best = -1,\n      t = 0;\n    for (let i = 0; i < 255; i++) {\n      wb += hist[i];\n      sb += i * hist[i];\n      const wf = n - wb;\n      if (!wb || !wf) continue;\n      const score = wb * wf * (sb / wb - (total - sb) / wf) ** 2;\n      if (score > best) {\n        best = score;\n        t = i;\n      }\n    }\n    return min + ((t + 0.5) / 255) * (max - min);\n  }\n  function polygonContains(x, y, pts) {\n    let inside = false;\n    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {\n      const [xi, yi] = pts[i],\n        [xj, yj] = pts[j];\n      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;\n    }\n    return inside;\n  }\n  function roiMask(w, h, rois = [], invert = false) {\n    const inc = rois.filter(r => !r.exclude),\n      exc = rois.filter(r => r.exclude),\n      out = new Uint8Array(w * h);\n    const contains = (r, x, y) =>\n      r.type === 'rect'\n        ? x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h\n        : polygonContains(x, y, r.points);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let inside = !inc.length || inc.some(r => contains(r, x + 0.5, y + 0.5));\n        if (invert) inside = !inside;\n        out[y * w + x] = inside && !exc.some(r => contains(r, x + 0.5, y + 0.5)) ? 1 : 0;\n      }\n    return out;\n  }\n  function neighbors(i, w, h, fn) {\n    const x = i % w,\n      y = Math.floor(i / w);\n    if (x) fn(i - 1);\n    if (x < w - 1) fn(i + 1);\n    if (y) fn(i - w);\n    if (y < h - 1) fn(i + w);\n  }\n  function removeSmall(mask, w, h, min) {\n    if (min <= 1) return mask;\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    for (let i = 0; i < mask.length; i++)\n      if (mask[i] && !seen[i]) {\n        let head = 0,\n          tail = 1;\n        q[0] = i;\n        seen[i] = 1;\n        while (head < tail) {\n          neighbors(q[head++], w, h, j => {\n            if (mask[j] && !seen[j]) {\n              seen[j] = 1;\n              q[tail++] = j;\n            }\n          });\n        }\n        if (tail < min) for (let j = 0; j < tail; j++) mask[q[j]] = 0;\n      }\n    return mask;\n  }\n  function fillHoles(mask, w, h, roi) {\n    const seen = new Uint8Array(mask.length),\n      q = new Int32Array(mask.length);\n    let head = 0,\n      tail = 0;\n    const add = i => {\n      if (!mask[i] && !seen[i]) {\n        seen[i] = 1;\n        q[tail++] = i;\n      }\n    };\n    for (let i = 0; i < mask.length; i++)\n      if (!roi[i] || i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) add(i);\n    while (head < tail) neighbors(q[head++], w, h, add);\n    for (let i = 0; i < mask.length; i++) if (roi[i] && !seen[i]) mask[i] = 1;\n    return mask;\n  }\n  function smooth(mask, w, h, roi) {\n    const out = new Uint8Array(mask.length);\n    for (let y = 0; y < h; y++)\n      for (let x = 0; x < w; x++) {\n        let count = 0,\n          n = 0;\n        for (let dy = -1; dy <= 1; dy++)\n          for (let dx = -1; dx <= 1; dx++) {\n            const xx = x + dx,\n              yy = y + dy;\n            if (xx >= 0 && xx < w && yy >= 0 && yy < h && roi[yy * w + xx]) {\n              n++;\n              count += mask[yy * w + xx];\n            }\n          }\n        out[y * w + x] = roi[y * w + x] && count > n / 2 ? 1 : 0;\n      }\n    return out;\n  }\n  /* Local average of a count map: two passes of a (2r + 1)-wide box filter along each axis, which\n     together weight neighbours like a triangle. Sparse X-ray counts become a density that a\n     single threshold can separate; without it a threshold only picks out the lit pixels.\n     Windows are clipped at the image border, so the edge is the mean of what exists. */\n  function denoise(a, w, h, radius) {\n    const r = Math.floor(radius);\n    if (!(r > 0)) return a;\n    const box = (src, length, stride, lines, lineStride) => {\n      const out = new Float64Array(src.length);\n      for (let line = 0; line < lines; line++) {\n        const base = line * lineStride;\n        let total = 0,\n          count = 0;\n        for (let i = 0; i < Math.min(r, length); i++) {\n          total += src[base + i * stride];\n          count++;\n        }\n        for (let i = 0; i < length; i++) {\n          if (i + r < length) {\n            total += src[base + (i + r) * stride];\n            count++;\n          }\n          if (i - r - 1 >= 0) {\n            total -= src[base + (i - r - 1) * stride];\n            count--;\n          }\n          out[base + i * stride] = total / count;\n        }\n      }\n      return out;\n    };\n    let out = a;\n    for (let pass = 0; pass < 2; pass++) {\n      out = box(out, w, 1, h, w);\n      out = box(out, h, w, w, 1);\n    }\n    return out;\n  }\n  function segment(a, w, h, roi, p) {\n    const threshold = p.auto ? otsu(a, roi) : p.threshold;\n    let m = new Uint8Array(a.length);\n    for (let i = 0; i < a.length; i++) m[i] = roi[i] && a[i] > threshold !== !!p.invert ? 1 : 0;\n    if (p.smooth) m = smooth(m, w, h, roi);\n    if (p.fill) m = fillHoles(m, w, h, roi);\n    m = removeSmall(m, w, h, p.min || 0);\n    return { mask: m, threshold };\n  }\n  function perimeter(m, w, h) {\n    const p = new Uint8Array(m.length);\n    for (let i = 0; i < m.length; i++)\n      if (m[i]) {\n        if (i < w || i >= w * (h - 1) || i % w === 0 || i % w === w - 1) p[i] = 1;\n        else\n          neighbors(i, w, h, j => {\n            if (!m[j]) p[i] = 1;\n          });\n      }\n    return p;\n  }\n  /* Felzenszwalb/Huttenlocher separable lower envelope; pixel-centre Euclidean distances. */\n  function edt(seed, w, h) {\n    const n = Math.max(w, h),\n      f = new Float64Array(n),\n      d = new Float64Array(n),\n      v = new Int32Array(n),\n      z = new Float64Array(n + 1),\n      tmp = new Float64Array(w * h),\n      out = new Float64Array(w * h),\n      INF = 1e20;\n    if (!seed.some(x => x)) {\n      out.fill(Infinity);\n      return out;\n    }\n    function line(len) {\n      let k = 0;\n      v[0] = 0;\n      z[0] = -Infinity;\n      z[1] = Infinity;\n      for (let q = 1; q < len; q++) {\n        let s;\n        do {\n          s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);\n          if (s <= z[k]) k--;\n          else break;\n        } while (k >= 0);\n        if (k < 0) {\n          k = 0;\n          v[0] = q;\n          z[0] = -Infinity;\n          z[1] = Infinity;\n        } else {\n          k++;\n          v[k] = q;\n          z[k] = s;\n          z[k + 1] = Infinity;\n        }\n      }\n      k = 0;\n      for (let q = 0; q < len; q++) {\n        while (z[k + 1] < q) k++;\n        d[q] = (q - v[k]) ** 2 + f[v[k]];\n      }\n    }\n    for (let x = 0; x < w; x++) {\n      for (let y = 0; y < h; y++) f[y] = seed[y * w + x] ? 0 : INF;\n      line(h);\n      for (let y = 0; y < h; y++) tmp[y * w + x] = d[y];\n    }\n    for (let y = 0; y < h; y++) {\n      for (let x = 0; x < w; x++) f[x] = tmp[y * w + x];\n      line(w);\n      for (let x = 0; x < w; x++) out[y * w + x] = Math.sqrt(d[x]);\n    }\n    return out;\n  }\n  function pearson(a, b, roi) {\n    let n = 0,\n      ma = 0,\n      mb = 0,\n      va = 0,\n      vb = 0,\n      c = 0;\n    for (let i = 0; i < a.length; i++)\n      if (roi[i]) {\n        n++;\n        const da = a[i] - ma,\n          db = b[i] - mb;\n        ma += da / n;\n        mb += db / n;\n        va += da * (a[i] - ma);\n        vb += db * (b[i] - mb);\n        c += da * (b[i] - mb);\n      }\n    return va > 0 && vb > 0 ? Math.max(-1, Math.min(1, c / Math.sqrt(va * vb))) : null;\n  }\n  function analyze({\n    w,\n    h,\n    roi,\n    nmc,\n    secondary,\n    f,\n    c,\n    secondaryIntensity,\n    fIntensity,\n    grid = 5,\n    calibration = null,\n    binderRadius = 3,\n    view = 'top',\n    depthAxis = 'y',\n    depthReverse = false,\n  }) {\n    // The secondary phase is optional: a reference electrode without additive still has binder\n    // and carbon to measure. Its measures are then null.\n    const nr = sum(roi),\n      nn = sum(nmc),\n      ns = secondary ? sum(secondary) : 0;\n    if (!nr) throw Error('ROI 為空。');\n    if (!nn) throw Error('NMC mask 為空，請調整 threshold。');\n    if (secondary && !ns) throw Error('Secondary mask 為空，請調整 threshold。');\n    if (!secondary && !f && !c) throw Error('請至少載入次要相、F 或 C 其中一張。');\n    let ng = 0,\n      sg = 0,\n      overlap = 0,\n      nf = f ? sum(f) : 0;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        if (!nmc[i]) {\n          ng++;\n          if (secondary) sg += secondary[i];\n        }\n        if (f && secondary && f[i] && secondary[i]) overlap++;\n      }\n    let xmin = w,\n      xmax = -1,\n      ymin = h,\n      ymax = -1;\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        xmin = Math.min(xmin, i % w);\n        xmax = Math.max(xmax, i % w);\n        ymin = Math.min(ymin, Math.floor(i / w));\n        ymax = Math.max(ymax, Math.floor(i / w));\n      }\n    const rw = xmax - xmin + 1,\n      rh = ymax - ymin + 1;\n    // Tile edges, shared by the counts below and by the grid drawn over the image.\n    const edge = (origin, size, g) => origin + Math.floor((g * size) / grid),\n      tiles = [];\n    for (let gy = 0; gy < grid; gy++)\n      for (let gx = 0; gx < grid; gx++) {\n        const x0 = edge(xmin, rw, gx),\n          x1 = edge(xmin, rw, gx + 1),\n          y0 = edge(ymin, rh, gy),\n          y1 = edge(ymin, rh, gy + 1);\n        let a = 0,\n          b = 0,\n          bf = 0,\n          bc = 0;\n        for (let y = y0; y < y1; y++)\n          for (let x = x0; x < x1; x++) {\n            const i = y * w + x;\n            a += roi[i];\n            if (secondary) b += secondary[i];\n            if (f && roi[i]) bf += f[i];\n            if (c && roi[i]) bc += c[i];\n          }\n        tiles.push({\n          x: gx,\n          y: gy,\n          area: a,\n          fraction: secondary && a ? b / a : null,\n          x0,\n          y0,\n          x1,\n          y1,\n          fPixels: f ? bf : null,\n          fFraction: f && a ? bf / a : null,\n          cPixels: c ? bc : null,\n          cFraction: c && a ? bc / a : null,\n        });\n      }\n    const dist = secondary ? edt(perimeter(nmc, w, h), w, h) : null,\n      values = new Float64Array(ns),\n      scale = calibration || 1;\n    let k = 0,\n      total = 0;\n    if (secondary)\n      for (let i = 0; i < dist.length; i++)\n        if (secondary[i]) {\n          values[k++] = dist[i] * scale;\n          total += dist[i] * scale;\n        }\n    // The same measures inside each tile. Distances come from the whole-image fields above, so a\n    // tile is not treated as if nothing existed beyond its edge.\n    const medianOf = list => {\n      if (!list.length) return null;\n      const sorted = Float64Array.from(list).sort(),\n        p = 0.5 * (sorted.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return sorted[lo] + (sorted[hi] - sorted[lo]) * (p - lo);\n    };\n    const secondaryEdge = secondary && f && nf ? perimeter(secondary, w, h) : null,\n      binderDistance = secondary && f && nf ? edt(f, w, h) : null;\n    for (const tile of tiles) {\n      if (!secondary) {\n        tile.secondaryPixels = null;\n        tile.interparticleOccupancy = null;\n        tile.targetingEfficiency = null;\n        tile.distanceMedian = null;\n        tile.distanceMean = null;\n        tile.binderCoverage = null;\n        continue;\n      }\n      const distances = [];\n      let gap = 0,\n        inGap = 0,\n        count = 0,\n        sumDistance = 0,\n        edgePixels = 0,\n        covered = 0;\n      for (let y = tile.y0; y < tile.y1; y++)\n        for (let x = tile.x0; x < tile.x1; x++) {\n          const i = y * w + x;\n          if (!roi[i]) continue;\n          if (!nmc[i]) {\n            gap++;\n            inGap += secondary[i];\n          }\n          if (secondary[i]) {\n            count++;\n            distances.push(dist[i] * scale);\n            sumDistance += dist[i] * scale;\n          }\n          if (secondaryEdge?.[i]) {\n            edgePixels++;\n            if (within(binderDistance[i] * scale, binderRadius)) covered++;\n          }\n        }\n      tile.secondaryPixels = count;\n      tile.interparticleOccupancy = fraction(inGap, gap);\n      tile.targetingEfficiency = fraction(inGap, count);\n      tile.distanceMedian = medianOf(distances);\n      tile.distanceMean = count ? sumDistance / count : null;\n      tile.binderCoverage = !f ? null : nf ? fraction(covered, edgePixels) : count ? 0 : null;\n    }\n    values.sort();\n    const quantile = q => {\n      const p = q * (values.length - 1),\n        lo = Math.floor(p),\n        hi = Math.ceil(p);\n      return values[lo] + (values[hi] - values[lo]) * (p - lo);\n    };\n    const bins = [0, 0, 0, 0],\n      edges = calibration ? [0.5, 1, 2] : [1, 2, 3];\n    // A distance on a band edge counts in the band that starts there, as documented.\n    const below = (x, edge) => !within(edge, x);\n    for (const x of values)\n      bins[below(x, edges[0]) ? 0 : below(x, edges[1]) ? 1 : within(x, edges[2]) ? 2 : 3]++;\n    const max = values[values.length - 1],\n      hist = new Array(20).fill(0);\n    for (const x of values) hist[max ? Math.min(19, Math.floor((x / max) * 20)) : 0]++;\n    let coverage = null;\n    if (!secondary) coverage = null;\n    else if (f && nf) {\n      const sp = secondaryEdge,\n        fd = binderDistance;\n      let p = 0,\n        hit = 0;\n      for (let i = 0; i < sp.length; i++)\n        if (sp[i]) {\n          p++;\n          if (within(fd[i] * scale, binderRadius)) hit++;\n        }\n      coverage = fraction(hit, p);\n    } else if (f) coverage = 0;\n    let depth = null;\n    if (view === 'cross') {\n      let min = Infinity,\n        max = -Infinity;\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coordinate = depthAxis === 'x' ? i % w : Math.floor(i / w);\n          min = Math.min(min, coordinate);\n          max = Math.max(max, coordinate);\n        }\n      const zones = Array.from({ length: 3 }, (_, j) => ({\n        zone: ['Top', 'Middle', 'Bottom'][j],\n        area: 0,\n        secondary: 0,\n        f: 0,\n        c: 0,\n        overlap: 0,\n      }));\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i]) {\n          const coord = depthAxis === 'x' ? i % w : Math.floor(i / w),\n            norm = (coord - min + 0.5) / (max - min + 1);\n          let z = Math.min(2, Math.floor(norm * 3));\n          if (depthReverse) z = 2 - z;\n          const a = zones[z];\n          a.area++;\n          a.secondary += secondary ? secondary[i] : 0;\n          a.f += f ? f[i] : 0;\n          a.c += c ? c[i] : 0;\n          a.overlap += f && secondary && f[i] && secondary[i] ? 1 : 0;\n        }\n      for (const a of zones) {\n        a.secondaryFraction = secondary ? fraction(a.secondary, a.area) : null;\n        a.fFraction = f ? fraction(a.f, a.area) : null;\n        a.cFraction = c ? fraction(a.c, a.area) : null;\n        a.overlapFraction = f && secondary ? fraction(a.overlap, a.area) : null;\n      }\n      const used = zones.filter(z => z.area);\n      depth = {\n        zones,\n        cv: secondary ? cv(used.map(z => z.secondaryFraction)) : null,\n        fCV: f ? cv(used.map(z => z.fFraction)) : null,\n        cCV: c ? cv(used.map(z => z.cFraction)) : null,\n      };\n    }\n    // Per element: its share of the area, how evenly it spreads over the grid, and the share in\n    // each grid column and row (pixels over area, so a column is weighted by what it holds).\n    // Image thirds along each axis, banded exactly like the depth zones: pixel centres over the\n    // extent of the analysed area. Left / middle / right and top / middle / bottom of the image.\n    const third = (coordinate, origin, size) =>\n        Math.min(2, Math.floor(((coordinate - origin + 0.5) / size) * 3)),\n      thirdsArea = { columns: [0, 0, 0], rows: [0, 0, 0] };\n    for (let i = 0; i < roi.length; i++)\n      if (roi[i]) {\n        thirdsArea.columns[third(i % w, xmin, rw)]++;\n        thirdsArea.rows[third(Math.floor(i / w), ymin, rh)]++;\n      }\n    const elementStats = (mask, key) => {\n      if (!mask) return null;\n      let pixels = 0,\n        between = 0;\n      const inThird = { columns: [0, 0, 0], rows: [0, 0, 0] };\n      for (let i = 0; i < roi.length; i++)\n        if (roi[i] && mask[i]) {\n          pixels++;\n          if (!nmc[i]) between++;\n          inThird.columns[third(i % w, xmin, rw)]++;\n          inThird.rows[third(Math.floor(i / w), ymin, rh)]++;\n        }\n      const thirds = axis => inThird[axis].map((n, z) => fraction(n, thirdsArea[axis][z]));\n      const count = tile =>\n          key === 'secondary' ? tile.secondaryPixels : key === 'f' ? tile.fPixels : tile.cPixels,\n        local = tile => (tile.area ? count(tile) / tile.area : null),\n        profile = axis =>\n          Array.from({ length: grid }, (_, g) => {\n            let n = 0,\n              area = 0;\n            for (const tile of tiles)\n              if (tile[axis] === g) {\n                n += count(tile);\n                area += tile.area;\n              }\n            return area ? n / area : null;\n          }),\n        columns = profile('x'),\n        rows = profile('y'),\n        present = list => list.filter(v => v != null);\n      return {\n        pixels,\n        areaFraction: pixels / nr,\n        uniformityCV: cv(present(tiles.map(local))),\n        columns,\n        rows,\n        columnCV: cv(present(columns)),\n        rowCV: cv(present(rows)),\n        betweenParticles: fraction(between, pixels),\n        thirds: {\n          columns: thirds('columns'),\n          rows: thirds('rows'),\n          columnCV: cv(present(thirds('columns'))),\n          rowCV: cv(present(thirds('rows'))),\n        },\n      };\n    };\n    return {\n      roiPixels: nr,\n      nmcPixels: nn,\n      secondaryPixels: secondary ? ns : null,\n      fPixels: f ? nf : null,\n      cPixels: c ? sum(c) : null,\n      secondaryAreaFraction: secondary ? ns / nr : null,\n      uniformityCV: secondary ? cv(tiles.filter(t => t.area).map(t => t.fraction)) : null,\n      interparticleOccupancy: secondary ? fraction(sg, ng) : null,\n      targetingEfficiency: secondary ? sg / ns : null,\n      elements: {\n        secondary: elementStats(secondary, 'secondary'),\n        f: elementStats(f, 'f'),\n        c: elementStats(c, 'c'),\n      },\n      distance: !secondary\n        ? null\n        : {\n            unit: calibration ? 'μm' : 'px',\n            mean: total / ns,\n            median: quantile(0.5),\n            p90: quantile(0.9),\n            max,\n            bins,\n            edges,\n            histogram: hist,\n          },\n      pearson: f && secondary ? pearson(secondaryIntensity, fIntensity, roi) : null,\n      fWithSecondary: f && secondary ? fraction(overlap, nf) : null,\n      secondaryWithF: f && secondary ? overlap / ns : null,\n      binderCoverage: coverage,\n      depth,\n      tiles,\n      warnings: [\n        nn / nr > 0.95 ? 'NMC mask 超過 ROI 95%。' : null,\n        ns / nr > 0.95 ? 'Secondary mask 超過 ROI 95%。' : null,\n        f && nf / nr > 0.95 ? 'F mask 超過 ROI 95%。' : null,\n        c && sum(c) / nr > 0.95 ? 'C mask 超過 ROI 95%。' : null,\n        secondary && ng === 0 ? '無 NMC 顆粒間區域，Occupancy 無法計算。' : null,\n      ].filter(Boolean),\n    };\n  }\n  const ANALYSIS_KEYS = ['nmc', 'secondary', 'f', 'c'],\n    MAX_PIXELS = 16e6,\n    GRID_OPTIONS = [3, 5, 8],\n    BINDER_DEFAULT = { px: 3, um: 0.5 },\n    // Averaging radius (pixels) applied to a map before its threshold; 0 turns it off.\n    DENOISE_DEFAULT = 2,\n    DENOISE_MAX = 5;\n  /* Binder neighbourhood after the calibration changes from `from` to `to` (μm per pixel, or\n     null for pixels). The default follows the unit; a radius the user chose keeps its physical\n     size, so it is converted when the unit changes and left alone otherwise. */\n  function rescaleBinderRadius(radius, custom, from, to) {\n    if (!custom) return to ? BINDER_DEFAULT.um : BINDER_DEFAULT.px;\n    if (!from && to) return Number((radius * to).toPrecision(6));\n    if (from && !to) return Number((radius / from).toPrecision(6));\n    return radius;\n  }\n  /* Segment-then-analyze pipeline shared by the Worker and the tests. Imported intensity, the ROI\n     mask and unchanged segmentations are kept between runs; returned arrays are the cached ones. */\n  function createPipeline() {\n    let channelCache = {},\n      roiKey = '',\n      roiCache = null,\n      segCache = {};\n    return function run(p) {\n      const { w, h, settings } = p;\n      if (p.channels) {\n        channelCache = p.channels;\n        segCache = {};\n      }\n      const nextROIKey = JSON.stringify([w, h, p.rois, p.roiInvert]);\n      if (nextROIKey !== roiKey) {\n        roiCache = roiMask(w, h, p.rois, p.roiInvert);\n        roiKey = nextROIKey;\n        segCache = {};\n      }\n      const masks = {},\n        intensities = {},\n        thresholds = {},\n        ranges = {};\n      for (const key of ANALYSIS_KEYS)\n        if (channelCache[key]) {\n          const param = p.seg[key],\n            radius = param.denoise || 0,\n            signature = JSON.stringify([\n              radius,\n              param.auto,\n              param.auto ? null : param.threshold,\n              param.invert,\n              param.min,\n              param.fill,\n              param.smooth,\n              key === 'secondary' ? settings.ratio : false,\n              key === 'secondary' ? settings.epsilon : null,\n            ]);\n          if (segCache[key]?.signature !== signature) {\n            // Both maps of a ratio are averaged first; a ratio of raw counts is mostly noise.\n            let data = denoise(channelCache[key].data, w, h, radius);\n            if (key === 'secondary' && settings.ratio) {\n              const main = denoise(channelCache.nmc.data, w, h, radius);\n              data = Float64Array.from(data, (x, i) => x / (main[i] + settings.epsilon));\n            }\n            segCache[key] = {\n              signature,\n              range: range(data),\n              ...segment(data, w, h, roiCache, param),\n            };\n          }\n          masks[key] = segCache[key].mask;\n          intensities[key] = channelCache[key].data;\n          thresholds[key] = segCache[key].threshold;\n          ranges[key] = segCache[key].range;\n        }\n      const results = p.analyze\n        ? analyze({\n            w,\n            h,\n            roi: roiCache,\n            nmc: masks.nmc,\n            secondary: masks.secondary,\n            f: masks.f,\n            c: masks.c,\n            secondaryIntensity: intensities.secondary,\n            fIntensity: intensities.f,\n            ...settings,\n          })\n        : null;\n      return { roi: roiCache, masks, thresholds, ranges, results };\n    };\n  }\n  function process(p) {\n    return createPipeline()(p);\n  }\n  return {\n    sum,\n    fraction,\n    cv,\n    parseCSV,\n    range,\n    otsu,\n    roiMask,\n    denoise,\n    segment,\n    perimeter,\n    edt,\n    pearson,\n    analyze,\n    process,\n    createPipeline,\n    ANALYSIS_KEYS,\n    MAX_PIXELS,\n    GRID_OPTIONS,\n    BINDER_DEFAULT,\n    DENOISE_DEFAULT,\n    DENOISE_MAX,\n    rescaleBinderRadius,\n  };\n})();\nif (typeof module !== 'undefined') module.exports = Core;\n\n/* Message plumbing only; the cached pipeline lives in Core so it can be unit tested. */\nconst run = Core.createPipeline();\nonmessage = event => {\n  try {\n    const { roi, masks, thresholds, ranges, results } = run(event.data.payload);\n    // Copies are transferred so the cached arrays stay usable for the next request.\n    const result = {\n      roi: new Uint8Array(roi),\n      masks: Object.fromEntries(Object.entries(masks).map(([k, m]) => [k, new Uint8Array(m)])),\n      thresholds,\n      ranges,\n      results,\n    };\n    postMessage({ id: event.data.id, result }, [\n      result.roi.buffer,\n      ...Object.values(result.masks).map(x => x.buffer),\n    ]);\n  } catch (e) {\n    postMessage({ id: event.data.id, error: e.message });\n  }\n};\n"], { type: 'text/javascript' })),
 );
 let waiter = new Map();
 worker.onmessage = ({ data }) => {
@@ -4176,10 +4201,11 @@ async function compute(analyze = false) {
     // The figures follow an element that was analysed; the first one when the last is gone.
     if (!state.results.elements?.[metric])
       metric = METRIC_KEYS.find(k => state.results.elements?.[k]) || 'secondary';
-    renderResults();
-    renderControls();
+    // Read before the panels are redrawn: a redraw can end an edit and clear the results.
     const elapsed = Math.round(state.results.elapsedMs),
       warnings = [...state.results.warnings];
+    renderResults();
+    renderControls();
     status(
       () =>
         `${t('Analysis complete')} · ${elapsed} ms${warnings.length ? ' · ' + warnings.map(messageText).join(' ') : ''}`,
@@ -4285,13 +4311,22 @@ function sizeError() {
   const a = Object.values(state.channels);
   return a.length && a.some(c => c.w !== a[0].w || c.h !== a[0].h);
 }
+// Where focus returns when a dialog closes: what opened it, or the menu button for menu items.
+let dialogOpener = null;
 function showDialog(title, body) {
+  const from = document.activeElement;
+  dialogOpener = from?.closest?.('#moreMenu') ? $('#more') : from;
   $('#dialog').classList.toggle('image-editor', title === 'Crop and review');
   $('#dialogtitle').textContent = t(title);
   $('#dialogbody').innerHTML = body;
   $('#dialog').showModal();
 }
 $('#dialog').addEventListener('close', () => {
+  // Only when focus has nowhere else to be; the close event arrives after other handlers.
+  const lost =
+    document.activeElement === document.body || $('#dialog').contains(document.activeElement);
+  if (lost && dialogOpener?.isConnected) dialogOpener.focus();
+  dialogOpener = null;
   awaitingPaste = false;
   imageImport = null;
   imageImportTicket++;
@@ -4357,7 +4392,14 @@ $('#dialogbody').addEventListener('input', e => {
 });
 $('#dialogbody').addEventListener('click', e => {
   if (e.target.id === 'clearData') {
+    if (
+      !confirm(
+        t('Clear every image, setting, result and the comparison table? This cannot be undone.'),
+      )
+    )
+      return;
     state = initialState();
+    demoLoaded = false;
     elementsShown = null;
     channelVersion++;
     revision++;
@@ -4398,7 +4440,11 @@ document.addEventListener('click', closeMenu);
 $('#demoMenu').onclick = () => {
   if (
     Object.keys(state.channels).length &&
-    !confirm(t('Replace the loaded images with the synthetic example?'))
+    !confirm(
+      t(
+        'Replace the loaded images with the synthetic example? The scale and the analysed-area limits are cleared too; the comparison table stays.',
+      ),
+    )
   )
     return;
   loadDemo();
@@ -4433,6 +4479,7 @@ document.addEventListener('click', () => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    closeMenu();
     pendingPolygon = [];
     drawMode = 'pan';
     $('#tooltip').classList.add('hidden');
@@ -4770,10 +4817,14 @@ function renderAnalyzeStep(c) {
     analyzeIfReady();
   };
   $('#radius').onchange = e => {
-    if (!Number.isFinite(+e.target.value) || +e.target.value < 0) {
+    const text = e.target.value.trim();
+    // An empty or negative distance is refused and the field shows the value still in use.
+    if (!text || !Number.isFinite(+text) || +text < 0) {
       status('距離必須 ≥ 0。', true);
+      e.target.value = state.settings.binderRadius;
       return;
     }
+    if (+text === state.settings.binderRadius) return;
     const unit = state.settings.calibration ? 'um' : 'px';
     state.settings.binderRadius = +e.target.value;
     state.settings.binderRadiusCustom = +e.target.value !== Core.BINDER_DEFAULT[unit];
@@ -4861,6 +4912,11 @@ function gridChannel() {
    changes. Adding a channel, or changing a display-only one while analysis channels are loaded,
    keeps them. Returns whether anything was cleared. */
 function replaceChannel(key, ch) {
+  // The first real image replaces the whole example, so none of its maps are left behind.
+  if (demoLoaded) {
+    state.channels = {};
+    demoLoaded = false;
+  }
   const grid = gridChannel(),
     isAnalysis = ANALYSIS_KEYS.includes(key),
     definesGrid = isAnalysis || !ANALYSIS_KEYS.some(k => state.channels[k]),
@@ -4987,10 +5043,12 @@ function loadDemo() {
   // Noise-free reference maps: thresholded as they are, so the expected values stay exact.
   const exact = () => ({ ...defaults(), denoise: 0 });
   state.seg = { nmc: exact(), secondary: exact(), f: exact(), c: exact() };
+  demoLoaded = true;
   dirty();
   renderControls();
   renderChannels();
-  preview().then(fit);
+  // On the analysis step the example is analysed at once, like any other arrival there.
+  recompute().then(fit);
 }
 
 /* Viewport drawing, the analysis grid over it, zoom, pan and ROI pointer input. */
@@ -5670,7 +5728,7 @@ function snapshot() {
         },
       ]),
     ),
-    workspace: { selected, display, zoom, opacity },
+    workspace: { selected, display, zoom, opacity, step, metric },
   };
 }
 $('#save').onclick = () => download(safeName() + '.session.json', JSON.stringify(snapshot()));
@@ -5696,11 +5754,15 @@ $('#sessionFile').onchange = async e => {
     masks = {};
     segRanges = {};
     effectiveROI = null;
+    demoLoaded = false;
     setUILanguage(s.uiLanguage || language);
     updateChrome();
     channelVersion++;
     revision++;
     selected = ANALYSIS_KEYS.includes(s.workspace?.selected) ? s.workspace.selected : 'secondary';
+    // The project opens on the step and element it was saved on (the first step for older ones).
+    step = STEP_ORDER.includes(s.workspace?.step) ? s.workspace.step : 'data';
+    metric = METRIC_KEYS.includes(s.workspace?.metric) ? s.workspace.metric : 'secondary';
     display = DISPLAY_MODES.includes(s.workspace?.display) ? s.workspace.display : 'overlay';
     zoom = Number.isFinite(s.workspace?.zoom) && s.workspace.zoom > 0 ? s.workspace.zoom : 1;
     opacity = Number.isFinite(s.workspace?.opacity)
@@ -6006,16 +6068,20 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>${comparisonChartHTML()}`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div>${new Set(state.comparison.map(c => c.metrics.distance?.unit).filter(Boolean)).size > 1 ? `<p class="warning">${t('Distances are in µm for some samples and in pixels for others; they cannot be compared directly.')}</p>` : ''}<div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>${comparisonChartHTML()}`,
   );
   bindComparisonChart();
-  document.querySelectorAll('[data-comp]').forEach(
-    e =>
-      (e.oninput = () => {
-        state.comparison[+e.dataset.comp][e.dataset.key] = e.value;
-        if (e.dataset.key === compareX) drawComparisonChart();
-      }),
-  );
+  document.querySelectorAll('[data-comp]').forEach(e => {
+    // A strength that is not a plain number is marked where it is typed.
+    const mark = () =>
+      e.classList.toggle('invalid', e.dataset.key !== 'note' && !!parseMeasured(e.value).invalid);
+    mark();
+    e.oninput = () => {
+      state.comparison[+e.dataset.comp][e.dataset.key] = e.value;
+      mark();
+      if (e.dataset.key === compareX) drawComparisonChart();
+    };
+  });
   document.querySelectorAll('[data-removecomp]').forEach(
     b =>
       (b.onclick = () => {
@@ -6240,9 +6306,34 @@ let compareY = 'f:cv',
 function parseMeasured(text) {
   const s = String(text ?? '').trim();
   if (!s) return { value: null };
-  return /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(s)
-    ? { value: Number(s) }
+  const value = Number(s),
+    // Too large to hold (1e400), or a non-zero value too small to hold (1e-400).
+    lost = !Number.isFinite(value) || (value === 0 && /[1-9]/.test(s.split(/[eE]/)[0]));
+  return /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(s) && !lost
+    ? { value }
     : { value: null, invalid: true };
+}
+/* Smallest |r| that is significant at p < 0.05 (two-sided) for n samples: from Student's t. */
+function criticalR(n) {
+  const df = n - 2,
+    table = [
+      [1, 12.706],
+      [2, 4.303],
+      [3, 3.182],
+      [4, 2.776],
+      [5, 2.571],
+      [6, 2.447],
+      [7, 2.365],
+      [8, 2.306],
+      [9, 2.262],
+      [10, 2.228],
+      [12, 2.179],
+      [15, 2.131],
+      [20, 2.086],
+      [30, 2.042],
+    ],
+    tCrit = (table.find(([d]) => d >= df) || [0, 1.96])[1];
+  return tCrit / Math.sqrt(tCrit * tCrit + df);
 }
 function compareFigure(entry, choice) {
   const [key, name] = choice.split(':'),
@@ -6312,7 +6403,9 @@ function drawComparisonChart() {
       Float64Array.from(points, p => p.y),
       new Uint8Array(n).fill(1),
     );
-    notes.push(`${t('Pearson r')} = ${fmt(r)}`);
+    notes.push(
+      `${t('Correlation r')} = ${fmt(r)} (${t('|r| must reach {c} for p < 0.05').replace('{c}', criticalR(n).toFixed(3))})`,
+    );
   } else if (compareX !== 'sample' && n) notes.push(t('A correlation needs at least 4 samples.'));
   note.innerHTML = notes.join(' · ');
   if (!n) {
@@ -6358,7 +6451,7 @@ function drawComparisonChart() {
   }
   svg += `<line class="axis" x1="${left}" x2="${w - right}" y1="${h - bottom}" y2="${h - bottom}"/>`;
   for (const p of points)
-    svg += `<g class="compare-point"><circle cx="${sx(p)}" cy="${sy(p.y)}" r="5" style="fill:${CHART_TINT[key]}"/><title>${esc(p.name)}: ${fmt(p.y)}</title>${compareX === 'sample' ? '' : `<text class="point-label" x="${sx(p) + 8}" y="${sy(p.y) + 3}">${esc(p.name.length > 12 ? p.name.slice(0, 11) + '…' : p.name)}</text>`}</g>`;
+    svg += `<g class="compare-point"><circle cx="${sx(p)}" cy="${sy(p.y)}" r="5" style="fill:${CHART_TINT[key]}"/><title>${esc(p.name)}: ${fmt(p.y)}</title>${compareX === 'sample' ? '' : `<text class="point-label" x="${sx(p) + 8}" y="${sy(p.y) + 3}">${esc(p.name.length > 20 ? p.name.slice(0, 19) + '…' : p.name)}</text>`}</g>`;
   host.innerHTML = svg + '</svg>';
 }
 
@@ -6387,7 +6480,9 @@ function wrapText(ctx, text, width) {
     lines = [];
   let line = '';
   for (const token of tokens) {
-    if (line && ctx.measureText(line + token).width > width) {
+    // Closing punctuation never starts a line; it stays on the line it closes.
+    const closing = /^[。，；：、）」』！？.,;:)]/.test(token);
+    if (line && !closing && ctx.measureText(line + token).width > width) {
       lines.push(line.trimEnd());
       line = token.trimStart();
     } else line += token;
@@ -6730,19 +6825,39 @@ function reportCaption(r, keys, letters, later) {
     thresholds = ['nmc', ...keys]
       .map(
         k =>
-          `${k === 'secondary' ? t('Secondary phase') : t(SHORT_NAMES[k])} ${seg[k].auto ? t('automatic') : `${t('manual')} ${Number(seg[k].threshold.toPrecision(4))}`}, ${t('averaging')} ${seg[k].denoise || 0} px`,
+          `${k === 'secondary' ? t('Secondary phase') : t(SHORT_NAMES[k])} ${seg[k].auto ? t('automatic') : `${t('manual')} ${Number(seg[k].threshold.toPrecision(4))}`}${language === 'en' ? ', ' : '，'}${t('averaging')} ${seg[k].denoise || 0} px`,
       )
-      .join('; '),
+      .join(language === 'en' ? '; ' : '；'),
     scale = trace.parameters.calibration
       ? `${Number(trace.parameters.calibration.toPrecision(4))} µm/px`
       : t('uncalibrated (px)'),
     region = trace.rois.length || trace.roiInvert ? t('user-defined region') : t('whole image'),
-    small = cellSize(r).small ? ' ' + smallCellNote(r) : '';
+    small = cellSize(r).small ? ' ' + smallCellNote(r) : '',
+    // Cells per column and per row that hold analysed pixels: what each error bar is taken over.
+    counts = ['x', 'y']
+      .flatMap(axis =>
+        Array.from(
+          { length: n },
+          (_, g) => r.tiles.filter(tile => tile[axis] === g && tile.area).length,
+        ),
+      )
+      .filter(Boolean),
+    low = Math.min(...counts),
+    high = Math.max(...counts),
+    cellsUsed = low === high ? `n = ${low}` : `n = ${low}–${high}`,
+    colon = language === 'en' ? ': ' : '：';
   return [
-    `${letters.length > 1 ? `${letters[0]}–${letters[letters.length - 1]}` : letters[0]}: ${t('Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell’s area fraction of the element.')}`,
-    `${later[0]}, ${later[1]}: ${t('Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the {n} cells (spatial spread, not measurement uncertainty).').replaceAll('{n}', n)}`,
-    `${later[2]}: ${t('Figures of the whole analysed region. CV is the population standard deviation divided by the mean.')}`,
-    `${t('Methods')}: ${t('thresholds')} — ${thresholds}. ${t('Grid')} ${n} × ${n}; ${t('scale')} ${scale}; ${t('analysed area')}: ${region}.${small} ${t('2D image quantification')}. ${t('Electrode EDS Analyzer')} v${trace.toolVersion}, ${new Date(r.analyzedAt).toISOString().slice(0, 10)}.`,
+    `${letters.length > 1 ? `${letters[0]}–${letters[letters.length - 1]}` : letters[0]}${colon}${t('Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell’s area fraction of the element.')}`,
+    `${later[0]}, ${later[1]}${colon}${t(
+      'Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the cells of that column (row) holding analysed pixels, {cells} (spatial spread, not measurement uncertainty). The trend charts in the app show pixel-weighted shares, which can differ slightly.',
+    )
+      .replaceAll('{n}', n)
+      .replace('{cells}', cellsUsed)}`,
+    `${later[2]}${colon}${t('Figures of the whole analysed region. CV is the population standard deviation divided by the mean.')}`,
+    // Punctuation of the report language: full-width in Chinese.
+    language === 'en'
+      ? `Methods: thresholds — ${thresholds}. Grid ${n} × ${n}; scale ${scale}; analysed area: ${region}.${small} 2D image quantification. Electrode EDS Analyzer v${trace.toolVersion}, ${new Date(r.analyzedAt).toISOString().slice(0, 10)}.`
+      : `${t('Methods')}：${t('thresholds')}——${thresholds}。${t('Grid')} ${n} × ${n}；${t('scale')} ${scale}；${t('analysed area')}：${region}。${small}${t('2D image quantification')}。${t('Electrode EDS Analyzer')} v${trace.toolVersion}，${new Date(r.analyzedAt).toISOString().slice(0, 10)}。`,
   ];
 }
 function crc32(bytes) {
@@ -6920,6 +7035,10 @@ function updateChrome() {
     more: 'More',
   }))
     $('#' + id).setAttribute('aria-label', t(key));
+  $('#more').title = t('More');
+  $('.stepper').setAttribute('aria-label', t('Steps'));
+  $('.seg.dark').setAttribute('aria-label', t('View'));
+  document.querySelectorAll('.info').forEach(b => b.setAttribute('aria-label', t('Help')));
   document
     .querySelectorAll('[data-step] .label')
     .forEach(l => (l.textContent = t(STEP_LABELS[l.parentElement.dataset.step])));
@@ -6952,4 +7071,10 @@ renderControls();
 renderChannels();
 draw();
 setupTooltips();
+// Nothing is stored in the browser, so leaving the page loses the work: the browser asks first.
+addEventListener('beforeunload', e => {
+  if (!Object.keys(state.channels).length) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
 </script></body></html>

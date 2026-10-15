@@ -8,11 +8,11 @@ CSV 無表頭、逗號分隔、矩形、有限數值，保留原值。PNG/JPEG �
 
 Averaging（v0.3.0）：取閾值前先對 intensity 做局部平均，預設半徑 2 px，可設 0～5，0 為關閉。作法是沿 x、y 各做兩次寬度 `2r+1` 的 box filter（合起來近似三角形權重），視窗在影像邊緣截斷並以實際像素數平均。EDS 元素圖是稀疏的計數點，不平均時單一閾值只會挑出亮點而非區域；平均後才是局部計數密度。平均不受 ROI 限制，只用於決定 mask；Pearson 仍使用原始 intensity。Manual threshold、slider 範圍與 Otsu 都作用在平均後的數值上，因此改變半徑會把該通道切回 Auto。半徑記錄於 `segmentation.<channel>.denoise`；舊版 Session 沒有此欄位，載入時視為 0，數值與舊版相同。內建的合成示範資料為無雜訊參考圖，固定為 0。
 
-Auto：在有效 ROI 內，以 256-bin histogram 計算 Otsu 最大類間變異。Histogram range 取完整 map min/max；threshold 放在最佳 bin 上緣附近。常數 map 的 threshold 等於常數，非反轉 mask 為空。Manual：`intensity > threshold`；Invert：反轉此 predicate，ROI 外一律 false。
+Auto：在有效 ROI 內，以 256-bin histogram 計算 Otsu 最大類間變異。Histogram range 取完整 map min/max；threshold 放在最佳 bin 的中點（`(t + 0.5)/255` 對應的強度），與真正邊界最多相差半個 bin。常數 map 的 threshold 等於常數，非反轉 mask 為空。Manual：`intensity > threshold`；Invert：反轉此 predicate，ROI 外一律 false。
 
 依序執行 3×3 majority smooth（選填）、fill holes（從圖邊與 ROI 外背景作 4-neighbor flood fill，選填）、移除面積小於 Min object size 的 4-connected foreground。輸出 mask 為 0/1。
 
-Mn/(Ni+ε) 使用時，兩張圖各自先做相同半徑的平均再相除。Mn/(Ni+ε) 僅用於 Secondary segmentation，不取代 raw Secondary intensity 與 F 的 Pearson 分析。使用時 Mn map 須載入「次要相／添加物」通道，程式計算的是 `Secondary / (Ni + ε)`；ε 預設為 1。ε 使用原始 Ni intensity 單位；低 Ni 區域的 ratio 可能被放大，不能視為完整 MnO₂ 光譜分離。
+Mn/(Ni+ε) 使用時，兩張圖都以次要相通道設定的平均半徑（`seg.secondary.denoise`，不是 `seg.nmc.denoise`）先平均再相除。Mn/(Ni+ε) 僅用於 Secondary segmentation，不取代 raw Secondary intensity 與 F 的 Pearson 分析。使用時 Mn map 須載入「次要相／添加物」通道，程式計算的是 `Secondary / (Ni + ε)`；ε 預設為 1。ε 使用原始 Ni intensity 單位；低 Ni 區域的 ratio 可能被放大，不能視為完整 MnO₂ 光譜分離。
 
 ## Channels / alignment
 
@@ -113,8 +113,14 @@ Cross Section：沿所選 X/Y 軸，以有效 ROI bounding extent 作 0–100% �
 
 ## Report figure / comparison chart (v0.5.0)
 
-報告圖寬 `180 mm × 300 dpi = 2126 px`，文字 7–10 pt，PNG 於 IHDR 之後寫入 `pHYs`（11811 px/m）。遮罩面板：灰階底圖（與格點同尺寸的 SEM，否則為主相圖），主相與該元素遮罩以固定透明度上色；影像小於面板時以整數倍、不內插放大，大於面板時以平滑縮小。欄（列）剖面圖的點為該欄（列）各格面積比例的平均，誤差線為樣本標準差（n−1），n 為該欄（列）有分析像素的格數；與畫面上以像素加權的整欄比例略有不同，圖說已註明。圖說的方法取自 `results.trace`（各通道閾值方式、平均半徑、網格、μm/px、是否限定範圍、版本、日期）。
+報告圖寬 `180 mm × 300 dpi = 2126 px`，文字 7–10 pt，PNG 於 IHDR 之後寫入 `pHYs`（11811 px/m）。遮罩面板：灰階底圖（與格點同尺寸的 SEM，否則為主相圖），主相與該元素遮罩以固定透明度上色；影像小於面板時以整數倍、不內插放大，大於面板時以平滑縮小。欄（列）剖面圖的點為該欄（列）各格面積比例的平均，誤差線為樣本標準差（n−1），n 為該欄（列）有分析像素的格數，圖說列出實際的 n 範圍；程式內趨勢圖的粗線以像素加權，可能略有不同，圖說同樣註明。圖說的方法取自 `results.trace`（各通道閾值方式、平均半徑、網格、μm/px、是否限定範圍、版本、日期）。
 
-格子偏小：有分析像素的格子，其像素數的中位數小於 600 時提示。這是經驗門檻，用來提醒每格可能只容納少數顆粒；254×94 的影像在 8×8 時每格約 373 像素（提示），5×5 時約 955 像素（不提示）。
+格子偏小：有分析像素的格子，其像素數的中位數小於 600 時提示。這是經驗門檻，用來提醒每格可能只容納少數顆粒；中位數取排序後的下中位數（偶數個時取較小的一個）。254×94 的影像在 8×8 時中位數為 384 像素（提示），5×5 時為 969 像素（不提示）。
 
 比較圖：縱軸為各樣品 `elements.<key>` 的面積比例、`uniformityCV` 或 `thirds` CV；橫軸為樣品順序或比較表中輸入的實驗值。實驗值僅接受純數字（`[-+]?\d+(\.\d*)?([eE][-+]?\d+)?` 等），其餘列為無法讀取。n ≥ 4 才計算 Pearson r（與 F 共定位相同的實作），不做回歸。
+
+## 數值與 CSV 的約定（v0.5.1 補充）
+
+- 距離與 binder 半徑、距離分組邊界的比較容許 `1e-9`（相對）的浮點誤差：像素數乘以 μm/px 後恰好落在界線上的值（例如 3 × 0.1 μm），視為等於界線。過去這類像素可能因浮點誤差被排除。
+- CSV 中的空值：`null` 輸出為字串 `null`，`undefined`（例如沒有次要相時的距離欄）輸出為空白；此約定沿用自 v0.1，為了相容不改變。
+- 比較圖的實驗值：超出浮點範圍（如 `1e400`）或非零但小到變成 0（如 `1e-400`）的值視為無法讀取。

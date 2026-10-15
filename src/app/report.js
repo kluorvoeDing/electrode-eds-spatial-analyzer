@@ -23,7 +23,9 @@ function wrapText(ctx, text, width) {
     lines = [];
   let line = '';
   for (const token of tokens) {
-    if (line && ctx.measureText(line + token).width > width) {
+    // Closing punctuation never starts a line; it stays on the line it closes.
+    const closing = /^[。，；：、）」』！？.,;:)]/.test(token);
+    if (line && !closing && ctx.measureText(line + token).width > width) {
       lines.push(line.trimEnd());
       line = token.trimStart();
     } else line += token;
@@ -366,19 +368,39 @@ function reportCaption(r, keys, letters, later) {
     thresholds = ['nmc', ...keys]
       .map(
         k =>
-          `${k === 'secondary' ? t('Secondary phase') : t(SHORT_NAMES[k])} ${seg[k].auto ? t('automatic') : `${t('manual')} ${Number(seg[k].threshold.toPrecision(4))}`}, ${t('averaging')} ${seg[k].denoise || 0} px`,
+          `${k === 'secondary' ? t('Secondary phase') : t(SHORT_NAMES[k])} ${seg[k].auto ? t('automatic') : `${t('manual')} ${Number(seg[k].threshold.toPrecision(4))}`}${language === 'en' ? ', ' : '，'}${t('averaging')} ${seg[k].denoise || 0} px`,
       )
-      .join('; '),
+      .join(language === 'en' ? '; ' : '；'),
     scale = trace.parameters.calibration
       ? `${Number(trace.parameters.calibration.toPrecision(4))} µm/px`
       : t('uncalibrated (px)'),
     region = trace.rois.length || trace.roiInvert ? t('user-defined region') : t('whole image'),
-    small = cellSize(r).small ? ' ' + smallCellNote(r) : '';
+    small = cellSize(r).small ? ' ' + smallCellNote(r) : '',
+    // Cells per column and per row that hold analysed pixels: what each error bar is taken over.
+    counts = ['x', 'y']
+      .flatMap(axis =>
+        Array.from(
+          { length: n },
+          (_, g) => r.tiles.filter(tile => tile[axis] === g && tile.area).length,
+        ),
+      )
+      .filter(Boolean),
+    low = Math.min(...counts),
+    high = Math.max(...counts),
+    cellsUsed = low === high ? `n = ${low}` : `n = ${low}–${high}`,
+    colon = language === 'en' ? ': ' : '：';
   return [
-    `${letters.length > 1 ? `${letters[0]}–${letters[letters.length - 1]}` : letters[0]}: ${t('Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell’s area fraction of the element.')}`,
-    `${later[0]}, ${later[1]}: ${t('Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the {n} cells (spatial spread, not measurement uncertainty).').replaceAll('{n}', n)}`,
-    `${later[2]}: ${t('Figures of the whole analysed region. CV is the population standard deviation divided by the mean.')}`,
-    `${t('Methods')}: ${t('thresholds')} — ${thresholds}. ${t('Grid')} ${n} × ${n}; ${t('scale')} ${scale}; ${t('analysed area')}: ${region}.${small} ${t('2D image quantification')}. ${t('Electrode EDS Analyzer')} v${trace.toolVersion}, ${new Date(r.analyzedAt).toISOString().slice(0, 10)}.`,
+    `${letters.length > 1 ? `${letters[0]}–${letters[letters.length - 1]}` : letters[0]}${colon}${t('Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell’s area fraction of the element.')}`,
+    `${later[0]}, ${later[1]}${colon}${t(
+      'Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the cells of that column (row) holding analysed pixels, {cells} (spatial spread, not measurement uncertainty). The trend charts in the app show pixel-weighted shares, which can differ slightly.',
+    )
+      .replaceAll('{n}', n)
+      .replace('{cells}', cellsUsed)}`,
+    `${later[2]}${colon}${t('Figures of the whole analysed region. CV is the population standard deviation divided by the mean.')}`,
+    // Punctuation of the report language: full-width in Chinese.
+    language === 'en'
+      ? `Methods: thresholds — ${thresholds}. Grid ${n} × ${n}; scale ${scale}; analysed area: ${region}.${small} 2D image quantification. Electrode EDS Analyzer v${trace.toolVersion}, ${new Date(r.analyzedAt).toISOString().slice(0, 10)}.`
+      : `${t('Methods')}：${t('thresholds')}——${thresholds}。${t('Grid')} ${n} × ${n}；${t('scale')} ${scale}；${t('analysed area')}：${region}。${small}${t('2D image quantification')}。${t('Electrode EDS Analyzer')} v${trace.toolVersion}，${new Date(r.analyzedAt).toISOString().slice(0, 10)}。`,
   ];
 }
 function crc32(bytes) {

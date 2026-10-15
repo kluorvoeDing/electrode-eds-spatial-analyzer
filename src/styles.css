@@ -508,9 +508,7 @@ details[open] > summary {
 .channel-head strong {
   font-size: 13px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.3;
 }
 .channel-state {
   margin-left: auto;
@@ -1162,7 +1160,11 @@ table.depth :is(th, td) {
   text-align: right;
 }
 td input {
-  width: 100px;
+  width: 84px;
+}
+td input.invalid {
+  border-color: var(--error);
+  background: #fef2f2;
 }
 
 .compare-chart {
@@ -1446,7 +1448,10 @@ dialog.image-editor {
     display: none;
   }
   .toolbar select#channel {
-    max-width: 118px;
+    max-width: 104px;
+  }
+  #baseLabel {
+    display: none;
   }
 }
 @media (max-width: 1280px) {

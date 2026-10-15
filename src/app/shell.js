@@ -80,13 +80,22 @@ function sizeError() {
   const a = Object.values(state.channels);
   return a.length && a.some(c => c.w !== a[0].w || c.h !== a[0].h);
 }
+// Where focus returns when a dialog closes: what opened it, or the menu button for menu items.
+let dialogOpener = null;
 function showDialog(title, body) {
+  const from = document.activeElement;
+  dialogOpener = from?.closest?.('#moreMenu') ? $('#more') : from;
   $('#dialog').classList.toggle('image-editor', title === 'Crop and review');
   $('#dialogtitle').textContent = t(title);
   $('#dialogbody').innerHTML = body;
   $('#dialog').showModal();
 }
 $('#dialog').addEventListener('close', () => {
+  // Only when focus has nowhere else to be; the close event arrives after other handlers.
+  const lost =
+    document.activeElement === document.body || $('#dialog').contains(document.activeElement);
+  if (lost && dialogOpener?.isConnected) dialogOpener.focus();
+  dialogOpener = null;
   awaitingPaste = false;
   imageImport = null;
   imageImportTicket++;
@@ -152,7 +161,14 @@ $('#dialogbody').addEventListener('input', e => {
 });
 $('#dialogbody').addEventListener('click', e => {
   if (e.target.id === 'clearData') {
+    if (
+      !confirm(
+        t('Clear every image, setting, result and the comparison table? This cannot be undone.'),
+      )
+    )
+      return;
     state = initialState();
+    demoLoaded = false;
     elementsShown = null;
     channelVersion++;
     revision++;
@@ -193,7 +209,11 @@ document.addEventListener('click', closeMenu);
 $('#demoMenu').onclick = () => {
   if (
     Object.keys(state.channels).length &&
-    !confirm(t('Replace the loaded images with the synthetic example?'))
+    !confirm(
+      t(
+        'Replace the loaded images with the synthetic example? The scale and the analysed-area limits are cleared too; the comparison table stays.',
+      ),
+    )
   )
     return;
   loadDemo();
@@ -228,6 +248,7 @@ document.addEventListener('click', () => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    closeMenu();
     pendingPolygon = [];
     drawMode = 'pan';
     $('#tooltip').classList.add('hidden');

@@ -26,6 +26,10 @@ function updateChrome() {
     more: 'More',
   }))
     $('#' + id).setAttribute('aria-label', t(key));
+  $('#more').title = t('More');
+  $('.stepper').setAttribute('aria-label', t('Steps'));
+  $('.seg.dark').setAttribute('aria-label', t('View'));
+  document.querySelectorAll('.info').forEach(b => b.setAttribute('aria-label', t('Help')));
   document
     .querySelectorAll('[data-step] .label')
     .forEach(l => (l.textContent = t(STEP_LABELS[l.parentElement.dataset.step])));
@@ -58,3 +62,9 @@ renderControls();
 renderChannels();
 draw();
 setupTooltips();
+// Nothing is stored in the browser, so leaving the page loses the work: the browser asks first.
+addEventListener('beforeunload', e => {
+  if (!Object.keys(state.channels).length) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
