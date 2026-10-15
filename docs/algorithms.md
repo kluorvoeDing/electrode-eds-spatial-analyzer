@@ -1,4 +1,4 @@
-# Algorithms — v0.4.0
+# Algorithms — v0.5.0
 
 所有計算為二維影像量化。所有 mask 先裁切有效 ROI；面積與比例使用 ROI 像素數。無法計算的值輸出 JSON `null`、介面 `—`，不是零。
 
@@ -110,3 +110,11 @@ Cross Section：沿所選 X/Y 軸，以有效 ROI bounding extent 作 0–100% �
 結果與 comparison snapshot 保留版本、日期、原始檔名、尺寸、intensity range、匯入檔 SHA-256（合成資料無原始檔 hash）、ROI、threshold、segmentation、校正與分析設定。Session 包含完整 intensity，圖片另存 embedded PNG；重載重算結果。Session 維持 `schemaVersion: 1`；v0.4.0 新增 `c` 通道與 `seg.c`（舊 Session 沒有時使用目前預設值，平均半徑 2 px），v0.3.0 新增選填欄位 `seg.<channel>.denoise` 與 `importInfo.scaleBar`；v0.2.0 新增欄位（`settings.binderRadiusCustom`、`importInfo` 的縮放資訊）皆為選填。載入時先驗證全部欄位並解碼內嵌 PNG，確認其實際尺寸與通道尺寸相符後才取代目前工作區；未知欄位捨棄。Analysis JSON 匯出數值及 trace；要重新載入工作專案，使用 Session JSON。
 
 所有計算在本機。Worker 的流程實作於 `Core.createPipeline()`，快取 intensity、ROI 與未變更的 mask（ROI 改變時全部重算；分割參數改變時只重算該通道；ratio／ε 只影響次要相）；Worker 層級錯誤會結束所有等待中的請求。每次送回 mask 副本，避免 transferable buffer 使 cache 失效。最新 revision 才可更新畫面，設定變更時清除舊結果。無網路 API、CDN、IndexedDB 或 localStorage；CSP 拒絕外部連線。
+
+## Report figure / comparison chart (v0.5.0)
+
+報告圖寬 `180 mm × 300 dpi = 2126 px`，文字 7–10 pt，PNG 於 IHDR 之後寫入 `pHYs`（11811 px/m）。遮罩面板：灰階底圖（與格點同尺寸的 SEM，否則為主相圖），主相與該元素遮罩以固定透明度上色；影像小於面板時以整數倍、不內插放大，大於面板時以平滑縮小。欄（列）剖面圖的點為該欄（列）各格面積比例的平均，誤差線為樣本標準差（n−1），n 為該欄（列）有分析像素的格數；與畫面上以像素加權的整欄比例略有不同，圖說已註明。圖說的方法取自 `results.trace`（各通道閾值方式、平均半徑、網格、μm/px、是否限定範圍、版本、日期）。
+
+格子偏小：有分析像素的格子，其像素數的中位數小於 600 時提示。這是經驗門檻，用來提醒每格可能只容納少數顆粒；254×94 的影像在 8×8 時每格約 373 像素（提示），5×5 時約 955 像素（不提示）。
+
+比較圖：縱軸為各樣品 `elements.<key>` 的面積比例、`uniformityCV` 或 `thirds` CV；橫軸為樣品順序或比較表中輸入的實驗值。實驗值僅接受純數字（`[-+]?\d+(\.\d*)?([eE][-+]?\d+)?` 等），其餘列為無法讀取。n ≥ 4 才計算 Pearson r（與 F 共定位相同的實作），不做回歸。

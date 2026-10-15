@@ -9,7 +9,22 @@ function fmt(v, percent = false) {
 // Short names for the elements whose distribution is reported.
 const METRIC_LABELS = { secondary: 'Secondary phase', f: 'Binder F', c: 'Carbon C' },
   // Line colours on the white chart surface: the channel hues, darkened until they read on white.
-  CHART_TINT = { secondary: '#d97b00', f: '#2563d6', c: '#a68a00' };
+  CHART_TINT = { secondary: '#d97b00', f: '#2563d6', c: '#1a9e77' };
+/* Median pixels per grid cell, and whether that is too few for steady cell-to-cell figures. */
+function cellSize(r) {
+  const areas = r.tiles
+      .map(t => t.area)
+      .filter(Boolean)
+      .sort((a, b) => a - b),
+    median = areas.length ? areas[Math.floor((areas.length - 1) / 2)] : 0;
+  return { median, small: median > 0 && median < SMALL_CELL_PIXELS };
+}
+const smallCellNote = r =>
+  t(
+    'Cells hold about {n} pixels each (fewer than {min}): cell-to-cell figures are unsteady. Use a coarser grid or the thirds CV.',
+  )
+    .replace('{n}', cellSize(r).median)
+    .replace('{min}', SMALL_CELL_PIXELS);
 /* Share of one element in one grid cell. */
 function tileShare(tile, key) {
   return key === 'secondary' ? tile.fraction : key === 'f' ? tile.fFraction : tile.cFraction;
@@ -25,7 +40,7 @@ function wholeRegionFigures(r, key) {
   const e = r.elements[key],
     // Direction in one block: across the image (left / right) and down it (top / bottom), by
     // thirds of the image and by grid column or row.
-    spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}${groupLabel('Spread by direction')}<table class="direction"><tr><th></th><th>${t('Left / right')}</th><th>${t('Top / bottom')}</th></tr><tr><th>${t('Thirds CV')} ${info('thirds')}</th><td>${fmt(e.thirds.columnCV)}</td><td>${fmt(e.thirds.rowCV)}</td></tr><tr><th>${t('Column / row CV')} ${info('profileCV')}</th><td>${fmt(e.columnCV)}</td><td>${fmt(e.rowCV)}</td></tr></table>`;
+    spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}${cellSize(r).small ? `<div class="warning">${smallCellNote(r)}</div>` : ''}${groupLabel('Spread by direction')}<table class="direction"><tr><th></th><th>${t('Left / right')}</th><th>${t('Top / bottom')}</th></tr><tr><th>${t('Thirds CV')} ${info('thirds')}</th><td>${fmt(e.thirds.columnCV)}</td><td>${fmt(e.thirds.rowCV)}</td></tr><tr><th>${t('Column / row CV')} ${info('profileCV')}</th><td>${fmt(e.columnCV)}</td><td>${fmt(e.rowCV)}</td></tr></table>`;
   let html = kpi('Area fraction', fmt(e.areaFraction, true), {
     help: { secondary: 'secondary', f: 'area', c: 'carbon' }[key],
     note: 'Share of the analysed area.',

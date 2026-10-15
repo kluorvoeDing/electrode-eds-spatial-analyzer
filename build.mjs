@@ -19,6 +19,8 @@ const APP_SOURCES = [
   'src/app/results.js',
   'src/app/session.js',
   'src/app/export.js',
+  'src/app/comparison.js',
+  'src/app/report.js',
   'src/app/main.js',
 ];
 

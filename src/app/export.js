@@ -68,11 +68,16 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>${comparisonChartHTML()}`,
   );
-  document
-    .querySelectorAll('[data-comp]')
-    .forEach(e => (e.oninput = () => (state.comparison[+e.dataset.comp][e.dataset.key] = e.value)));
+  bindComparisonChart();
+  document.querySelectorAll('[data-comp]').forEach(
+    e =>
+      (e.oninput = () => {
+        state.comparison[+e.dataset.comp][e.dataset.key] = e.value;
+        if (e.dataset.key === compareX) drawComparisonChart();
+      }),
+  );
   document.querySelectorAll('[data-removecomp]').forEach(
     b =>
       (b.onclick = () => {
@@ -161,7 +166,7 @@ function exportCSV(comparison = false) {
 $('#export').onclick = () => {
   showDialog(
     'Export',
-    `<div class="row"><button id="exportCSV">${t('Analysis CSV')}</button><button id="exportJSON">${t('Analysis JSON')}</button><button id="exportPNG">${t('Overlay PNG')}</button></div><div class="row"><button id="exportSession">${t('Session JSON')}</button><button id="exportComparison">${t('Comparison CSV')}</button></div>`,
+    `<div class="row"><button id="exportCSV">${t('Analysis CSV')}</button><button id="exportJSON">${t('Analysis JSON')}</button><button id="exportPNG">${t('Overlay PNG')}</button><button id="exportReport" class="primary">${t('Report figure PNG')}</button></div><div class="row"><button id="exportSession">${t('Session JSON')}</button><button id="exportComparison">${t('Comparison CSV')}</button></div>`,
   );
   $('#exportCSV').onclick = () => exportCSV();
   $('#exportJSON').onclick = () => {
@@ -179,6 +184,8 @@ $('#export').onclick = () => {
     );
   };
   $('#exportPNG').onclick = exportPNG;
+  $('#exportReport').onclick = () =>
+    exportReport().catch(e => status(() => t('Report figure failed') + ': ' + e.message, true));
   $('#exportSession').onclick = $('#save').onclick;
   $('#exportComparison').onclick = () => exportCSV(true);
 };

@@ -19,6 +19,7 @@ fs.mkdirSync(TMP, { recursive: true });
   });
   const context = await browser.newContext({
     viewport: VIEW,
+    acceptDownloads: true,
     deviceScaleFactor: 1.25,
     offline: true,
   });
@@ -70,7 +71,7 @@ fs.mkdirSync(TMP, { recursive: true });
       // Carbon black in the gaps, denser towards the right, so the column trend shows a slope.
       C: counts(
         (x, y) => surface(x, y) > 0.5 && random() < 0.25 + 0.6 * (x / FIELD.w),
-        [242, 210, 0],
+        [32, 178, 120],
       ),
       F: counts(
         (x, y) => {
@@ -234,6 +235,28 @@ fs.mkdirSync(TMP, { recursive: true });
 
   await p.locator('#export').click();
   await shot('10-export.png', dialog);
+  // The one-page report figure, saved as it is downloaded.
+  const [report] = await Promise.all([
+    p.waitForEvent('download'),
+    p.locator('#exportReport').click(),
+  ]);
+  await report.saveAs(path.join(OUT, '13-report.png'));
+  console.log('13-report.png');
+  await p.locator('#closeDialog').click();
+  // A second, binder-poor sample beside the first in the comparison chart.
+  await p.locator('#addComparison').click();
+  await p.evaluate(() => {
+    const twin = structuredClone(state.comparison[0]);
+    twin.sample = '合成示範 B';
+    twin.metrics.analyzedAt = 'twin';
+    twin.metrics.elements.f.uniformityCV *= 1.6;
+    state.comparison.push(twin);
+    state.comparison[0].peel = '18.4';
+    twin.peel = '11.2';
+  });
+  await p.locator('#showComparison').click();
+  await p.locator('#compareX').selectOption('peel');
+  await shot('14-comparison.png', dialog);
   await p.locator('#closeDialog').click();
 
   // One channel a pixel larger than the others: the notice above the image and its fix button.

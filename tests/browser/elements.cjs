@@ -14,6 +14,7 @@ fs.mkdirSync('qa', { recursive: true });
   const context = await browser.newContext({
     viewport: { width: 1366, height: 768 },
     offline: true,
+    acceptDownloads: true,
   });
   const p = await context.newPage();
   const errors = [];
@@ -171,6 +172,8 @@ fs.mkdirSync('qa', { recursive: true });
   assert.equal(await p.locator('#maskLabel').textContent(), 'NiF');
   await p.screenshot({ path: 'qa/elements-analysis.png' });
 
+  // The full sample goes into the comparison before the reference is analysed.
+  await p.locator('#addComparison').click();
   // A reference electrode without an additive: binder and carbon are still analysed.
   await p.locator('[data-step="data"]').click();
   await p.locator('[data-remove="secondary"]').click();
@@ -180,13 +183,51 @@ fs.mkdirSync('qa', { recursive: true });
   assert.deepEqual(await p.locator('[data-metric]').allTextContents(), ['Binder F', 'Carbon C']);
   assert.equal(await p.locator('[data-metric].on').textContent(), 'Binder F');
   assert.doesNotMatch(await p.locator('#results').textContent(), /With the secondary phase/);
-  // Results, CSV and comparison all accept the missing secondary phase.
+  // Renaming keeps the results; results, CSV and comparison all accept the missing secondary phase.
+  await p.locator('#sample').fill('Reference');
+  assert.ok(await p.evaluate(() => state.results?.trace.sample === 'Reference'));
   await p.locator('#addComparison').click();
   // The same result is not added twice.
   await p.locator('#addComparison').click();
   assert.match(await p.locator('#status').textContent(), /already in the comparison/);
   await p.locator('#showComparison').click();
-  assert.equal(await p.locator('#dialog table tr').count(), 2);
+  assert.equal(await p.locator('#dialog table tr').count(), 3);
+  // The comparison chart: one point per sample with the figure, by sample or against a typed
+  // value; a value with a unit is not guessed at.
+  assert.equal(await p.locator('#compareY').inputValue(), 'f:cv');
+  assert.equal(await p.locator('#compareChart circle').count(), 2);
+  await p.locator('#compareY').selectOption('secondary:cv');
+  assert.equal(await p.locator('#compareChart circle').count(), 1);
+  assert.match(await p.locator('#compareNote').textContent(), /1 of 2 samples lack this figure/);
+  await p.locator('#compareY').selectOption('c:lr');
+  await p.locator('#compareX').selectOption('peel');
+  await p.locator('[data-comp="0"][data-key="peel"]').fill('12.5');
+  await p.locator('[data-comp="1"][data-key="peel"]').fill('12 N/m');
+  assert.equal(await p.locator('#compareChart circle').count(), 1);
+  assert.match(
+    await p.locator('#compareNote').textContent(),
+    /Not a plain number, left out: Reference/,
+  );
+  assert.match(await p.locator('#compareNote').textContent(), /n = 1/);
+  assert.doesNotMatch(await p.locator('#compareNote').textContent(), /Pearson/);
+  await p.locator('#closeDialog').click();
+  // The report figure: 180 mm at 300 dpi, marked as such for office software; drawn here with
+  // no secondary phase and no calibration.
+  await p.locator('#export').click();
+  const [report] = await Promise.all([
+    p.waitForEvent('download'),
+    p.locator('#exportReport').click(),
+  ]);
+  const png = fs.readFileSync(await report.path()),
+    at = png.indexOf('pHYs');
+  assert.equal(report.suggestedFilename(), 'Reference.report.png');
+  assert.equal(png.readUInt32BE(16), 2126);
+  assert.ok(png.readUInt32BE(20) > 1000);
+  assert.equal(at, 37);
+  assert.deepEqual(
+    [png.readUInt32BE(at + 4), png.readUInt32BE(at + 8), png[at + 12]],
+    [11811, 11811, 1],
+  );
   await p.locator('#closeDialog').click();
   const csv = await p.evaluate(() => {
     const row = flatResult(state.results, state.results.trace);
@@ -203,6 +244,13 @@ fs.mkdirSync('qa', { recursive: true });
   assert.match(await p.locator('#analysisWarnings').textContent(), /Load the main-phase map/);
   assert.match(await p.locator('#results').textContent(), /Load the main-phase map/);
 
+  // Small cells: 8 × 8 on a 254 × 94 map (about 373 px each) is flagged, 5 × 5 (about 955) is not.
+  assert.deepEqual(
+    await p.evaluate(() =>
+      [373, 955].map(area => cellSize({ tiles: Array(25).fill({ area }) }).small),
+    ),
+    [true, false],
+  );
   assert.deepEqual(errors, []);
   await browser.close();
   console.log(

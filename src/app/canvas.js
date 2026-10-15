@@ -150,11 +150,12 @@ function renderGridOverlay() {
       !!state.results.elements?.[metric] &&
       !!baseChannel();
   el.classList.toggle('hidden', !show);
+  el.classList.toggle('small-cells', show && cellSize(state.results).small);
   // What the numbers in the cells are, said under the image.
   $('#gridCaption').classList.toggle('hidden', !show);
   if (show)
     $('#gridCaption').innerHTML =
-      `<span class="swatch" style="background:rgb(${ELEMENT_TINT[metric]})"></span>${t('Numbers in the cells')}: ${esc(t(METRIC_LABELS[metric]))} ${t('Area fraction')} (%)`;
+      `<span class="swatch" style="background:rgb(${ELEMENT_TINT[metric]})"></span>${t('Numbers in the cells')}: ${esc(t(METRIC_LABELS[metric]))} ${t('Area fraction')} (%)${cellSize(state.results).small ? ` · ${t('cells are small')}` : ''}`;
   el.innerHTML = show
     ? tiles
         .map((tile, i) => {
@@ -340,7 +341,8 @@ document.querySelectorAll('[data-display]').forEach(
     }),
 );
 document.querySelectorAll('[data-step]').forEach(b => (b.onclick = () => setStep(b.dataset.step)));
+// A name is a label, not an input to the analysis: the results stay, and carry the new name.
 $('#sample').oninput = e => {
   state.sample = e.target.value;
-  dirty();
+  if (state.results?.trace) state.results.trace.sample = state.sample;
 };

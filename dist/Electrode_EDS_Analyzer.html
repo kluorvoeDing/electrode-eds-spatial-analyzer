@@ -759,6 +759,11 @@ details[open] > summary {
   color: var(--viewer-ink);
   font-size: 11px;
 }
+/* Dimmed, not hidden: the numbers stay readable on the dark masks. */
+#gridOverlay.small-cells .tile {
+  color: #d4d4d8;
+  font-weight: 500;
+}
 #gridOverlay .tile.hot {
   background: #ffffff38;
   border-color: #fff;
@@ -1160,6 +1165,52 @@ td input {
   width: 100px;
 }
 
+.compare-chart {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.compare-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.compare-controls label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+#compareChart svg {
+  display: block;
+  margin-top: 12px;
+  overflow: visible;
+}
+#compareChart .gridline {
+  stroke: #ececef;
+}
+#compareChart .axis,
+#compareChart .axis-tick {
+  stroke: var(--ink-3);
+}
+#compareChart .tick,
+#compareChart .axis-title,
+#compareChart .point-label {
+  font: 11px var(--mono);
+  fill: var(--ink-2);
+}
+#compareChart circle {
+  stroke: #fff;
+  stroke-width: 2;
+}
+.compare-empty {
+  margin-top: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-3);
+  background: var(--subtle);
+  border-radius: var(--radius);
+}
 footer {
   height: 28px;
   display: flex;
@@ -2777,6 +2828,48 @@ Object.assign(UI_ZH, {
     '展開時只顯示下方所選通道的遮罩。',
   'switch with the menu on the left': '用左側選單切換',
   'Secondary (short)': '次要相',
+  'Cells hold about {n} pixels each (fewer than {min}): cell-to-cell figures are unsteady. Use a coarser grid or the thirds CV.':
+    '每格約 {n} 像素（少於 {min}）：格與格之間的數值不穩定。建議改用較粗的網格，或參考三等分 CV。',
+  'cells are small': '格子偏小',
+  'Thirds CV, left / right': '三等分 CV（左右）',
+  'Thirds CV, top / bottom': '三等分 CV（上下）',
+  'Vertical axis': '縱軸',
+  'Horizontal axis': '橫軸',
+  '{k} of {m} samples lack this figure (analysed with an older version or without this element).':
+    '{m} 個樣品中有 {k} 個沒有這個數值（以舊版分析，或沒有這個元素）。',
+  'Not a plain number, left out': '不是純數字，未納入',
+  'A correlation needs at least 4 samples.': '至少 4 個樣品才計算相關係數。',
+  'No sample has this figure yet.': '還沒有樣品有這個數值。',
+  'Type numbers into the column above to plot against them.':
+    '在上方表格的這一欄輸入數值後，就會畫出對照圖。',
+  'Report figure PNG': '報告圖 PNG',
+  'Report figure failed': '報告圖產生失敗',
+  'Report figure exported': '已匯出報告圖',
+  'Figures of the whole analysed region': '全區數值',
+  'Area fraction (%)': '面積比例 (%)',
+  'Between particles (%)': '落在顆粒之間 (%)',
+  'Interparticle Occupancy (%)': '顆粒間佔據率 (%)',
+  'Binder Coverage (%)': '鄰近有黏結劑的比例 (%)',
+  'area fraction per cell': '各格面積比例',
+  'px, uncalibrated': '像素，未校正',
+  automatic: '自動閾值',
+  manual: '手動閾值',
+  averaging: '平均半徑',
+  'user-defined region': '使用者限定範圍',
+  'whole image': '整張影像',
+  'Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell\u2019s area fraction of the element.':
+    '元素遮罩（彩色）疊於顯微影像上，主相以洋紅色表示；格內數字為該元素在各格的面積比例。',
+  'Figures of the whole analysed region. CV is the population standard deviation divided by the mean.':
+    '全區數值。CV 為母體標準差除以平均。',
+  'Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the {n} cells (spatial spread, not measurement uncertainty).':
+    '{n} × {n} 網格中每一欄（列）各格面積比例的平均；誤差線為該欄（列）{n} 格的 ±1 標準差，代表空間上的分散，不是量測誤差。',
+  Methods: '方法',
+  thresholds: '閾值',
+  scale: '尺度',
+  'analysed area': '分析範圍',
+  'EDS spatial distribution': 'EDS 元素空間分布',
+  Column: '欄',
+  Row: '列',
   Base: '底圖',
   'Numbers in the cells': '格內數字',
   max: '最大',
@@ -3844,7 +3937,7 @@ if (typeof module !== 'undefined')
   };
 
 /* Shared application state, defaults and constants. */
-const VERSION = '0.4.1';
+const VERSION = '0.5.0';
 const { ANALYSIS_KEYS, MAX_PIXELS, GRID_OPTIONS } = Core;
 const $ = s => document.querySelector(s),
   esc = s =>
@@ -3889,11 +3982,14 @@ const DISPLAY_MODES = ['elements', 'overlay', 'original', 'mask'],
     nmc: [224, 64, 251],
     secondary: [255, 152, 0],
     f: [41, 121, 255],
-    c: [242, 210, 0],
+    c: [32, 178, 120],
     other: [0, 188, 212],
   };
 // Elements whose distribution is reported, in the order of the results tabs.
 const METRIC_KEYS = ['secondary', 'f', 'c'];
+// Below this median number of pixels per grid cell, cell-to-cell figures mostly reflect how few
+// particles fit in a cell; the grid labels are dimmed and a coarser grid is suggested.
+const SMALL_CELL_PIXELS = 600;
 // Element whose local shares label the grid and whose figures and trends are shown.
 let metric = 'secondary';
 // Element maps laid over SEM in the element view. Null until the user picks: the phase under
@@ -4108,7 +4204,7 @@ async function compute(analyze = false) {
 
 /* Page chrome: layout, status line, dialog, tooltips, settings and About. */
 $('#app').innerHTML =
-  `<header class="topbar"><div class="brand"><svg class="mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><rect x="1" y="1" width="16" height="16" rx="4"/><circle cx="6.5" cy="7" r="2.2" fill="#e040fb"/><circle cx="11.5" cy="11.2" r="2.2" fill="#ff9800"/><circle cx="12" cy="5.4" r="1.3" fill="#2979ff"/><circle cx="5.6" cy="12.3" r="1" fill="#f2d200"/></svg><strong id="appName">${t('Electrode EDS Analyzer')}</strong><span class="sep"></span><input id="sample" aria-label="${t('Sample name')}" value="Untitled" spellcheck="false"></div><nav class="stepper" aria-label="${t('Steps')}">${STEP_ORDER.map((s, i) => `${i ? '<span class="link"></span>' : ''}<button data-step="${s}"><span class="n">${i + 1}</span><span class="label">${t(STEP_LABELS[s])}</span></button>`).join('')}</nav><div class="actions"><select id="language" class="quiet" aria-label="Language / 介面語言"><option value="zh-Hant">中文</option><option value="en">English</option></select><button id="loadSession" class="ghost">${t('Open project')}</button><button id="save">${t('Save Session')}</button><button id="export" class="primary">${t('Export')}</button><div class="menu-wrap"><button id="more" class="ghost icon-only" title="${t('More')}" aria-label="${t('More')}" aria-haspopup="true" aria-expanded="false">${icon('more')}</button><div id="moreMenu" class="menu hidden" role="menu"><button id="demoMenu" role="menuitem">${t('Load the synthetic example')}</button><button id="settings" role="menuitem">${t('Settings')}</button><button id="about" role="menuitem">${t('About')}</button></div></div></div></header><main><aside class="left"><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><div class="seg dark" role="group" aria-label="${t('View')}">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(DISPLAY_LABELS[x])}</button>`).join('')}</div><label class="base-pick"><span id="baseLabel">${t('Base')}</span><select id="channel" aria-label="Display channel"></select></label><div class="layer-slot"><span id="maskLabel" class="legend-inline"></span><div id="elementChips" class="chips hidden"></div></div><label class="range"><span id="opacityLabel">${t('Opacity')}</span><input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" class="hidden" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div class="under-image"><div id="scaleMark" class="hidden"></div><div id="gridCaption" class="hidden"></div></div></div><div class="empty" id="empty"></div></div><div id="trends" class="trends hidden"></div></section><aside class="right"><button id="collapse" class="ghost icon-only" aria-label="Toggle results">${icon('panel')}</button><div id="results"></div></aside></main><footer><span class="dot-status"></span><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog" class="ghost">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
+  `<header class="topbar"><div class="brand"><svg class="mark" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><rect x="1" y="1" width="16" height="16" rx="4"/><circle cx="6.5" cy="7" r="2.2" fill="#e040fb"/><circle cx="11.5" cy="11.2" r="2.2" fill="#ff9800"/><circle cx="12" cy="5.4" r="1.3" fill="#2979ff"/><circle cx="5.6" cy="12.3" r="1" fill="#20b278"/></svg><strong id="appName">${t('Electrode EDS Analyzer')}</strong><span class="sep"></span><input id="sample" aria-label="${t('Sample name')}" value="Untitled" spellcheck="false"></div><nav class="stepper" aria-label="${t('Steps')}">${STEP_ORDER.map((s, i) => `${i ? '<span class="link"></span>' : ''}<button data-step="${s}"><span class="n">${i + 1}</span><span class="label">${t(STEP_LABELS[s])}</span></button>`).join('')}</nav><div class="actions"><select id="language" class="quiet" aria-label="Language / 介面語言"><option value="zh-Hant">中文</option><option value="en">English</option></select><button id="loadSession" class="ghost">${t('Open project')}</button><button id="save">${t('Save Session')}</button><button id="export" class="primary">${t('Export')}</button><div class="menu-wrap"><button id="more" class="ghost icon-only" title="${t('More')}" aria-label="${t('More')}" aria-haspopup="true" aria-expanded="false">${icon('more')}</button><div id="moreMenu" class="menu hidden" role="menu"><button id="demoMenu" role="menuitem">${t('Load the synthetic example')}</button><button id="settings" role="menuitem">${t('Settings')}</button><button id="about" role="menuitem">${t('About')}</button></div></div></div></header><main><aside class="left"><div id="controls"></div></aside><section id="workspace"><div class="toolbar"><div class="seg dark" role="group" aria-label="${t('View')}">${DISPLAY_MODES.map(x => `<button data-display="${x}">${t(DISPLAY_LABELS[x])}</button>`).join('')}</div><label class="base-pick"><span id="baseLabel">${t('Base')}</span><select id="channel" aria-label="Display channel"></select></label><div class="layer-slot"><span id="maskLabel" class="legend-inline"></span><div id="elementChips" class="chips hidden"></div></div><label class="range"><span id="opacityLabel">${t('Opacity')}</span><input type="range" id="opacity" min="0" max="1" step="0.05" value="0.45" aria-label="Overlay opacity"></label><select id="zoom" aria-label="Zoom"><option value="fit">${t('Fit')}</option><option value=".5">50%</option><option value="1">100%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" class="hidden" title="Pan">${t('Pan')}</button></div><div id="progress" class="progress hidden"></div><div id="notice" class="notice hidden" role="alert"></div><div id="viewport"><div id="stage"><canvas id="canvas"></canvas><div id="gridOverlay" class="hidden"></div><div class="under-image"><div id="scaleMark" class="hidden"></div><div id="gridCaption" class="hidden"></div></div></div><div class="empty" id="empty"></div></div><div id="trends" class="trends hidden"></div></section><aside class="right"><button id="collapse" class="ghost icon-only" aria-label="Toggle results">${icon('panel')}</button><div id="results"></div></aside></main><footer><span class="dot-status"></span><span id="status">${t('Ready')}</span><span id="dimensions"></span><span>v${VERSION}</span>${info('scope')}</footer><div id="tooltip" role="tooltip" class="hidden"></div><dialog id="dialog"><div class="dialogbar"><h2 id="dialogtitle"></h2><button id="closeDialog" class="ghost">${t('Close')}</button></div><div id="dialogbody"></div></dialog><input id="sessionFile" type="file" accept=".json" hidden>`;
 /* What the image area shows before anything is loaded: where to start, and the two other ways in. */
 function renderEmpty() {
   $('#empty').innerHTML =
@@ -5048,11 +5144,12 @@ function renderGridOverlay() {
       !!state.results.elements?.[metric] &&
       !!baseChannel();
   el.classList.toggle('hidden', !show);
+  el.classList.toggle('small-cells', show && cellSize(state.results).small);
   // What the numbers in the cells are, said under the image.
   $('#gridCaption').classList.toggle('hidden', !show);
   if (show)
     $('#gridCaption').innerHTML =
-      `<span class="swatch" style="background:rgb(${ELEMENT_TINT[metric]})"></span>${t('Numbers in the cells')}: ${esc(t(METRIC_LABELS[metric]))} ${t('Area fraction')} (%)`;
+      `<span class="swatch" style="background:rgb(${ELEMENT_TINT[metric]})"></span>${t('Numbers in the cells')}: ${esc(t(METRIC_LABELS[metric]))} ${t('Area fraction')} (%)${cellSize(state.results).small ? ` · ${t('cells are small')}` : ''}`;
   el.innerHTML = show
     ? tiles
         .map((tile, i) => {
@@ -5238,9 +5335,10 @@ document.querySelectorAll('[data-display]').forEach(
     }),
 );
 document.querySelectorAll('[data-step]').forEach(b => (b.onclick = () => setStep(b.dataset.step)));
+// A name is a label, not an input to the analysis: the results stay, and carry the new name.
 $('#sample').oninput = e => {
   state.sample = e.target.value;
-  dirty();
+  if (state.results?.trace) state.results.trace.sample = state.sample;
 };
 
 /* Results panel, per element, and the row / column trend charts under the image. */
@@ -5254,7 +5352,22 @@ function fmt(v, percent = false) {
 // Short names for the elements whose distribution is reported.
 const METRIC_LABELS = { secondary: 'Secondary phase', f: 'Binder F', c: 'Carbon C' },
   // Line colours on the white chart surface: the channel hues, darkened until they read on white.
-  CHART_TINT = { secondary: '#d97b00', f: '#2563d6', c: '#a68a00' };
+  CHART_TINT = { secondary: '#d97b00', f: '#2563d6', c: '#1a9e77' };
+/* Median pixels per grid cell, and whether that is too few for steady cell-to-cell figures. */
+function cellSize(r) {
+  const areas = r.tiles
+      .map(t => t.area)
+      .filter(Boolean)
+      .sort((a, b) => a - b),
+    median = areas.length ? areas[Math.floor((areas.length - 1) / 2)] : 0;
+  return { median, small: median > 0 && median < SMALL_CELL_PIXELS };
+}
+const smallCellNote = r =>
+  t(
+    'Cells hold about {n} pixels each (fewer than {min}): cell-to-cell figures are unsteady. Use a coarser grid or the thirds CV.',
+  )
+    .replace('{n}', cellSize(r).median)
+    .replace('{min}', SMALL_CELL_PIXELS);
 /* Share of one element in one grid cell. */
 function tileShare(tile, key) {
   return key === 'secondary' ? tile.fraction : key === 'f' ? tile.fFraction : tile.cFraction;
@@ -5270,7 +5383,7 @@ function wholeRegionFigures(r, key) {
   const e = r.elements[key],
     // Direction in one block: across the image (left / right) and down it (top / bottom), by
     // thirds of the image and by grid column or row.
-    spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}${groupLabel('Spread by direction')}<table class="direction"><tr><th></th><th>${t('Left / right')}</th><th>${t('Top / bottom')}</th></tr><tr><th>${t('Thirds CV')} ${info('thirds')}</th><td>${fmt(e.thirds.columnCV)}</td><td>${fmt(e.thirds.rowCV)}</td></tr><tr><th>${t('Column / row CV')} ${info('profileCV')}</th><td>${fmt(e.columnCV)}</td><td>${fmt(e.rowCV)}</td></tr></table>`;
+    spread = `${kpi('Uniformity CV', fmt(e.uniformityCV), { help: 'cv', note: 'Cell-to-cell spread; lower is more even.' })}${cellSize(r).small ? `<div class="warning">${smallCellNote(r)}</div>` : ''}${groupLabel('Spread by direction')}<table class="direction"><tr><th></th><th>${t('Left / right')}</th><th>${t('Top / bottom')}</th></tr><tr><th>${t('Thirds CV')} ${info('thirds')}</th><td>${fmt(e.thirds.columnCV)}</td><td>${fmt(e.thirds.rowCV)}</td></tr><tr><th>${t('Column / row CV')} ${info('profileCV')}</th><td>${fmt(e.columnCV)}</td><td>${fmt(e.rowCV)}</td></tr></table>`;
   let html = kpi('Area fraction', fmt(e.areaFraction, true), {
     help: { secondary: 'secondary', f: 'area', c: 'carbon' }[key],
     note: 'Share of the analysed area.',
@@ -5892,11 +6005,16 @@ function addComparison() {
 function showComparison() {
   showDialog(
     'Comparison',
-    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>`,
+    `<div style="overflow:auto"><table><tr><th>${t('Sample')}</th><th>${t('Secondary phase')} CV</th><th>${t('Interparticle Occupancy')}</th><th>${t('Between particles')}</th><th>${t('Median Distance')}</th><th>${t('Binder Coverage')}</th><th>F CV</th><th>C CV</th><th>${t('Depth CV')}</th><th>${t('Cohesive')}</th><th>${t('Peel')}</th><th>${t('Recipe note')}</th><th></th></tr>${state.comparison.map((c, i) => `<tr><td>${esc(c.sample)}</td><td>${fmt(c.metrics.uniformityCV)}</td><td>${fmt(c.metrics.interparticleOccupancy, true)}</td><td>${fmt(c.metrics.targetingEfficiency, true)}</td><td>${c.metrics.distance ? `${fmt(c.metrics.distance.median)} ${esc(c.metrics.distance.unit)}` : '—'}</td><td>${fmt(c.metrics.binderCoverage, true)}</td><td>${fmt(c.metrics.elements?.f?.uniformityCV)}</td><td>${fmt(c.metrics.elements?.c?.uniformityCV)}</td><td>${fmt(c.metrics.depth?.cv)}</td>${['cohesive', 'peel', 'note'].map(k => `<td><input data-comp="${i}" data-key="${k}" aria-label="${t({ cohesive: 'Cohesive', peel: 'Peel', note: 'Recipe note' }[k])} ${i + 1}" value="${esc(c[k] || '')}"></td>`).join('')}<td><button data-removecomp="${i}">×</button></td></tr>`).join('')}</table></div><div class="row"><button id="comparisonCSV">${t('Export comparison CSV')}</button></div>${comparisonChartHTML()}`,
   );
-  document
-    .querySelectorAll('[data-comp]')
-    .forEach(e => (e.oninput = () => (state.comparison[+e.dataset.comp][e.dataset.key] = e.value)));
+  bindComparisonChart();
+  document.querySelectorAll('[data-comp]').forEach(
+    e =>
+      (e.oninput = () => {
+        state.comparison[+e.dataset.comp][e.dataset.key] = e.value;
+        if (e.dataset.key === compareX) drawComparisonChart();
+      }),
+  );
   document.querySelectorAll('[data-removecomp]').forEach(
     b =>
       (b.onclick = () => {
@@ -5985,7 +6103,7 @@ function exportCSV(comparison = false) {
 $('#export').onclick = () => {
   showDialog(
     'Export',
-    `<div class="row"><button id="exportCSV">${t('Analysis CSV')}</button><button id="exportJSON">${t('Analysis JSON')}</button><button id="exportPNG">${t('Overlay PNG')}</button></div><div class="row"><button id="exportSession">${t('Session JSON')}</button><button id="exportComparison">${t('Comparison CSV')}</button></div>`,
+    `<div class="row"><button id="exportCSV">${t('Analysis CSV')}</button><button id="exportJSON">${t('Analysis JSON')}</button><button id="exportPNG">${t('Overlay PNG')}</button><button id="exportReport" class="primary">${t('Report figure PNG')}</button></div><div class="row"><button id="exportSession">${t('Session JSON')}</button><button id="exportComparison">${t('Comparison CSV')}</button></div>`,
   );
   $('#exportCSV').onclick = () => exportCSV();
   $('#exportJSON').onclick = () => {
@@ -6003,6 +6121,8 @@ $('#export').onclick = () => {
     );
   };
   $('#exportPNG').onclick = exportPNG;
+  $('#exportReport').onclick = () =>
+    exportReport().catch(e => status(() => t('Report figure failed') + ': ' + e.message, true));
   $('#exportSession').onclick = $('#save').onclick;
   $('#exportComparison').onclick = () => exportCSV(true);
 };
@@ -6095,6 +6215,649 @@ function exportPNG() {
   out.toBlob(b => download(safeName() + '.overlay.png', b), 'image/png');
   display = old;
   draw();
+}
+
+/* Comparison chart: one figure of every compared sample, by sample or against a measured value
+   typed into the table (peel or cohesive strength). */
+const COMPARE_FIGURES = [
+  ['area', 'Area fraction', e => (e.areaFraction == null ? null : e.areaFraction * 100)],
+  ['cv', 'Uniformity CV', e => e.uniformityCV],
+  ['lr', 'Thirds CV, left / right', e => e.thirds?.columnCV],
+  ['tb', 'Thirds CV, top / bottom', e => e.thirds?.rowCV],
+];
+let compareY = 'f:cv',
+  compareX = 'sample';
+/* A measured value typed into the table: a plain number, or null for empty; anything else
+   (units, thousands separators) is not guessed at and is reported instead. */
+function parseMeasured(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return { value: null };
+  return /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(s)
+    ? { value: Number(s) }
+    : { value: null, invalid: true };
+}
+function compareFigure(entry, choice) {
+  const [key, name] = choice.split(':'),
+    figure = COMPARE_FIGURES.find(f => f[0] === name),
+    e = entry.metrics.elements?.[key];
+  return e ? (figure[2](e) ?? null) : null;
+}
+function comparisonChartHTML() {
+  const options = METRIC_KEYS.flatMap(k =>
+    COMPARE_FIGURES.map(
+      ([name, label]) =>
+        `<option value="${k}:${name}">${t(METRIC_LABELS[k])} · ${t(label)}${name === 'area' ? ' (%)' : ''}</option>`,
+    ),
+  ).join('');
+  return `<section class="compare-chart"><div class="compare-controls"><label>${t('Vertical axis')}<select id="compareY">${options}</select></label><label>${t('Horizontal axis')}<select id="compareX"><option value="sample">${t('Sample')}</option><option value="peel">${t('Peel')}</option><option value="cohesive">${t('Cohesive')}</option></select></label></div><div id="compareChart"></div><p id="compareNote" class="hint"></p></section>`;
+}
+function bindComparisonChart() {
+  $('#compareY').value = compareY;
+  $('#compareX').value = compareX;
+  $('#compareY').onchange = e => {
+    compareY = e.target.value;
+    drawComparisonChart();
+  };
+  $('#compareX').onchange = e => {
+    compareX = e.target.value;
+    drawComparisonChart();
+  };
+  drawComparisonChart();
+}
+/* Round axis bounds covering the values, with a step of 1, 2 or 5 × 10^k. */
+function niceAxis(min, max) {
+  if (min === max) [min, max] = [min - Math.abs(min || 1) * 0.1, max + Math.abs(max || 1) * 0.1];
+  const raw = (max - min) / 4,
+    power = 10 ** Math.floor(Math.log10(raw)),
+    step = [1, 2, 5, 10].map(m => m * power).find(s => s >= raw);
+  return { min: Math.floor(min / step) * step, max: Math.ceil(max / step) * step, step };
+}
+function drawComparisonChart() {
+  const host = $('#compareChart'),
+    note = $('#compareNote');
+  if (!host) return;
+  const rows = state.comparison.map((c, i) => ({
+      i,
+      name: c.sample,
+      y: compareFigure(c, compareY),
+      x: compareX === 'sample' ? { value: i } : parseMeasured(c[compareX]),
+    })),
+    lacking = rows.filter(r => r.y == null).length,
+    unreadable = rows.filter(r => r.x.invalid).map(r => r.name),
+    points = rows.filter(r => r.y != null && r.x.value != null),
+    notes = [];
+  if (lacking)
+    notes.push(
+      t(
+        '{k} of {m} samples lack this figure (analysed with an older version or without this element).',
+      )
+        .replace('{k}', lacking)
+        .replace('{m}', rows.length),
+    );
+  if (unreadable.length)
+    notes.push(`${t('Not a plain number, left out')}: ${unreadable.map(esc).join('、')}`);
+  const n = points.length;
+  if (compareX !== 'sample') notes.push(`n = ${n}`);
+  if (compareX !== 'sample' && n >= 4) {
+    const r = Core.pearson(
+      Float64Array.from(points, p => p.x.value),
+      Float64Array.from(points, p => p.y),
+      new Uint8Array(n).fill(1),
+    );
+    notes.push(`${t('Pearson r')} = ${fmt(r)}`);
+  } else if (compareX !== 'sample' && n) notes.push(t('A correlation needs at least 4 samples.'));
+  note.innerHTML = notes.join(' · ');
+  if (!n) {
+    host.innerHTML = `<div class="compare-empty">${t(compareX === 'sample' ? 'No sample has this figure yet.' : 'Type numbers into the column above to plot against them.')}</div>`;
+    return;
+  }
+  const w = Math.max(420, Math.min(760, host.clientWidth || 640)),
+    h = 260,
+    left = 56,
+    right = 16,
+    top = 14,
+    bottom = compareX === 'sample' ? 52 : 40,
+    ys = niceAxis(Math.min(0, ...points.map(p => p.y)), Math.max(...points.map(p => p.y))),
+    xs =
+      compareX === 'sample'
+        ? null
+        : niceAxis(
+            Math.min(...points.map(p => p.x.value)),
+            Math.max(...points.map(p => p.x.value)),
+          ),
+    sx = p =>
+      compareX === 'sample'
+        ? left + ((p.i + 0.5) / rows.length) * (w - left - right)
+        : left + ((p.x.value - xs.min) / (xs.max - xs.min)) * (w - left - right),
+    sy = v => top + (1 - (v - ys.min) / (ys.max - ys.min)) * (h - top - bottom),
+    digits = v => Number(v.toPrecision(6)),
+    [key] = compareY.split(':');
+  let svg = `<svg width="${w}" height="${h}" role="img" aria-label="${esc(t('Comparison'))}">`;
+  for (let v = ys.min; v <= ys.max + ys.step / 2; v += ys.step)
+    svg += `<line class="gridline" x1="${left}" x2="${w - right}" y1="${sy(v)}" y2="${sy(v)}"/><text class="tick" x="${left - 6}" y="${sy(v) + 3}" text-anchor="end">${digits(v)}</text>`;
+  if (compareX === 'sample')
+    rows.forEach(r => {
+      const x = sx(r),
+        label = r.name.length > 10 ? r.name.slice(0, 9) + '…' : r.name;
+      svg += `<text class="tick" x="${x}" y="${h - bottom + 16}" text-anchor="middle">${esc(label)}</text>`;
+    });
+  else {
+    for (let v = xs.min; v <= xs.max + xs.step / 2; v += xs.step) {
+      const x = left + ((v - xs.min) / (xs.max - xs.min)) * (w - left - right);
+      svg += `<line class="axis-tick" x1="${x}" x2="${x}" y1="${h - bottom}" y2="${h - bottom + 4}"/><text class="tick" x="${x}" y="${h - bottom + 16}" text-anchor="middle">${digits(v)}</text>`;
+    }
+    svg += `<text class="axis-title" x="${(left + w - right) / 2}" y="${h - 4}" text-anchor="middle">${t(compareX === 'peel' ? 'Peel' : 'Cohesive')}</text>`;
+  }
+  svg += `<line class="axis" x1="${left}" x2="${w - right}" y1="${h - bottom}" y2="${h - bottom}"/>`;
+  for (const p of points)
+    svg += `<g class="compare-point"><circle cx="${sx(p)}" cy="${sy(p.y)}" r="5" style="fill:${CHART_TINT[key]}"/><title>${esc(p.name)}: ${fmt(p.y)}</title>${compareX === 'sample' ? '' : `<text class="point-label" x="${sx(p) + 8}" y="${sy(p.y) + 3}">${esc(p.name.length > 12 ? p.name.slice(0, 11) + '…' : p.name)}</text>`}</g>`;
+  host.innerHTML = svg + '</svg>';
+}
+
+/* One-page report figure, laid out as a double-column journal figure: 180 mm wide at 300 dpi,
+   text at 7–10 pt, hairline axes. Panels a–c are the element masks with their grid shares,
+   d the figures of each element, e and f the column and row profiles; a caption with the
+   methods, taken from the analysis trace, runs underneath. Drawn only when exported. */
+const REPORT = {
+  dpi: 300,
+  width: Math.round((180 / 25.4) * 300),
+  margin: 48,
+  gap: 56,
+  font: '"Arial", "Helvetica Neue", Helvetica, "Microsoft JhengHei", "PingFang TC", sans-serif',
+  ink: '#111111',
+  soft: '#555555',
+  rule: '#111111',
+  markers: { secondary: 'circle', f: 'square', c: 'triangle' },
+};
+const pt = size => Math.round((size * REPORT.dpi) / 72);
+function reportFont(size, weight = 400) {
+  return `${weight} ${pt(size)}px ${REPORT.font}`;
+}
+/* Breaks text into lines that fit; Latin text breaks at spaces, CJK text between characters. */
+function wrapText(ctx, text, width) {
+  const tokens = text.match(/[　-鿿＀-￯]|[^\s　-鿿＀-￯]+\s*|\s+/g) || [],
+    lines = [];
+  let line = '';
+  for (const token of tokens) {
+    if (line && ctx.measureText(line + token).width > width) {
+      lines.push(line.trimEnd());
+      line = token.trimStart();
+    } else line += token;
+  }
+  if (line.trim()) lines.push(line.trimEnd());
+  return lines;
+}
+function fitText(ctx, text, width) {
+  if (ctx.measureText(text).width <= width) return text;
+  let s = text;
+  while (s.length > 1 && ctx.measureText(s + '…').width > width) s = s.slice(0, -1);
+  return s + '…';
+}
+/* Mask image of one element: the micrograph (or the main-phase map) in grey, the main phase and
+   the element in their colours, outside the analysed area dimmed. Pixels as computed. */
+function maskImage(key) {
+  const base = baseChannel(),
+    { w, h } = base,
+    sem = state.channels.sem?.w === w && state.channels.sem?.h === h ? state.channels.sem : null,
+    grey = sem || state.channels.nmc,
+    range = Core.range(grey.data),
+    span = range.max - range.min || 1,
+    canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d'),
+    image = ctx.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const g = grey.rgba
+      ? (grey.rgba[i * 4] + grey.rgba[i * 4 + 1] + grey.rgba[i * 4 + 2]) / 3
+      : ((grey.data[i] - range.min) / span) * 255;
+    let rgb = [g * 0.8, g * 0.8, g * 0.8];
+    for (const [k, alpha] of [
+      ['nmc', 0.38],
+      [key, 0.72],
+    ])
+      if (masks[k]?.[i]) rgb = rgb.map((v, c) => v * (1 - alpha) + ELEMENT_TINT[k][c] * alpha);
+    if (effectiveROI && !effectiveROI[i]) rgb = rgb.map(v => v * 0.35);
+    image.data.set([...rgb, 255], i * 4);
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+/* Cell statistics along one axis: mean ± SD of the cell shares in each column (or row). */
+function cellProfile(r, key, axis) {
+  const n = Math.round(Math.sqrt(r.tiles.length));
+  return Array.from({ length: n }, (_, g) => {
+    const values = r.tiles
+      .filter(tile => tile[axis] === g && tile.area)
+      .map(tile => tileShare(tile, key))
+      .filter(v => v != null)
+      .map(v => v * 100);
+    if (!values.length) return null;
+    const mean = values.reduce((a, b) => a + b, 0) / values.length,
+      sd =
+        values.length > 1
+          ? Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (values.length - 1))
+          : 0;
+    return { mean, sd, n: values.length };
+  });
+}
+function elementName(key) {
+  return key === 'secondary'
+    ? `${t('Secondary phase')} (${t(state.material)})`
+    : t(METRIC_LABELS[key]);
+}
+const REPORT_ROWS = [
+  ['Area fraction (%)', (r, e) => e.areaFraction * 100, 2],
+  ['Uniformity CV', (r, e) => e.uniformityCV, 3],
+  ['Thirds CV, left / right', (r, e) => e.thirds?.columnCV, 3],
+  ['Thirds CV, top / bottom', (r, e) => e.thirds?.rowCV, 3],
+  ['Column CV', (r, e) => e.columnCV, 3],
+  ['Row CV', (r, e) => e.rowCV, 3],
+  ['Between particles (%)', (r, e) => e.betweenParticles * 100, 1],
+  [
+    'Interparticle Occupancy (%)',
+    (r, e, k) => (k === 'secondary' ? r.interparticleOccupancy * 100 : null),
+    1,
+  ],
+  ['Median distance', (r, e, k) => (k === 'secondary' ? r.distance?.median : null), 3],
+  [
+    'Binder Coverage (%)',
+    (r, e, k) => (k === 'secondary' && r.binderCoverage != null ? r.binderCoverage * 100 : null),
+    1,
+  ],
+];
+function drawMarker(ctx, shape, x, y, size) {
+  ctx.beginPath();
+  if (shape === 'square') ctx.rect(x - size, y - size, size * 2, size * 2);
+  else if (shape === 'triangle') {
+    ctx.moveTo(x, y - size * 1.2);
+    ctx.lineTo(x + size * 1.1, y + size * 0.8);
+    ctx.lineTo(x - size * 1.1, y + size * 0.8);
+    ctx.closePath();
+  } else ctx.arc(x, y, size, 0, Math.PI * 2);
+  ctx.fill();
+}
+/* Profile chart: one series per element, mean ± SD of the cells, distinct markers for print. */
+function drawProfileChart(ctx, box, r, keys, axis, letter, title, xTitle) {
+  const n = Math.round(Math.sqrt(r.tiles.length)),
+    series = keys.map(k => ({ k, points: cellProfile(r, k, axis) })),
+    top = Math.max(1, ...series.flatMap(s => s.points.filter(Boolean).map(p => p.mean + p.sd))),
+    step = [1, 2, 5, 10, 20, 25].find(s => top / s <= 5) || 25,
+    max = Math.ceil(top / step) * step,
+    plot = {
+      x: box.x + pt(28),
+      y: box.y + pt(30),
+      w: box.w - pt(32),
+      h: box.h - pt(30) - pt(26),
+    },
+    sx = i => plot.x + ((i + 0.5) / n) * plot.w,
+    sy = v => plot.y + plot.h - (v / max) * plot.h;
+  ctx.fillStyle = REPORT.ink;
+  ctx.font = reportFont(10, 700);
+  ctx.fillText(letter, box.x, box.y + pt(10));
+  ctx.font = reportFont(8, 700);
+  ctx.fillText(title, box.x + pt(12), box.y + pt(10));
+  // Legend in one row, swatch and marker beside ink text.
+  let lx = box.x + pt(12);
+  ctx.font = reportFont(7);
+  for (const s of series) {
+    ctx.fillStyle = CHART_TINT[s.k];
+    ctx.strokeStyle = CHART_TINT[s.k];
+    ctx.lineWidth = pt(1);
+    ctx.beginPath();
+    ctx.moveTo(lx, box.y + pt(20));
+    ctx.lineTo(lx + pt(14), box.y + pt(20));
+    ctx.stroke();
+    drawMarker(ctx, REPORT.markers[s.k], lx + pt(7), box.y + pt(20), pt(2));
+    ctx.fillStyle = REPORT.ink;
+    const label = elementName(s.k);
+    ctx.fillText(label, lx + pt(18), box.y + pt(22.5));
+    lx += pt(26) + ctx.measureText(label).width;
+  }
+  // Axes: hairlines, ticks outward.
+  ctx.strokeStyle = REPORT.rule;
+  ctx.lineWidth = pt(0.6);
+  ctx.beginPath();
+  ctx.moveTo(plot.x, plot.y);
+  ctx.lineTo(plot.x, plot.y + plot.h);
+  ctx.lineTo(plot.x + plot.w, plot.y + plot.h);
+  ctx.stroke();
+  ctx.font = reportFont(7);
+  ctx.textAlign = 'right';
+  for (let v = 0; v <= max + 1e-9; v += step) {
+    ctx.beginPath();
+    ctx.moveTo(plot.x, sy(v));
+    ctx.lineTo(plot.x - pt(2.5), sy(v));
+    ctx.stroke();
+    ctx.fillText(String(v), plot.x - pt(4), sy(v) + pt(2.5));
+  }
+  ctx.textAlign = 'center';
+  for (let i = 0; i < n; i++) {
+    ctx.beginPath();
+    ctx.moveTo(sx(i), plot.y + plot.h);
+    ctx.lineTo(sx(i), plot.y + plot.h + pt(2.5));
+    ctx.stroke();
+    ctx.fillText(String(i + 1), sx(i), plot.y + plot.h + pt(10));
+  }
+  ctx.fillText(xTitle, plot.x + plot.w / 2, plot.y + plot.h + pt(20));
+  ctx.save();
+  ctx.translate(box.x + pt(6), plot.y + plot.h / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(`${t('Area fraction')} (%)`, 0, 0);
+  ctx.restore();
+  // Series, nudged sideways so error bars of different elements do not sit on top of each other.
+  series.forEach((s, j) => {
+    const offset = (j - (series.length - 1) / 2) * pt(3);
+    ctx.strokeStyle = CHART_TINT[s.k];
+    ctx.fillStyle = CHART_TINT[s.k];
+    ctx.lineWidth = pt(0.75);
+    for (const [i, p] of s.points.entries())
+      if (p && p.n > 1) {
+        const x = sx(i) + offset;
+        ctx.beginPath();
+        ctx.moveTo(x, sy(p.mean - p.sd));
+        ctx.lineTo(x, sy(p.mean + p.sd));
+        ctx.moveTo(x - pt(1.5), sy(p.mean - p.sd));
+        ctx.lineTo(x + pt(1.5), sy(p.mean - p.sd));
+        ctx.moveTo(x - pt(1.5), sy(p.mean + p.sd));
+        ctx.lineTo(x + pt(1.5), sy(p.mean + p.sd));
+        ctx.stroke();
+      }
+    ctx.lineWidth = pt(1);
+    ctx.beginPath();
+    let pen = false;
+    for (const [i, p] of s.points.entries()) {
+      if (!p) {
+        pen = false;
+        continue;
+      }
+      ctx[pen ? 'lineTo' : 'moveTo'](sx(i) + offset, sy(p.mean));
+      pen = true;
+    }
+    ctx.stroke();
+    for (const [i, p] of s.points.entries())
+      if (p) drawMarker(ctx, REPORT.markers[s.k], sx(i) + offset, sy(p.mean), pt(2.1));
+  });
+  ctx.textAlign = 'left';
+}
+/* Three-line table of the figures: one row per element, one column per figure. Headers wrap to
+   two lines; a figure no element has is left out. Returns the height used, or measures only. */
+function drawFigureTable(ctx, box, r, keys, letter, measureOnly = false) {
+  const unit = r.distance?.unit || '',
+    columns = REPORT_ROWS.map(([label, read, digits]) => ({
+      label: label === 'Median distance' ? `${t('Median Distance')} (${unit})` : t(label),
+      values: keys.map(k => read(r, r.elements[k], k)),
+      digits,
+    })).filter(c => c.values.some(v => v != null && Number.isFinite(v))),
+    firstW = box.w * 0.17,
+    colW = (box.w - firstW) / columns.length,
+    rowH = pt(11.5);
+  ctx.font = reportFont(7, 700);
+  const headers = columns.map(c => wrapText(ctx, c.label, colW - pt(4)).slice(0, 3)),
+    headerH = Math.max(...headers.map(h => h.length)) * pt(8.5),
+    height = pt(18) + headerH + pt(6) + keys.length * rowH + pt(6);
+  if (measureOnly) return height;
+  ctx.fillStyle = REPORT.ink;
+  ctx.font = reportFont(10, 700);
+  ctx.fillText(letter, box.x, box.y + pt(10));
+  ctx.font = reportFont(8, 700);
+  ctx.fillText(t('Figures of the whole analysed region'), box.x + pt(12), box.y + pt(10));
+  let y = box.y + pt(16);
+  const rule = width => {
+    ctx.lineWidth = width;
+    ctx.strokeStyle = REPORT.rule;
+    ctx.beginPath();
+    ctx.moveTo(box.x, y);
+    ctx.lineTo(box.x + box.w, y);
+    ctx.stroke();
+  };
+  rule(pt(1));
+  ctx.font = reportFont(7, 700);
+  ctx.textAlign = 'right';
+  headers.forEach((lines, j) =>
+    lines.forEach((line, l) =>
+      ctx.fillText(line, box.x + firstW + colW * (j + 1), y + pt(9) + l * pt(8.5)),
+    ),
+  );
+  ctx.textAlign = 'left';
+  y += headerH + pt(4);
+  rule(pt(0.5));
+  ctx.font = reportFont(7);
+  keys.forEach((k, i) => {
+    const ry = y + (i + 1) * rowH;
+    ctx.fillStyle = CHART_TINT[k];
+    drawMarker(ctx, REPORT.markers[k], box.x + pt(3), ry - pt(2.5), pt(2));
+    ctx.fillStyle = REPORT.ink;
+    ctx.fillText(fitText(ctx, elementName(k), firstW - pt(10)), box.x + pt(9), ry);
+    ctx.textAlign = 'right';
+    columns.forEach((c, j) => {
+      const v = c.values[i];
+      ctx.fillText(
+        v == null || !Number.isFinite(v) ? '—' : v.toFixed(c.digits),
+        box.x + firstW + colW * (j + 1),
+        ry,
+      );
+    });
+    ctx.textAlign = 'left';
+  });
+  y += keys.length * rowH + pt(5);
+  rule(pt(1));
+  return height;
+}
+/* Mask panel with its grid shares and a scale bar. Small maps are enlarged by a whole factor
+   without smoothing; larger ones are reduced with smoothing so mask detail is averaged, not
+   dropped. */
+function drawMaskPanel(ctx, box, r, key, letter, maxH) {
+  const source = maskImage(key),
+    fit = Math.min(box.w / source.width, maxH / source.height),
+    scale = fit >= 1 ? Math.floor(fit) : fit,
+    w = Math.round(source.width * scale),
+    h = Math.round(source.height * scale),
+    x = box.x,
+    y = box.y + pt(14);
+  ctx.fillStyle = REPORT.ink;
+  ctx.font = reportFont(10, 700);
+  ctx.fillText(letter, box.x, box.y + pt(10));
+  ctx.font = reportFont(8, 700);
+  ctx.fillText(
+    fitText(ctx, `${elementName(key)} · ${t('area fraction per cell')} (%)`, box.w - pt(12)),
+    box.x + pt(12),
+    box.y + pt(10),
+  );
+  ctx.imageSmoothingEnabled = scale < 1;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, x, y, w, h);
+  ctx.imageSmoothingEnabled = false;
+  // Grid and the share in each cell.
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  for (const tile of r.tiles) {
+    const tx = x + tile.x0 * scale,
+      ty = y + tile.y0 * scale,
+      tw = (tile.x1 - tile.x0) * scale,
+      th = (tile.y1 - tile.y0) * scale;
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = pt(0.4);
+    ctx.strokeRect(tx, ty, tw, th);
+    const share = tileShare(tile, key);
+    if (!tile.area || share == null || tw < pt(16) || th < pt(8)) continue;
+    const text = (share * 100).toFixed(1);
+    ctx.font = reportFont(6.5, 700);
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = pt(1.6);
+    ctx.strokeText(text, tx + tw / 2, ty + th / 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, tx + tw / 2, ty + th / 2);
+  }
+  ctx.textBaseline = 'alphabetic';
+  // Scale bar under the image's lower right corner, clear of the cell numbers; without a
+  // calibration, a note that distances are in pixels.
+  const mark = scaleMark((w * 0.18) / scale);
+  ctx.fillStyle = REPORT.ink;
+  ctx.font = reportFont(7);
+  ctx.textAlign = 'right';
+  if (mark) {
+    const length = mark.pixels * scale,
+      label = `${mark.um} µm`,
+      textW = ctx.measureText(label).width;
+    ctx.fillText(label, x + w, y + h + pt(9));
+    ctx.fillRect(x + w - textW - pt(4) - length, y + h + pt(5), length, pt(1.5));
+  } else ctx.fillText(t('px, uncalibrated'), x + w, y + h + pt(9));
+  ctx.textAlign = 'left';
+  return pt(14) + h + pt(12);
+}
+/* The caption: what each panel is, how the error bars were made, and the methods. */
+function reportCaption(r, keys, letters, later) {
+  const trace = r.trace,
+    seg = trace.segmentation,
+    n = Math.round(Math.sqrt(r.tiles.length)),
+    thresholds = ['nmc', ...keys]
+      .map(
+        k =>
+          `${t(SHORT_NAMES[k])} ${seg[k].auto ? t('automatic') : `${t('manual')} ${Number(seg[k].threshold.toPrecision(4))}`}, ${t('averaging')} ${seg[k].denoise || 0} px`,
+      )
+      .join('; '),
+    scale = trace.parameters.calibration
+      ? `${Number(trace.parameters.calibration.toPrecision(4))} µm/px`
+      : t('uncalibrated (px)'),
+    region = trace.rois.length || trace.roiInvert ? t('user-defined region') : t('whole image'),
+    small = cellSize(r).small ? ' ' + smallCellNote(r) : '';
+  return [
+    `${letters.length > 1 ? `${letters[0]}–${letters[letters.length - 1]}` : letters[0]}: ${t('Element masks (colour) over the micrograph; the main phase in magenta. Numbers are each cell’s area fraction of the element.')}`,
+    `${later[0]}, ${later[1]}: ${t('Mean of the cell area fractions in each column (row) of the {n} × {n} grid; error bars ±1 SD over the {n} cells (spatial spread, not measurement uncertainty).').replaceAll('{n}', n)}`,
+    `${later[2]}: ${t('Figures of the whole analysed region. CV is the population standard deviation divided by the mean.')}`,
+    `${t('Methods')}: ${t('thresholds')} — ${thresholds}. ${t('Grid')} ${n} × ${n}; ${t('scale')} ${scale}; ${t('analysed area')}: ${region}.${small} ${t('2D image quantification')}. ${t('Electrode EDS Analyzer')} v${trace.toolVersion}, ${new Date(r.analyzedAt).toISOString().slice(0, 10)}.`,
+  ];
+}
+function crc32(bytes) {
+  let crc = -1;
+  for (const b of bytes) {
+    crc ^= b;
+    for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ -1) >>> 0;
+}
+/* PNG with a pHYs chunk, so Word and PowerPoint place it at its printed size. */
+async function withResolution(blob, dpi) {
+  const png = new Uint8Array(await blob.arrayBuffer()),
+    perMetre = Math.round(dpi / 0.0254),
+    chunk = new Uint8Array(21),
+    view = new DataView(chunk.buffer);
+  view.setUint32(0, 9);
+  chunk.set([0x70, 0x48, 0x59, 0x73], 4); // pHYs
+  view.setUint32(8, perMetre);
+  view.setUint32(12, perMetre);
+  chunk[16] = 1; // unit: metre
+  view.setUint32(17, crc32(chunk.subarray(4, 17)));
+  // IHDR is always first: 8-byte signature + 25-byte chunk.
+  const out = new Uint8Array(png.length + chunk.length);
+  out.set(png.subarray(0, 33));
+  out.set(chunk, 33);
+  out.set(png.subarray(33), 33 + chunk.length);
+  return new Blob([out], { type: 'image/png' });
+}
+async function exportReport() {
+  const r = state.results;
+  if (!r || !baseChannel()) {
+    status('請先完成分析。', true);
+    return;
+  }
+  const keys = METRIC_KEYS.filter(k => r.elements?.[k]),
+    letters = keys.map((_, i) => 'abc'[i]),
+    // After the mask panels: the column profile, the row profile, the table.
+    later = [...'abcdef'.slice(keys.length, keys.length + 3)],
+    W = REPORT.width,
+    M = REPORT.margin,
+    leftW = Math.round((W - 2 * M - REPORT.gap) * 0.52),
+    rightW = W - 2 * M - REPORT.gap - leftW,
+    rightX = M + leftW + REPORT.gap,
+    measure = document.createElement('canvas').getContext('2d');
+  // Lay out first to know the height: header; mask panels beside the two profile charts, the
+  // charts as tall as the panels; the table across the page; the caption.
+  const headerH = pt(26),
+    base = baseChannel(),
+    maxPanel = Math.round((pt(420) - keys.length * pt(26)) / keys.length),
+    fit = Math.min(leftW / base.w, maxPanel / base.h),
+    scale = fit >= 1 ? Math.floor(fit) : fit,
+    panelH = pt(14) + Math.round(base.h * scale) + pt(12),
+    leftH = keys.length * (panelH + pt(8)),
+    chartH = Math.max(pt(120), Math.min(pt(200), (leftH - pt(10)) / 2)),
+    bodyH = Math.max(leftH, 2 * chartH + pt(10)),
+    tableH = drawFigureTable(measure, { x: 0, y: 0, w: W - 2 * M }, r, keys, '', true);
+  measure.font = reportFont(7);
+  const caption = reportCaption(r, keys, letters, later).flatMap(p =>
+      wrapText(measure, p, W - 2 * M),
+    ),
+    tableY = M + headerH + bodyH + pt(6),
+    captionY = tableY + tableH + pt(10),
+    H = captionY + caption.length * pt(9.5) + M;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = Math.round(H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, canvas.height);
+  ctx.textBaseline = 'alphabetic';
+  // Header.
+  ctx.fillStyle = REPORT.ink;
+  ctx.font = reportFont(10, 700);
+  ctx.fillText(
+    fitText(ctx, `${state.sample} — ${t('EDS spatial distribution')}`, W - 2 * M),
+    M,
+    M + pt(10),
+  );
+  ctx.font = reportFont(7);
+  ctx.fillStyle = REPORT.soft;
+  ctx.fillText(
+    [
+      t(state.view === 'top' ? 'Top View' : 'Cross Section'),
+      `${t('Additive')} ${t(state.material)}`,
+      `${base.w} × ${base.h} px`,
+      new Date(r.analyzedAt).toISOString().slice(0, 10),
+    ].join(' · '),
+    M,
+    M + pt(20),
+  );
+  // Left: mask panels. Right: the column and row profiles.
+  let y = M + headerH;
+  keys.forEach((k, i) => {
+    y += drawMaskPanel(ctx, { x: M, y, w: leftW }, r, k, letters[i], maxPanel) + pt(8);
+  });
+  const chartsTop = M + headerH;
+  drawProfileChart(
+    ctx,
+    { x: rightX, y: chartsTop, w: rightW, h: chartH },
+    r,
+    keys,
+    'x',
+    later[0],
+    t('Columns, image left to right'),
+    t('Column'),
+  );
+  drawProfileChart(
+    ctx,
+    { x: rightX, y: chartsTop + chartH + pt(10), w: rightW, h: chartH },
+    r,
+    keys,
+    'y',
+    later[1],
+    t('Rows, image top to bottom'),
+    t('Row'),
+  );
+  // Table across the page.
+  drawFigureTable(ctx, { x: M, y: tableY, w: W - 2 * M }, r, keys, later[2]);
+  // Caption.
+  let cy = captionY;
+  ctx.fillStyle = REPORT.ink;
+  ctx.font = reportFont(7);
+  for (const line of caption) {
+    cy += pt(9.5);
+    ctx.fillText(line, M, cy - pt(2));
+  }
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  download(safeName() + '.report.png', await withResolution(blob, REPORT.dpi));
+  status('Report figure exported');
 }
 
 /* Language switching and start-up. */

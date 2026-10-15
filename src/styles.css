@@ -759,6 +759,11 @@ details[open] > summary {
   color: var(--viewer-ink);
   font-size: 11px;
 }
+/* Dimmed, not hidden: the numbers stay readable on the dark masks. */
+#gridOverlay.small-cells .tile {
+  color: #d4d4d8;
+  font-weight: 500;
+}
 #gridOverlay .tile.hot {
   background: #ffffff38;
   border-color: #fff;
@@ -1160,6 +1165,52 @@ td input {
   width: 100px;
 }
 
+.compare-chart {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.compare-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.compare-controls label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+#compareChart svg {
+  display: block;
+  margin-top: 12px;
+  overflow: visible;
+}
+#compareChart .gridline {
+  stroke: #ececef;
+}
+#compareChart .axis,
+#compareChart .axis-tick {
+  stroke: var(--ink-3);
+}
+#compareChart .tick,
+#compareChart .axis-title,
+#compareChart .point-label {
+  font: 11px var(--mono);
+  fill: var(--ink-2);
+}
+#compareChart circle {
+  stroke: #fff;
+  stroke-width: 2;
+}
+.compare-empty {
+  margin-top: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-3);
+  background: var(--subtle);
+  border-radius: var(--radius);
+}
 footer {
   height: 28px;
   display: flex;

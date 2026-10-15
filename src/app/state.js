@@ -44,11 +44,14 @@ const DISPLAY_MODES = ['elements', 'overlay', 'original', 'mask'],
     nmc: [224, 64, 251],
     secondary: [255, 152, 0],
     f: [41, 121, 255],
-    c: [242, 210, 0],
+    c: [32, 178, 120],
     other: [0, 188, 212],
   };
 // Elements whose distribution is reported, in the order of the results tabs.
 const METRIC_KEYS = ['secondary', 'f', 'c'];
+// Below this median number of pixels per grid cell, cell-to-cell figures mostly reflect how few
+// particles fit in a cell; the grid labels are dimmed and a coarser grid is suggested.
+const SMALL_CELL_PIXELS = 600;
 // Element whose local shares label the grid and whose figures and trends are shown.
 let metric = 'secondary';
 // Element maps laid over SEM in the element view. Null until the user picks: the phase under
