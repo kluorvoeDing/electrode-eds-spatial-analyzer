@@ -233,7 +233,14 @@ function drawFigureTable(ctx, box, r, keys, letter, measureOnly = false) {
       values: keys.map(k => read(r, r.elements[k], k)),
       digits,
     })).filter(c => c.values.some(v => v != null && Number.isFinite(v))),
-    firstW = box.w * 0.17,
+    // The name column is as wide as the longest element name, so no name is cut.
+    firstW = (() => {
+      ctx.font = reportFont(7);
+      return Math.max(
+        box.w * 0.12,
+        Math.max(...keys.map(k => ctx.measureText(elementName(k)).width)) + pt(14),
+      );
+    })(),
     colW = (box.w - firstW) / columns.length,
     rowH = pt(11.5);
   ctx.font = reportFont(7, 700);
@@ -359,7 +366,7 @@ function reportCaption(r, keys, letters, later) {
     thresholds = ['nmc', ...keys]
       .map(
         k =>
-          `${t(SHORT_NAMES[k])} ${seg[k].auto ? t('automatic') : `${t('manual')} ${Number(seg[k].threshold.toPrecision(4))}`}, ${t('averaging')} ${seg[k].denoise || 0} px`,
+          `${k === 'secondary' ? t('Secondary phase') : t(SHORT_NAMES[k])} ${seg[k].auto ? t('automatic') : `${t('manual')} ${Number(seg[k].threshold.toPrecision(4))}`}, ${t('averaging')} ${seg[k].denoise || 0} px`,
       )
       .join('; '),
     scale = trace.parameters.calibration
@@ -401,12 +408,8 @@ async function withResolution(blob, dpi) {
   out.set(png.subarray(33), 33 + chunk.length);
   return new Blob([out], { type: 'image/png' });
 }
-async function exportReport() {
-  const r = state.results;
-  if (!r || !baseChannel()) {
-    status('請先完成分析。', true);
-    return;
-  }
+/* Draws the whole figure, synchronously, in the current interface language. */
+function drawReport(r) {
   const keys = METRIC_KEYS.filter(k => r.elements?.[k]),
     letters = keys.map((_, i) => 'abc'[i]),
     // After the mask panels: the column profile, the row profile, the table.
@@ -499,7 +502,28 @@ async function exportReport() {
     cy += pt(9.5);
     ctx.fillText(line, M, cy - pt(2));
   }
+  return canvas;
+}
+/* The figure in either language, whatever the interface shows: the language is switched only
+   while it is drawn, which happens without any pause in between. */
+async function exportReport(lang = language) {
+  const r = state.results;
+  if (!r || !baseChannel()) {
+    status('請先完成分析。', true);
+    return;
+  }
+  const previous = language;
+  let canvas;
+  setUILanguage(lang);
+  try {
+    canvas = drawReport(r);
+  } finally {
+    setUILanguage(previous);
+  }
   const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-  download(safeName() + '.report.png', await withResolution(blob, REPORT.dpi));
+  download(
+    `${safeName()}.report.${lang === 'en' ? 'en' : 'zh'}.png`,
+    await withResolution(blob, REPORT.dpi),
+  );
   status('Report figure exported');
 }

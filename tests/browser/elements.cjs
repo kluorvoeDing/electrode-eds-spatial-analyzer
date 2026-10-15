@@ -220,7 +220,7 @@ fs.mkdirSync('qa', { recursive: true });
   ]);
   const png = fs.readFileSync(await report.path()),
     at = png.indexOf('pHYs');
-  assert.equal(report.suggestedFilename(), 'Reference.report.png');
+  assert.equal(report.suggestedFilename(), 'Reference.report.zh.png');
   assert.equal(png.readUInt32BE(16), 2126);
   assert.ok(png.readUInt32BE(20) > 1000);
   assert.equal(at, 37);
@@ -228,7 +228,20 @@ fs.mkdirSync('qa', { recursive: true });
     [png.readUInt32BE(at + 4), png.readUInt32BE(at + 8), png[at + 12]],
     [11811, 11811, 1],
   );
+  // The English version comes from the same button row whatever the interface language, and
+  // leaves the interface as it was.
   await p.locator('#closeDialog').click();
+  await p.locator('#language').selectOption('zh-Hant');
+  await p.locator('#export').click();
+  const [english] = await Promise.all([
+    p.waitForEvent('download'),
+    p.locator('#exportReportEn').click(),
+  ]);
+  assert.equal(english.suggestedFilename(), 'Reference.report.en.png');
+  assert.equal(await p.evaluate(() => language), 'zh-Hant');
+  assert.equal(await p.locator('#status').textContent(), '已匯出報告圖');
+  await p.locator('#closeDialog').click();
+  await p.locator('#language').selectOption('en');
   const csv = await p.evaluate(() => {
     const row = flatResult(state.results, state.results.trace);
     return { keys: Object.keys(row), median: row.MedianDistance, f: row.FUniformityCV };

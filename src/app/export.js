@@ -166,7 +166,7 @@ function exportCSV(comparison = false) {
 $('#export').onclick = () => {
   showDialog(
     'Export',
-    `<div class="row"><button id="exportCSV">${t('Analysis CSV')}</button><button id="exportJSON">${t('Analysis JSON')}</button><button id="exportPNG">${t('Overlay PNG')}</button><button id="exportReport" class="primary">${t('Report figure PNG')}</button></div><div class="row"><button id="exportSession">${t('Session JSON')}</button><button id="exportComparison">${t('Comparison CSV')}</button></div>`,
+    `<div class="row"><button id="exportCSV">${t('Analysis CSV')}</button><button id="exportJSON">${t('Analysis JSON')}</button><button id="exportPNG">${t('Overlay PNG')}</button><button id="exportReport" class="primary">${t('Report figure PNG')} · 中文</button><button id="exportReportEn" class="primary">${t('Report figure PNG')} · English</button></div><div class="row"><button id="exportSession">${t('Session JSON')}</button><button id="exportComparison">${t('Comparison CSV')}</button></div>`,
   );
   $('#exportCSV').onclick = () => exportCSV();
   $('#exportJSON').onclick = () => {
@@ -184,8 +184,15 @@ $('#export').onclick = () => {
     );
   };
   $('#exportPNG').onclick = exportPNG;
-  $('#exportReport').onclick = () =>
-    exportReport().catch(e => status(() => t('Report figure failed') + ': ' + e.message, true));
+  // The report in Chinese for internal use, or in English for papers, whatever the interface.
+  for (const [id, lang] of [
+    ['exportReport', 'zh-Hant'],
+    ['exportReportEn', 'en'],
+  ])
+    $('#' + id).onclick = () =>
+      exportReport(lang).catch(e =>
+        status(() => t('Report figure failed') + ': ' + e.message, true),
+      );
   $('#exportSession').onclick = $('#save').onclick;
   $('#exportComparison').onclick = () => exportCSV(true);
 };

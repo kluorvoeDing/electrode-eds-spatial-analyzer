@@ -456,6 +456,7 @@ HELP_EN.lockSize =
   'Every channel must have the same pixel size before anything can be computed. While ticked, the crop box is fixed at the size of the analysis channels already loaded and dragging only moves it, so channels cannot end up a pixel or two apart. Untick only to redefine the size for the whole set.';
 Object.assign(UI_EN, {
   'already set': 'using the current scale',
+  'Interparticle Occupancy (%)': 'Gap occupancy (%)',
   'Secondary (short)': '2nd phase',
   'Add to Comparison': 'Add result',
   'All rows': 'All',
